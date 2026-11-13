@@ -217,6 +217,29 @@ export class JiraApiClient {
 		return this.allPages("/label", "values", 1000);
 	}
 
+	// ----- worklogs -----
+
+	/**
+	 * Log time worked on an issue, without emailing its watchers. Jira counts
+	 * whole minutes; `started` is when the work began.
+	 */
+	addWorklog(
+		idOrKey: string,
+		worklog: { timeSpentSeconds: number; started: Date; comment: string },
+	): Promise<{ id: string }> {
+		return this.request(
+			"POST",
+			`/issue/${encodeURIComponent(idOrKey)}/worklog`,
+			{
+				timeSpentSeconds: worklog.timeSpentSeconds,
+				// Jira wants e.g. 2026-11-13T15:32:57.000+0000
+				started: worklog.started.toISOString().replace("Z", "+0000"),
+				comment: worklog.comment,
+			},
+			{ notifyUsers: "false" },
+		);
+	}
+
 	// ----- files -----
 
 	/** Download an attachment's `content` URL, authenticated. */

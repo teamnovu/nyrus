@@ -103,10 +103,25 @@ export interface CyrusAgentSession {
 		apiKeySource?: string;
 		totalCostUsd?: number;
 		usage?: any;
+		/** When the agent run in progress started; unset between runs. */
+		runStartedAt?: number;
+		/** Sums over the session's finished agent runs. */
+		totals?: SessionRunTotals;
 		commentId?: string;
 		/** Chat sessions: thread position up to which this session has context */
 		lastContextTs?: string;
 	};
+}
+
+/** Sums over the finished agent runs of a session (see `metadata.totals`). */
+export interface SessionRunTotals {
+	runs: number;
+	durationMs: number;
+	inputTokens: number;
+	outputTokens: number;
+	cacheReadTokens: number;
+	cacheCreationTokens: number;
+	costUsd: number;
 }
 
 export interface CyrusAgentSessionEntry {

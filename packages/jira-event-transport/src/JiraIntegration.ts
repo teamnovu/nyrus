@@ -1,4 +1,5 @@
 import type {
+	AgentRunSummary,
 	CommentSessionCoordinator,
 	CommentTrackerEvent,
 	DispatchTiming,
@@ -236,6 +237,9 @@ export function createJiraIntegrationFactory(
 						),
 				);
 			},
+			async onAgentRunFinished(run) {
+				await logAgentRun(tracker.api, run, logger);
+			},
 			dispose() {
 				transport?.removeAllListeners();
 				tracker.dispose();
@@ -247,3 +251,36 @@ export function createJiraIntegrationFactory(
 /** The Jira integration with default timing, for the edge worker's list. */
 export const createJiraIntegration: TrackerIntegrationFactory =
 	createJiraIntegrationFactory();
+
+/** Comment of the worklog entries Nyrus writes for its agent runs. */
+export const AGENT_RUN_WORKLOG_COMMENT = "🤖 Nyrus: agent run";
+
+/**
+ * Log an agent run's time on its issue, rounded to whole minutes (at least
+ * one, as Jira requires). A failure (e.g. time tracking turned off) only logs.
+ */
+export async function logAgentRun(
+	api: Pick<JiraApiClient, "addWorklog">,
+	run: AgentRunSummary,
+	logger: ILogger,
+): Promise<void> {
+	if (!(run.durationMs > 0)) {
+		return;
+	}
+	const minutes = Math.max(1, Math.round(run.durationMs / 60_000));
+	try {
+		await api.addWorklog(run.issueId, {
+			timeSpentSeconds: minutes * 60,
+			started: new Date(run.finishedAt - run.durationMs),
+			comment: AGENT_RUN_WORKLOG_COMMENT,
+		});
+		logger.info(
+			`Jira issue ${run.issueIdentifier ?? run.issueId}: logged ${minutes} min of agent work`,
+		);
+	} catch (error) {
+		logger.warn(
+			`Jira issue ${run.issueIdentifier ?? run.issueId}: could not log the agent's time (time tracking on, scope write:jira-work?)`,
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	}
+}

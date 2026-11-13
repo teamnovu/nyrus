@@ -53,15 +53,22 @@ export class ConfigUpdater {
 	private fastify: FastifyInstance;
 	private cyrusHome: string;
 	private getApiKey: () => string;
+	private readLiveState?: () => unknown;
 
+	/**
+	 * @param readLiveState The edge worker's sessions as it holds them now (the
+	 * state file's `state`); without it the dashboard reads the state file.
+	 */
 	constructor(
 		fastify: FastifyInstance,
 		cyrusHome: string,
 		getApiKey: () => string,
+		readLiveState?: () => unknown,
 	) {
 		this.fastify = fastify;
 		this.cyrusHome = cyrusHome;
 		this.getApiKey = getApiKey;
+		this.readLiveState = readLiveState;
 	}
 
 	/**
@@ -94,10 +101,10 @@ export class ConfigUpdater {
 		// nyrus dashboard (deploy/forge, dashboard/): reads state and config,
 		// manages the repository list. Same Bearer auth as above.
 		this.registerGetRoute("/api/dashboard/sessions", () =>
-			handleDashboardSessions(this.cyrusHome),
+			handleDashboardSessions(this.cyrusHome, this.readLiveState),
 		);
 		this.registerGetRoute("/api/dashboard/session", (query: { id?: string }) =>
-			handleDashboardSession(query, this.cyrusHome),
+			handleDashboardSession(query, this.cyrusHome, this.readLiveState),
 		);
 		this.registerGetRoute("/api/dashboard/config", () =>
 			handleDashboardConfig(this.cyrusHome),

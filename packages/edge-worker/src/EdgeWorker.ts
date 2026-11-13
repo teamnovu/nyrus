@@ -8,6 +8,7 @@ import { LinearClient } from "@linear/sdk";
 import type {
 	McpServerConfig,
 	SDKMessage,
+	SDKResultMessage,
 	SessionStore,
 	WarmQuery,
 } from "cyrus-claude-runner";
@@ -929,6 +930,9 @@ export class EdgeWorker extends EventEmitter {
 			this.sharedApplicationServer.getFastifyInstance(),
 			this.cyrusHome,
 			() => process.env.CYRUS_API_KEY || "",
+			// The dashboard reads sessions live, not from the state file, which
+			// is only written at a few points (e.g. a session's start).
+			() => this.serializeMappings(),
 		);
 
 		// Register config update routes
@@ -5982,9 +5986,51 @@ ${taskSection}`;
 	private async handleClaudeMessage(
 		sessionId: string,
 		message: SDKMessage,
-		_repositoryId: string,
+		repositoryId: string,
 	): Promise<void> {
 		await this.agentSessionManager.handleClaudeMessage(sessionId, message);
+		if (message.type === "result") {
+			void this.notifyAgentRunFinished(sessionId, message, repositoryId);
+		}
+	}
+
+	/**
+	 * Tell the tracker integration of the session's workspace (Jira, ClickUp)
+	 * that an agent run ended, e.g. so it logs the time worked on the ticket.
+	 * Never throws.
+	 */
+	private async notifyAgentRunFinished(
+		sessionId: string,
+		result: SDKResultMessage,
+		repositoryId: string,
+	): Promise<void> {
+		const workspaceKey = this.repositories.get(repositoryId)?.linearWorkspaceId;
+		const integration = this.trackerIntegrations.find(
+			(i) => i.workspaceKey === workspaceKey,
+		);
+		if (!integration?.onAgentRunFinished) {
+			return;
+		}
+		const session = this.agentSessionManager.getSession(sessionId);
+		const issueId = session?.issueContext?.issueId ?? session?.issueId;
+		if (!issueId) {
+			return;
+		}
+		try {
+			await integration.onAgentRunFinished({
+				sessionId,
+				issueId,
+				issueIdentifier: session?.issueContext?.issueIdentifier,
+				durationMs: result.duration_ms ?? 0,
+				finishedAt: Date.now(),
+				isError: Boolean(result.is_error),
+			});
+		} catch (error) {
+			this.logger.warn(
+				`Tracker integration ${integration.workspaceKey} failed on a finished run of ${sessionId}`,
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		}
 	}
 
 	/**
