@@ -70,8 +70,10 @@ export const HANDED_BACK_PROMPT =
  * must reach the running session.
  */
 export class CommentSessionCoordinator {
-	/** Sessions this coordinator started, with when. */
-	private readonly started = new Map<string, number>();
+	/** Sessions this coordinator started (the edge worker may not know them yet). */
+	private readonly started = new Set<string>();
+	/** Sessions started by a hand-over, with when. */
+	private readonly delegated = new Map<string, number>();
 	private readonly queues = new Map<string, Promise<void>>();
 	private readonly handled = new Map<string, number>();
 	private readonly logger: ILogger;
@@ -136,6 +138,7 @@ export class CommentSessionCoordinator {
 		const sessionId = sessionIdFor(tracker.platform, issue.id);
 		const state = this.deps.getSessionState(sessionId);
 		const known = this.started.has(sessionId) || state !== "unknown";
+		const idle = state === "idle";
 
 		if (event.kind === "comment") {
 			await this.processComment(event, issue, sessionId, {
@@ -147,6 +150,7 @@ export class CommentSessionCoordinator {
 		}
 		await this.processIssueChange(event, issue, sessionId, {
 			known,
+			idle,
 			handedOver,
 		});
 	}
@@ -170,8 +174,11 @@ export class CommentSessionCoordinator {
 				body: this.deps.store.resolveAnswer(sessionId, event.body),
 			});
 		} else if (!known && event.mentionsAgent) {
-			this.started.set(sessionId, Date.now());
-			await this.dispatch("created", issue, sessionId, event.actor, prompt);
+			this.deps.store.setStartComment(sessionId, {
+				id: event.commentId,
+				body: event.body,
+			});
+			await this.start(issue, sessionId, event.actor, prompt);
 		}
 	}
 
@@ -179,22 +186,26 @@ export class CommentSessionCoordinator {
 		event: IssueChangedEvent,
 		issue: Issue,
 		sessionId: string,
-		{ known, handedOver }: { known: boolean; handedOver: boolean },
+		{
+			known,
+			idle,
+			handedOver,
+		}: { known: boolean; idle: boolean; handedOver: boolean },
 	): Promise<void> {
 		if (handedOver && !known) {
-			this.started.set(sessionId, Date.now());
-			await this.dispatch("created", issue, sessionId, event.actor, {});
+			this.delegated.set(sessionId, Date.now());
+			await this.start(issue, sessionId, event.actor, {});
 		} else if (
 			handedOver &&
 			event.handOver === "added" &&
-			!this.startedRecently(sessionId)
+			(idle || !this.delegatedRecently(sessionId))
 		) {
 			await this.dispatch("prompted", issue, sessionId, event.actor, {
 				body: HANDED_BACK_PROMPT,
 			});
 		} else if (!handedOver && known && event.handOver === "removed") {
 			// A hand-over right after this one is a real one again.
-			this.started.delete(sessionId);
+			this.delegated.delete(sessionId);
 			await this.dispatch("prompted", issue, sessionId, event.actor, {
 				body: "stop",
 				stop: true,
@@ -202,12 +213,29 @@ export class CommentSessionCoordinator {
 		}
 	}
 
+	/** Start a session; if that fails, the next event may try again. */
+	private async start(
+		issue: Issue,
+		sessionId: string,
+		actor: TrackerUser | undefined,
+		prompt: { commentId?: string; body?: string },
+	): Promise<void> {
+		this.started.add(sessionId);
+		try {
+			await this.dispatch("created", issue, sessionId, actor, prompt);
+		} catch (error) {
+			this.started.delete(sessionId);
+			this.delegated.delete(sessionId);
+			throw error;
+		}
+	}
+
 	/**
 	 * Assigning and labelling a ticket in one go sends two webhooks; the
 	 * second one shouldn't tell the new session it was "handed back".
 	 */
-	private startedRecently(sessionId: string): boolean {
-		const at = this.started.get(sessionId);
+	private delegatedRecently(sessionId: string): boolean {
+		const at = this.delegated.get(sessionId);
 		return at !== undefined && Date.now() - at < RECENT_START_MS;
 	}
 
@@ -246,6 +274,9 @@ export class CommentSessionCoordinator {
 			this.withDetails(actor),
 		]);
 		const now = new Date().toISOString();
+		// Like Linear: a conversational session carries its starting comment
+		// in every webhook (the edge worker reads it after a repository pick).
+		const startComment = this.deps.store.startComment(sessionId);
 
 		const webhook: LinearShapedWebhook = {
 			type: "AgentSessionEvent",
@@ -274,10 +305,7 @@ export class CommentSessionCoordinator {
 						? { id: team.id, key: team.key, name: team.name }
 						: undefined,
 				},
-				...(action === "created" &&
-					prompt.body !== undefined && {
-						comment: { id: prompt.commentId ?? "", body: prompt.body },
-					}),
+				...(startComment && { comment: startComment }),
 				...(creator && {
 					creator: {
 						id: creator.id,

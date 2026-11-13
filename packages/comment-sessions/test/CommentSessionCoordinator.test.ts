@@ -254,6 +254,56 @@ describe("CommentSessionCoordinator", () => {
 		expect(dispatched.map((w) => w.action)).toEqual(["created"]);
 	});
 
+	it("keeps the starting comment in later webhooks, so a repository pick doesn't lose the request", async () => {
+		const { coordinator, dispatched, states, store } = setup();
+		await coordinator.handle(
+			comment("why is login broken?", { mentionsAgent: true, id: "cm-ask" }),
+		);
+		// The edge worker asks which repository; the user answers "1".
+		states[SESSION] = "awaiting-input";
+		store.setQuestion(SESSION, [{ value: "web" }, { value: "api" }]);
+		await coordinator.handle(comment("1"));
+
+		expect(dispatched.map((w) => w.action)).toEqual(["created", "prompted"]);
+		expect(session(dispatched[1]!).comment).toEqual({
+			id: "cm-ask",
+			body: "why is login broken?",
+		});
+		expect(activity(dispatched[1]!).content.body).toBe("web");
+	});
+
+	it("hands a ticket over right after a mention started a conversation", async () => {
+		const { coordinator, dispatched, states, tracker } = setup();
+		await coordinator.handle(
+			comment("what does this do?", { mentionsAgent: true }),
+		);
+		states[SESSION] = "working";
+		tracker.state.handedOver = true;
+		await coordinator.handle(changed("added"));
+		expect(dispatched.map((w) => w.action)).toEqual(["created", "prompted"]);
+		expect(activity(dispatched[1]!).content.body).toBe(HANDED_BACK_PROMPT);
+	});
+
+	it("resumes a quickly finished delegation when it is handed over again", async () => {
+		const { coordinator, dispatched, states } = setup({ handedOver: true });
+		await coordinator.handle(changed("added"));
+		states[SESSION] = "idle";
+		await coordinator.handle(changed("added"));
+		expect(dispatched.map((w) => w.action)).toEqual(["created", "prompted"]);
+	});
+
+	it("starts the session on a retry if starting it failed", async () => {
+		const { coordinator, dispatched, tracker } = setup({ handedOver: true });
+		const { issue } = await tracker.fetchIssueState("TCK-1");
+		tracker.fetchIssueState.mockResolvedValueOnce({
+			issue: { ...issue, team: Promise.reject(new Error("502")) } as never,
+			handedOver: true,
+		});
+		await coordinator.handle(changed("added", "h-9")); // fails before dispatch
+		await coordinator.handle(changed("added", "h-9")); // redelivered
+		expect(dispatched.map((w) => w.action)).toEqual(["created"]);
+	});
+
 	it("gives user access control the actor's email, and keeps the id if the lookup fails", async () => {
 		const { coordinator, dispatched, tracker } = setup({
 			handedOver: true,

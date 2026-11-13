@@ -95,6 +95,7 @@ export class CommentActivityPublisher {
 				return { id: "" };
 			case "response":
 				await this.finishProgress(sessionId);
+				this.store.setQuestion(sessionId, []); // an open question is moot now
 				return this.post(issueId, content.body ?? "");
 			case "elicitation":
 				await this.finishProgress(sessionId);
@@ -106,6 +107,7 @@ export class CommentActivityPublisher {
 				);
 			case "error":
 				await this.finishProgress(sessionId);
+				this.store.setQuestion(sessionId, []);
 				return this.post(
 					issueId,
 					`⚠️ ${content.body || "Something went wrong."}`,
