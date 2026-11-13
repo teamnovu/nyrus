@@ -27,8 +27,8 @@ const ISSUE_FIELDS = [
 	"attachment",
 ].join(",");
 
-/** Stop paging comments after this many pages (10 000 comments). */
-const MAX_COMMENT_PAGES = 100;
+/** Stop paging a list after this many pages. */
+const MAX_PAGES = 100;
 
 export class JiraApiError extends Error {
 	constructor(
@@ -142,25 +142,14 @@ export class JiraApiClient {
 
 	// ----- comments -----
 
-	/** All of an issue's comments, oldest first (Jira pages them by 100). */
-	async listComments(idOrKey: string): Promise<JiraComment[]> {
-		const comments: JiraComment[] = [];
-		for (let page = 0; page < MAX_COMMENT_PAGES; page++) {
-			const data = await this.request<{
-				comments?: JiraComment[];
-				total?: number;
-			}>("GET", `/issue/${encodeURIComponent(idOrKey)}/comment`, undefined, {
-				orderBy: "created",
-				startAt: String(comments.length),
-				maxResults: "100",
-			});
-			const batch = data?.comments ?? [];
-			comments.push(...batch);
-			if (batch.length === 0 || comments.length >= (data?.total ?? 0)) {
-				break;
-			}
-		}
-		return comments;
+	/** All of an issue's comments, oldest first. */
+	listComments(idOrKey: string): Promise<JiraComment[]> {
+		return this.allPages(
+			`/issue/${encodeURIComponent(idOrKey)}/comment`,
+			"comments",
+			100,
+			{ orderBy: "created" },
+		);
 	}
 
 	getComment(idOrKey: string, commentId: string): Promise<JiraComment> {
@@ -201,14 +190,8 @@ export class JiraApiClient {
 
 	// ----- projects, statuses, labels -----
 
-	async listProjects(): Promise<JiraProject[]> {
-		const data = await this.request<{ values?: JiraProject[] }>(
-			"GET",
-			"/project/search",
-			undefined,
-			{ maxResults: "100" },
-		);
-		return data?.values ?? [];
+	listProjects(): Promise<JiraProject[]> {
+		return this.allPages("/project/search", "values", 100);
 	}
 
 	getProject(idOrKey: string): Promise<JiraProject> {
@@ -226,14 +209,8 @@ export class JiraApiClient {
 		return this.request("GET", `/status/${encodeURIComponent(id)}`);
 	}
 
-	async listLabels(): Promise<string[]> {
-		const data = await this.request<{ values?: string[] }>(
-			"GET",
-			"/label",
-			undefined,
-			{ maxResults: "1000" },
-		);
-		return data?.values ?? [];
+	listLabels(): Promise<string[]> {
+		return this.allPages("/label", "values", 1000);
 	}
 
 	// ----- files -----
@@ -254,6 +231,41 @@ export class JiraApiClient {
 	}
 
 	// ----- plumbing -----
+
+	/**
+	 * Every page of a list Jira pages with `startAt` / `maxResults`, until it
+	 * says that was the last one (`isLast`, `total`) or returns nothing.
+	 */
+	private async allPages<T>(
+		path: string,
+		key: "values" | "comments",
+		pageSize: number,
+		query: Record<string, string> = {},
+	): Promise<T[]> {
+		const items: T[] = [];
+		for (let page = 0; page < MAX_PAGES; page++) {
+			const data = await this.request<{
+				values?: T[];
+				comments?: T[];
+				total?: number;
+				isLast?: boolean;
+			}>("GET", path, undefined, {
+				...query,
+				startAt: String(items.length),
+				maxResults: String(pageSize),
+			});
+			const batch = data?.[key] ?? [];
+			items.push(...batch);
+			if (
+				batch.length === 0 ||
+				data?.isLast === true ||
+				(typeof data?.total === "number" && items.length >= data.total)
+			) {
+				break;
+			}
+		}
+		return items;
+	}
 
 	private authorization(): string {
 		const { email, apiToken } = this.credentials;

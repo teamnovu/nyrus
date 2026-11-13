@@ -6,7 +6,7 @@ Jira has no agent API like Linear's or Plane's, so Nyrus works as a normal Jira 
 
 - **Hand an issue to Nyrus** by adding the trigger label (`nyrus` by default) or assigning it to the agent account. Nyrus works the whole issue, like a Linear delegation.
 - **Mention the agent account** (or write `@Nyrus`) in a comment to ask or instruct it, like a Linear @mention.
-- **While an issue is handed to Nyrus, every comment on it steers the session.** Afterwards, only comments that mention Nyrus do.
+- **While an issue is handed to Nyrus, every comment on it steers the session.** Afterwards, only comments that mention Nyrus or answer a question it asked do.
 - **Stop it** by removing the label, unassigning the agent account, or commenting just `stop`.
 
 ## 1. Agent account and API token

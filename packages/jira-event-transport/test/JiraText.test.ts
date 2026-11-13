@@ -27,6 +27,16 @@ describe("markdownToWiki", () => {
 		);
 	});
 
+	it("keeps backticks inside inline code delimited by longer runs", () => {
+		expect(markdownToWiki("Use ``foo`bar`` or `` `x` `` here")).toBe(
+			"Use {{foo`bar}} or {{`x`}} here",
+		);
+	});
+
+	it("keeps hashes that belong to a heading's text", () => {
+		expect(markdownToWiki("# C#\n## Title ##")).toBe("h1. C#\nh2. Title");
+	});
+
 	it("keeps code blocks verbatim, with a language Jira knows", () => {
 		expect(
 			markdownToWiki(

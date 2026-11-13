@@ -255,8 +255,16 @@ export function markdownToWiki(markdown: string): string {
 		(_m, _fence, info: string, body: string) =>
 			keep(codeBlock(body, info.trim().split(/\s+/)[0] ?? "")),
 	);
-	text = text.replace(/`([^`\n]+)`/g, (_m, code: string) =>
-		keep(`{{${code.replace(/[{}]/g, (c) => `\\${c}`)}}}`),
+	// Inline code runs from a run of backticks to the next run of the same
+	// length, so it can contain shorter runs: ``a`b`` is a`b.
+	text = text.replace(
+		/(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)/g,
+		(_m, _ticks: string, code: string) => {
+			// "`` `a` ``": one space on each side only separates the backticks.
+			const content =
+				/^ .* $/.test(code) && code.trim() ? code.slice(1, -1) : code;
+			return keep(`{{${content.replace(/[{}]/g, (c) => `\\${c}`)}}}`);
+		},
 	);
 
 	// Links and images.
@@ -295,7 +303,8 @@ export function markdownToWiki(markdown: string): string {
 			continue;
 		}
 
-		const heading = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line);
+		// Closing hashes count only after a space: "# C#" keeps its "#".
+		const heading = /^(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/.exec(line);
 		if (heading) {
 			out.push(`${keep(`h${heading[1]!.length}. `)}${heading[2]}`);
 			continue;

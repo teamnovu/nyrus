@@ -39,6 +39,8 @@ export interface JiraWebhookCoordinatorDeps {
 	tracker: JiraIssueTrackerService;
 	/** True if Cyrus already has a session (or a pending question) with this id. */
 	isKnownSession: (sessionId: string) => boolean;
+	/** True if the session waits for the user's answer (repository selection, AskUserQuestion). */
+	isAwaitingAnswer?: (sessionId: string) => boolean;
 	/** Hand the Linear-shaped webhook to the edge worker. */
 	dispatch: (webhook: LinearShapedAgentSessionWebhook) => Promise<void> | void;
 	logger?: ILogger;
@@ -68,7 +70,8 @@ export const HANDED_BACK_PROMPT =
  *   conversation on that comment, like a Linear @mention.
  * - On an issue with a session, comments are follow-up prompts: all of them
  *   while the issue is handed to Cyrus, afterwards only those that mention
- *   it. A comment saying just "stop" stops the session.
+ *   it or answer a question it asked. A comment saying just "stop" stops the
+ *   session.
  * - Cyrus's own comments are ignored.
  *
  * The issue is always read fresh from Jira, so the webhook only has to say
@@ -141,8 +144,9 @@ export class JiraWebhookCoordinator {
 					}
 				: event.actor;
 			// While the issue is handed to Cyrus every comment steers it;
-			// otherwise only comments that mention it.
-			if (known && (handedOver || mentioned)) {
+			// otherwise only comments that mention it, or answer its question.
+			const answers = this.deps.isAwaitingAnswer?.(sessionId) ?? false;
+			if (known && (handedOver || mentioned || answers)) {
 				await this.dispatch("prompted", issue, agent, actor, {
 					commentId: comment.id,
 					body: text,

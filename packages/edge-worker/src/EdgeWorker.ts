@@ -1473,6 +1473,9 @@ export class EdgeWorker extends EventEmitter {
 			isKnownSession: (sessionId) =>
 				Boolean(this.agentSessionManager.getSession(sessionId)) ||
 				this.repositoryRouter.hasPendingSelection(sessionId),
+			isAwaitingAnswer: (sessionId) =>
+				this.repositoryRouter.hasPendingSelection(sessionId) ||
+				this.askUserQuestionHandler.hasPendingQuestion(sessionId),
 			dispatch: (webhook) =>
 				this.handleWebhook(
 					webhook as unknown as Webhook,

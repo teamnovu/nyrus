@@ -17,6 +17,8 @@ function setup(
 		/** What the edge worker does with a webhook (default: returns at once). */
 		handle?: (w: LinearShapedAgentSessionWebhook) => Promise<void>;
 		routes?: Record<string, unknown>;
+		/** Sessions waiting for the user's answer. */
+		awaiting?: string[];
 	} = {},
 ) {
 	const { api, calls } = fakeJira({
@@ -32,6 +34,7 @@ function setup(
 	const coordinator = new JiraWebhookCoordinator({
 		tracker,
 		isKnownSession: (id) => known.includes(id),
+		isAwaitingAnswer: (id) => options.awaiting?.includes(id) ?? false,
 		dispatch: (w) => {
 			dispatched.push(w);
 			return options.handle?.(w);
@@ -158,6 +161,20 @@ describe("JiraWebhookCoordinator", () => {
 		expect(dispatched[0]!.agentActivity).toMatchObject({
 			content: { type: "prompt", body: "Also fix the footer" },
 			sourceCommentId: "c-2",
+		});
+	});
+
+	it("passes on an unmentioned answer to a question Nyrus asked", async () => {
+		const { coordinator, dispatched } = setup(jiraIssue(), ["jira-10001"], {
+			awaiting: ["jira-10001"],
+		});
+		await coordinator.handle(
+			commentEvent("https://github.com/teamnovu/sayflowers", "c-3"),
+		);
+		expect(dispatched).toHaveLength(1);
+		expect(dispatched[0]!.agentActivity).toMatchObject({
+			content: { body: "https://github.com/teamnovu/sayflowers" },
+			sourceCommentId: "c-3",
 		});
 	});
 
