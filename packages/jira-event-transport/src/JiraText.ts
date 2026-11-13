@@ -105,19 +105,7 @@ export function wikiToMarkdown(
 			.map((line) => `> ${line}`)
 			.join("\n"),
 	);
-	// Monospace: an escaped brace (as markdownToWiki writes "}") is content,
-	// not the end of the span. The alternatives exclude each other (a
-	// backslash is read one way only), so an unclosed span can't make the
-	// regex backtrack exponentially.
-	text = text.replace(
-		/\{\{((?:\\[{}]|\\(?![{}])|[^\n\\])+?)\}\}/g,
-		(_m, code: string) => keep(`\`${code.replace(/\\([{}])/g, "$1")}\``),
-	);
-	// Code ending in a backslash ("{{C:\}}") reads as an escaped brace above
-	// and finds no end; take it as written.
-	text = text.replace(/\{\{([^\n]+?)\}\}/g, (_m, code: string) =>
-		keep(`\`${code}\``),
-	);
+	text = replaceMonospace(text, (code) => keep(`\`${code}\``));
 	text = text.replace(
 		/\[~accountid:([^\]]+)\]/g,
 		(_m, id: string) => `@${mentionName?.(id) ?? "user"}`,
@@ -385,4 +373,62 @@ function isSeparatorRow(line: string): boolean {
 		line.includes("-") &&
 		tableCells(line).every((cell) => /^:?-{3,}:?$/.test(cell))
 	);
+}
+
+/**
+ * Replace every `{{monospace}}` span on a line with `render(content)`.
+ *
+ * markdownToWiki escapes braces in code (`a}` is `{{a\}}}`), but not
+ * backslashes, so `\}}` is ambiguous: an escaped `}` plus more, or a
+ * backslash at the end of the code. Read it as the end of the span unless
+ * another `}` follows: `{{a\}}}` is `a}`, `{{C:\}} and {{b}}` is `C:\` and
+ * `b`. A scan instead of a regex, so no input can make it backtrack: each
+ * line is read once, and a span that isn't closed on its line stays as is.
+ */
+function replaceMonospace(
+	text: string,
+	render: (code: string) => string,
+): string {
+	return text
+		.split("\n")
+		.map((line) => {
+			let out = "";
+			let i = 0;
+			while (i < line.length) {
+				const start = line.indexOf("{{", i);
+				if (start < 0) break;
+				let code = "";
+				let end = -1;
+				for (let j = start + 2; j < line.length; j++) {
+					const c = line[j]!;
+					if (c === "\\" && line[j + 1] === "{") {
+						code += "{";
+						j++;
+					} else if (c === "\\" && line[j + 1] === "}") {
+						if (line[j + 2] === "}" && line[j + 3] !== "}") {
+							code += "\\"; // a trailing backslash, then the end
+						} else {
+							code += "}";
+							j++;
+						}
+					} else if (c === "}" && line[j + 1] === "}") {
+						end = j;
+						break;
+					} else {
+						code += c;
+					}
+				}
+				if (end < 0) {
+					// Not closed on this line: no later span closes either.
+					break;
+				}
+				// "{{}}" is no code; keep it as written.
+				out +=
+					line.slice(i, start) +
+					(code ? render(code) : line.slice(start, end + 2));
+				i = end + 2;
+			}
+			return out + line.slice(i);
+		})
+		.join("\n");
 }
