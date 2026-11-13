@@ -31,6 +31,7 @@ export CLICKUP_TEAM_ID=14278081
 | Space | nyrus Sandbox | `1500750000001463` |
 | List | Tests (statuses: to do → in progress → in review → complete; Multiple Assignees on) | `1500750000002693` |
 | Task | [Probe: comment formats](https://app.clickup.com/t/1amxjbadtjm) | `1amxjbadtjm` |
+| Bot user | `nyrus@novu.ch`, Guest (invited 2026-11-13) | `105741187` (`CLICKUP_BOT_USER_ID`) |
 
 ## Creating the bot user
 
