@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { CommentSessionCoordinator } from "../src/CommentSessionCoordinator.js";
-import { SessionDirectory } from "../src/SessionDirectory.js";
+import {
+	CommentSessionCoordinator,
+	HANDED_BACK_PROMPT,
+} from "../src/CommentSessionCoordinator.js";
+import { SessionStore } from "../src/SessionStore.js";
 import type {
 	CommentTrackerEvent,
 	LinearShapedWebhook,
@@ -8,207 +11,269 @@ import type {
 } from "../src/types.js";
 import { fakeTracker } from "./fakeTracker.js";
 
-function setup(options: { followUpsWithoutMention?: boolean } = {}) {
+const SESSION = "fake-t-1";
+
+function setup(
+	options: {
+		handedOver?: boolean;
+		/** Session states the edge worker reports. */
+		states?: Record<string, SessionState>;
+		/** What the edge worker does with a webhook (default: returns at once). */
+		handle?: (w: LinearShapedWebhook) => Promise<void>;
+	} = {},
+) {
 	const tracker = fakeTracker();
-	const directory = new SessionDirectory("fake");
-	const states = new Map<string, SessionState>();
+	tracker.state.handedOver = options.handedOver ?? false;
+	const store = new SessionStore();
+	const states = options.states ?? {};
 	const dispatched: LinearShapedWebhook[] = [];
 	const coordinator = new CommentSessionCoordinator({
 		tracker,
-		directory,
-		getSessionState: (id) => states.get(id) ?? "unknown",
-		dispatch: (webhook) => {
-			dispatched.push(webhook);
-			// The edge worker starts a session for every created webhook.
-			const session = webhook.agentSession as { id: string } | undefined;
-			if (webhook.action === "created" && session) {
-				states.set(session.id, "working");
-			}
+		store,
+		getSessionState: (id) => states[id] ?? "unknown",
+		dispatch: (w) => {
+			dispatched.push(w);
+			return options.handle?.(w);
 		},
-		...options,
+		timing: { promptSettleMs: 5, startPollMs: 1, startSettleMaxMs: 20 },
 	});
-	return { coordinator, dispatched, directory, states, tracker };
+	return { coordinator, dispatched, states, store, tracker };
 }
 
-let eventCounter = 0;
-const assigned = (actorId = "u-1"): CommentTrackerEvent => ({
-	kind: "assigned",
-	eventId: `e-${++eventCounter}`,
-	issueId: "t-1",
-	actorId,
+let counter = 0;
+const changed = (
+	handOver?: "added" | "removed",
+	eventId?: string,
+): CommentTrackerEvent => ({
+	kind: "issue",
+	issueId: "TCK-1",
+	handOver,
+	eventId,
+	actor: { id: "u-1", name: "Simon" },
 });
 const comment = (
 	body: string,
-	mentionsBot: boolean,
-	actorId = "u-1",
+	extra: { mentionsAgent?: boolean; own?: boolean; id?: string } = {},
 ): CommentTrackerEvent => ({
 	kind: "comment",
-	eventId: `e-${++eventCounter}`,
-	issueId: "t-1",
-	commentId: `cm-${eventCounter}`,
+	issueId: "TCK-1",
+	commentId: extra.id ?? `cm-${++counter}`,
 	body,
-	mentionsBot,
-	actorId,
+	mentionsAgent: extra.mentionsAgent ?? false,
+	own: extra.own,
+	actor: { id: "u-1", name: "Simon" },
 });
 
 type Session = {
 	id: string;
 	comment?: { id: string; body: string };
-	creator?: { name: string };
+	creator?: { id: string; name: string; email: string };
 	issue: { identifier: string; team: { key: string } };
 };
 type Activity = { content: { body: string }; signal?: string };
+const session = (w: LinearShapedWebhook) => w.agentSession as Session;
+const activity = (w: LinearShapedWebhook) => w.agentActivity as Activity;
 
 describe("CommentSessionCoordinator", () => {
-	it("starts a delegation session when the bot is assigned", async () => {
-		const { coordinator, dispatched } = setup();
-		await coordinator.handle(assigned());
+	it("starts a delegation when the ticket is handed over", async () => {
+		const { coordinator, dispatched } = setup({ handedOver: true });
+		await coordinator.handle(changed("added"));
 
 		expect(dispatched).toHaveLength(1);
-		const webhook = dispatched[0]!;
-		expect(webhook).toMatchObject({
+		expect(dispatched[0]).toMatchObject({
 			type: "AgentSessionEvent",
 			action: "created",
 			organizationId: "fake-ws",
 		});
-		const session = webhook.agentSession as Session;
-		expect(session.id).toMatch(/^fake-/);
-		expect(session.comment).toBeUndefined();
-		expect(session.creator?.name).toBe("Ada");
-		expect(session.issue.identifier).toBe("TCK-1");
-		expect(session.issue.team.key).toBe("WEB");
+		expect(session(dispatched[0]!).id).toBe(SESSION);
+		expect(session(dispatched[0]!).comment).toBeUndefined();
+		expect(session(dispatched[0]!).issue).toMatchObject({
+			identifier: "TCK-1",
+			team: { key: "WEB" },
+		});
 	});
 
-	it("ignores a second assignment while the session is working", async () => {
+	it("starts a handed-over ticket on any change, not only the hand-over itself", async () => {
+		const { coordinator, dispatched } = setup({ handedOver: true });
+		await coordinator.handle(changed());
+		expect(dispatched.map((w) => w.action)).toEqual(["created"]);
+	});
+
+	it("ignores changes of tickets not handed over", async () => {
 		const { coordinator, dispatched } = setup();
-		await coordinator.handle(assigned());
-		await coordinator.handle(assigned());
-		expect(dispatched).toHaveLength(1);
+		await coordinator.handle(changed());
+		expect(dispatched).toEqual([]);
 	});
 
-	it("starts a new session when assigned again after the last one finished", async () => {
-		const { coordinator, dispatched, states } = setup();
-		await coordinator.handle(assigned());
-		const first = (dispatched[0]!.agentSession as Session).id;
-		states.set(first, "idle");
-		await coordinator.handle(assigned());
-
-		expect(dispatched.map((w) => w.action)).toEqual(["created", "created"]);
-		expect((dispatched[1]!.agentSession as Session).id).not.toBe(first);
+	it("does not tell a new session it was handed back when a second hand-over follows", async () => {
+		const { coordinator, dispatched, states } = setup({ handedOver: true });
+		await coordinator.handle(changed("added"));
+		states[SESSION] = "working";
+		await coordinator.handle(changed("added")); // label and assignee in one go
+		expect(dispatched.map((w) => w.action)).toEqual(["created"]);
 	});
 
-	it("drops retried deliveries and the bot's own events", async () => {
+	it("continues an earlier session when the ticket is handed back", async () => {
+		const { coordinator, dispatched } = setup({
+			handedOver: true,
+			states: { [SESSION]: "idle" },
+		});
+		await coordinator.handle(changed("added"));
+		expect(dispatched.map((w) => w.action)).toEqual(["prompted"]);
+		expect(activity(dispatched[0]!).content.body).toBe(HANDED_BACK_PROMPT);
+	});
+
+	it("stops the session when the ticket is taken away", async () => {
+		const { coordinator, dispatched } = setup({
+			states: { [SESSION]: "working" },
+		});
+		await coordinator.handle(changed("removed"));
+		expect(dispatched[0]!.action).toBe("prompted");
+		expect(activity(dispatched[0]!)).toMatchObject({
+			signal: "stop",
+			content: { body: "stop" },
+		});
+	});
+
+	it("treats a hand-over right after a stop as handing the ticket back", async () => {
+		const { coordinator, dispatched, states, tracker } = setup({
+			handedOver: true,
+		});
+		await coordinator.handle(changed("added"));
+		states[SESSION] = "working";
+		tracker.state.handedOver = false;
+		await coordinator.handle(changed("removed"));
+		tracker.state.handedOver = true;
+		await coordinator.handle(changed("added"));
+
+		expect(dispatched.map((w) => w.action)).toEqual([
+			"created",
+			"prompted",
+			"prompted",
+		]);
+		expect(activity(dispatched[1]!).signal).toBe("stop");
+		expect(activity(dispatched[2]!).content.body).toBe(HANDED_BACK_PROMPT);
+	});
+
+	it("starts a conversation on a comment that mentions the agent", async () => {
 		const { coordinator, dispatched } = setup();
-		const event = assigned();
-		await coordinator.handle(event);
-		await coordinator.handle(event);
-		await coordinator.handle(comment("my own answer", true, "bot"));
-		expect(dispatched).toHaveLength(1);
-	});
-
-	it("starts a conversational session on a mention", async () => {
-		const { coordinator, dispatched } = setup();
-		await coordinator.handle(comment("why is login broken?", true));
-
-		expect(dispatched).toHaveLength(1);
-		const session = dispatched[0]!.agentSession as Session;
+		await coordinator.handle(
+			comment("why is login broken?", { mentionsAgent: true, id: "cm-x" }),
+		);
 		expect(dispatched[0]!.action).toBe("created");
-		expect(session.comment).toEqual({
-			id: expect.stringMatching(/^cm-/),
+		expect(session(dispatched[0]!).comment).toEqual({
+			id: "cm-x",
 			body: "why is login broken?",
 		});
 	});
 
-	it("ignores comments without a mention when no session works", async () => {
+	it("ignores comments without a mention on tickets without a session", async () => {
 		const { coordinator, dispatched } = setup();
-		await coordinator.handle(comment("@Anna can you look?", false));
-		expect(dispatched).toHaveLength(0);
+		await coordinator.handle(comment("@Anna can you look?"));
+		expect(dispatched).toEqual([]);
 	});
 
-	it("passes comments to a working session as follow-ups", async () => {
-		const { coordinator, dispatched } = setup();
-		await coordinator.handle(assigned());
-		await coordinator.handle(comment("also add a test", false));
-
-		expect(dispatched[1]).toMatchObject({ action: "prompted" });
-		expect((dispatched[1]!.agentActivity as Activity).content.body).toBe(
-			"also add a test",
-		);
-		expect((dispatched[1]!.agentSession as Session).id).toBe(
-			(dispatched[0]!.agentSession as Session).id,
-		);
-	});
-
-	it("only passes mentions when follow-ups without a mention are off", async () => {
+	it("feeds comments into the session while the ticket is handed over", async () => {
 		const { coordinator, dispatched } = setup({
-			followUpsWithoutMention: false,
+			handedOver: true,
+			states: { [SESSION]: "working" },
 		});
-		await coordinator.handle(assigned());
-		await coordinator.handle(comment("talking to Anna", false));
-		await coordinator.handle(comment("also add a test", true));
-		expect(dispatched.map((w) => w.action)).toEqual(["created", "prompted"]);
+		await coordinator.handle(comment("also add a test"));
+		expect(dispatched[0]!.action).toBe("prompted");
+		expect(activity(dispatched[0]!).content.body).toBe("also add a test");
 	});
 
-	it("resumes the finished session when the bot is mentioned again", async () => {
-		const { coordinator, dispatched, states } = setup();
-		await coordinator.handle(assigned());
-		const id = (dispatched[0]!.agentSession as Session).id;
-		states.set(id, "idle");
-		await coordinator.handle(comment("thanks, ignored", false));
-		await coordinator.handle(comment("now update the docs", true));
-
-		expect(dispatched.map((w) => w.action)).toEqual(["created", "prompted"]);
-		expect((dispatched[1]!.agentSession as Session).id).toBe(id);
-	});
-
-	it("starts a new session on a mention when Cyrus lost the old one", async () => {
-		const { coordinator, dispatched, states } = setup();
-		await coordinator.handle(assigned());
-		states.clear();
-		await coordinator.handle(comment("still there?", true));
-		expect(dispatched.map((w) => w.action)).toEqual(["created", "created"]);
-	});
-
-	it("sends a stop signal for 'stop' while working, and nothing otherwise", async () => {
-		const { coordinator, dispatched, states } = setup();
-		await coordinator.handle(comment("stop", true));
-		expect(dispatched).toHaveLength(0);
-
-		await coordinator.handle(assigned());
-		await coordinator.handle(comment("stop", true));
-		expect(dispatched[1]!.action).toBe("prompted");
-		expect((dispatched[1]!.agentActivity as Activity).signal).toBe("stop");
-
-		states.set((dispatched[0]!.agentSession as Session).id, "idle");
-		await coordinator.handle(comment("stop", true));
-		expect(dispatched).toHaveLength(2);
-	});
-
-	it("resolves a numbered reply to a question's option", async () => {
-		const { coordinator, dispatched, directory, states } = setup();
-		await coordinator.handle(assigned());
-		const id = (dispatched[0]!.agentSession as Session).id;
-		directory.update(id, { pendingOptions: ["web-frontend", "api"] });
-		states.set(id, "awaiting-input");
-
-		await coordinator.handle(comment("2", false));
-		expect((dispatched[1]!.agentActivity as Activity).content.body).toBe("api");
-		expect(directory.get(id)?.pendingOptions).toBeUndefined();
-	});
-
-	it("turns an unassignment into issueUnassignedFromYou", async () => {
-		const { coordinator, dispatched } = setup();
-		await coordinator.handle({
-			kind: "unassigned",
-			eventId: "e-unassign",
-			issueId: "t-1",
-			actorId: "u-1",
+	it("passes on an unmentioned answer to a question, resolving a numbered reply", async () => {
+		const { coordinator, dispatched, store } = setup({
+			states: { [SESSION]: "awaiting-input" },
 		});
-		expect(dispatched[0]).toMatchObject({
-			type: "AppUserNotification",
-			action: "issueUnassignedFromYou",
-			organizationId: "fake-ws",
-			notification: { issue: { id: "t-1", identifier: "TCK-1" } },
+		store.setQuestion(SESSION, [
+			{ value: "github.com/novu/web" },
+			{ value: "github.com/novu/api", label: "API" },
+		]);
+		await coordinator.handle(comment("2"));
+		expect(activity(dispatched[0]!).content.body).toBe("github.com/novu/api");
+	});
+
+	it("ignores unmentioned comments once the ticket is no longer handed over", async () => {
+		const { coordinator, dispatched } = setup({
+			states: { [SESSION]: "idle" },
+		});
+		await coordinator.handle(comment("thanks!"));
+		expect(dispatched).toEqual([]);
+	});
+
+	it("resumes a finished session when the agent is mentioned again", async () => {
+		const { coordinator, dispatched } = setup({
+			states: { [SESSION]: "idle" },
+		});
+		await coordinator.handle(
+			comment("now update the docs", { mentionsAgent: true }),
+		);
+		expect(dispatched.map((w) => w.action)).toEqual(["prompted"]);
+	});
+
+	it("ignores its own comments without reading the ticket", async () => {
+		const { coordinator, dispatched, store, tracker } = setup({
+			handedOver: true,
+			states: { [SESSION]: "working" },
+		});
+		store.rememberOwnComment("mine");
+		await coordinator.handle(comment("Done, see the PR.", { id: "mine" }));
+		await coordinator.handle(comment("🤖 nyrus: Done", { own: true }));
+		expect(dispatched).toEqual([]);
+		expect(tracker.fetchIssueState).not.toHaveBeenCalled();
+	});
+
+	it("lets a follow-up through while the agent run is still going", async () => {
+		const { coordinator, dispatched, states, tracker } = setup({
+			handedOver: true,
+			// The edge worker returns only when the run ends; this one doesn't.
+			handle: async () => {
+				states[SESSION] = "working";
+				return new Promise(() => {});
+			},
+		});
+		await coordinator.handle(changed("added"));
+		await coordinator.handle(comment("also fix the footer"));
+		await coordinator.handle(comment("stop"));
+		expect(dispatched.map((w) => w.action)).toEqual([
+			"created",
+			"prompted",
+			"prompted",
+		]);
+		expect(tracker.fetchIssueState).toHaveBeenCalledTimes(3);
+	});
+
+	it("drops retried deliveries, but retries an event that failed", async () => {
+		const { coordinator, dispatched, tracker } = setup({ handedOver: true });
+		tracker.fetchIssueState.mockRejectedValueOnce(new Error("ClickUp 502"));
+		await coordinator.handle(changed("added", "h-1")); // fails
+		await coordinator.handle(changed("added", "h-1")); // redelivered: handled
+		await coordinator.handle(changed("added", "h-1")); // retried again: dropped
+		expect(dispatched.map((w) => w.action)).toEqual(["created"]);
+	});
+
+	it("gives user access control the actor's email, and keeps the id if the lookup fails", async () => {
+		const { coordinator, dispatched, tracker } = setup({
+			handedOver: true,
+			states: { [SESSION]: "working" },
+		});
+		await coordinator.handle(comment("also fix the footer"));
+		expect(session(dispatched[0]!).creator).toEqual({
+			id: "u-1",
+			name: "Simon",
+			email: "ada@example.com",
+		});
+
+		tracker.fetchUser = (async () => {
+			throw new Error("not allowed");
+		}) as never;
+		await coordinator.handle(comment("and the header"));
+		expect(session(dispatched[1]!).creator).toEqual({
+			id: "u-1",
+			name: "Simon",
+			email: "",
 		});
 	});
 });

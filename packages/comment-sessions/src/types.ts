@@ -11,79 +11,104 @@ import type { FastifyInstance } from "fastify";
  * the {@link CommentSessionCoordinator} turns those into the Linear-shaped
  * AgentSessionEvent webhooks the edge worker already handles, and the
  * {@link CommentActivityPublisher} turns the agent's activities into comments.
+ *
+ * Every ticket has at most one session, with an id derived from the ticket's
+ * id (`<platform>-<issue id>`), so comments continue it, also after a restart.
  */
 
 // ---------------------------------------------------------------------------
 // Inbound: what a tracker's transport reports
 // ---------------------------------------------------------------------------
 
+/** A tracker user, as far as the webhook tells. */
+export interface TrackerUser {
+	id: string;
+	name?: string;
+	email?: string;
+}
+
 interface CommentTrackerEventBase {
 	/**
-	 * Unique per delivery of the same change, so retried webhooks can be
-	 * dropped (e.g. ClickUp's history item id, Jira's webhook event id).
+	 * Unique per change and the same on a retried delivery, so retries can be
+	 * dropped (e.g. ClickUp's history item id). Omit if the tracker has none.
 	 */
-	eventId: string;
-	/** The tracker's id for the ticket, the same id `fetchIssue` returns. */
+	eventId?: string;
+	/** The ticket, by any id or key the tracker's `fetchIssueState` accepts. */
 	issueId: string;
-	/** Tracker user who caused the event. Events by the bot itself are dropped. */
-	actorId?: string;
+	/** Who caused the event. */
+	actor?: TrackerUser;
 }
 
-/** The bot was assigned to the ticket: work the whole ticket. */
-export interface IssueAssignedEvent extends CommentTrackerEventBase {
-	kind: "assigned";
-}
-
-/** The bot was unassigned: stop working on the ticket. */
-export interface IssueUnassignedEvent extends CommentTrackerEventBase {
-	kind: "unassigned";
+/**
+ * The ticket changed. Whether it is handed to the agent is read fresh from
+ * the tracker (`fetchIssueState`), so any change can be reported; `handOver`
+ * says what this change did to the hand-over, if the transport can tell from
+ * the webhook (e.g. the trigger label was added).
+ */
+export interface IssueChangedEvent extends CommentTrackerEventBase {
+	kind: "issue";
+	handOver?: "added" | "removed";
 }
 
 /** A comment was posted on the ticket. */
 export interface IssueCommentEvent extends CommentTrackerEventBase {
 	kind: "comment";
 	commentId: string;
-	/**
-	 * The comment as Markdown (or plain text), with mentions of the bot
-	 * removed, so "@bot stop" arrives as "stop".
-	 */
+	/** The comment as Markdown or plain text, with mentions of the agent removed. */
 	body: string;
-	/** True if the comment mentions the bot. */
-	mentionsBot: boolean;
+	/** True if the comment mentions the agent (or addresses it, e.g. `/nyrus`). */
+	mentionsAgent: boolean;
+	/**
+	 * True if the tracker recognizes the comment as the agent's own (e.g. by
+	 * its signature). Comments the publisher posted are recognized anyway.
+	 */
+	own?: boolean;
 }
 
-export type CommentTrackerEvent =
-	| IssueAssignedEvent
-	| IssueUnassignedEvent
-	| IssueCommentEvent;
+export type CommentTrackerEvent = IssueChangedEvent | IssueCommentEvent;
 
 // ---------------------------------------------------------------------------
 // The tracker: what each integration implements
 // ---------------------------------------------------------------------------
 
 /**
- * The comment operations a tracker integration provides. Bodies are Markdown;
- * the tracker converts them to its own format (ClickUp rich text, Jira ADF).
+ * What the shared session logic needs from a tracker. Bodies are Markdown;
+ * the tracker converts them to its own format (ClickUp rich text, Jira wiki
+ * markup) and signs the agent's comments, since the agent may write as a
+ * person's account.
  */
 export interface CommentTracker {
-	/** Short platform name for ids and logs, e.g. "clickup". */
+	/** Short platform name for session ids and logs, e.g. "clickup". */
 	readonly platform: string;
 	/**
 	 * Key of the tracker's workspace in Cyrus: the webhooks' `organizationId`,
 	 * and the `linearWorkspaceId` of the repositories that take its work.
 	 */
 	readonly workspaceKey: string;
-	/** Tracker user id of the bot, to ignore its own comments and changes. */
-	readonly botUserId: string;
 
-	fetchIssue(issueId: string): Promise<Issue>;
+	/**
+	 * Read the ticket fresh: its Linear-shaped issue (whose `id` keys the
+	 * session) and whether it is handed to the agent right now (e.g. has the
+	 * trigger label, or is assigned to the agent's account).
+	 */
+	fetchIssueState(
+		issueId: string,
+	): Promise<{ issue: Issue; handedOver: boolean }>;
 	fetchUser(userId: string): Promise<User>;
-	/** Post a comment; returns its id. */
-	postComment(issueId: string, markdown: string): Promise<{ id: string }>;
+	/**
+	 * Post a comment as the agent; returns its id. `progress` marks the
+	 * "working on it" comment, which is edited often: don't notify watchers.
+	 */
+	postComment(
+		issueId: string,
+		markdown: string,
+		options?: { progress?: boolean },
+	): Promise<{ id: string }>;
 	updateComment(
 		issueId: string,
 		commentId: string,
 		markdown: string,
+		options?: { progress?: boolean },
 	): Promise<void>;
 	deleteComment(issueId: string, commentId: string): Promise<void>;
 }
@@ -104,15 +129,19 @@ export type SessionState = "working" | "awaiting-input" | "idle" | "unknown";
 
 /** Linear-shaped webhook, as the edge worker's `handleWebhook` consumes it. */
 export type LinearShapedWebhook = Record<string, unknown> & {
-	type: "AgentSessionEvent" | "AppUserNotification";
-	action: string;
+	type: "AgentSessionEvent";
+	action: "created" | "prompted";
 	organizationId: string;
 };
 
 /** What the edge worker gives a tracker integration when it is registered. */
 export interface TrackerIntegrationHost {
 	fastify: FastifyInstance;
-	/** Hand a Linear-shaped webhook to the edge worker. */
+	/**
+	 * Hand a Linear-shaped webhook to the edge worker. The promise settles
+	 * when the edge worker is done with it, which for a new session is when
+	 * its agent run ends.
+	 */
 	dispatch: (webhook: LinearShapedWebhook) => Promise<void>;
 	getSessionState: (sessionId: string) => SessionState;
 	logger: ILogger;
