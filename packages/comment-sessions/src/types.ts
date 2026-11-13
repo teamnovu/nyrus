@@ -124,7 +124,12 @@ export interface TrackerIntegrationHost {
  */
 export interface TrackerIntegration {
 	readonly workspaceKey: string;
-	readonly tracker: IIssueTrackerService;
+	/**
+	 * The tracker's issue tracker service. Optional so a tracker can be wired
+	 * up receive-only first (e.g. recording webhook deliveries) before it can
+	 * run sessions; without it no work is routed to the workspace.
+	 */
+	readonly tracker?: IIssueTrackerService;
 	/** MCP servers for sessions in this workspace, keyed by server name. */
 	mcpServers?(): Record<string, StdioMcpServerConfig>;
 	/** Register webhook routes; called once the shared server exists. */
