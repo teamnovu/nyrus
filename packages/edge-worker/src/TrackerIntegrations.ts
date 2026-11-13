@@ -1,3 +1,4 @@
+import { createClickUpIntegration } from "cyrus-clickup-event-transport";
 import type {
 	TrackerIntegration,
 	TrackerIntegrationFactory,
@@ -9,7 +10,9 @@ import type { ILogger } from "cyrus-core";
  * cyrus-comment-sessions. Each factory returns null unless its environment
  * variables are set. Add a tracker by appending its factory here.
  */
-export const trackerIntegrationFactories: TrackerIntegrationFactory[] = [];
+export const trackerIntegrationFactories: TrackerIntegrationFactory[] = [
+	createClickUpIntegration,
+];
 
 /** Build every configured tracker integration; one failing doesn't stop the others. */
 export function createTrackerIntegrations(

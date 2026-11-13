@@ -1,0 +1,36 @@
+{
+	"name": "cyrus-clickup-event-transport",
+	"version": "0.2.78",
+	"description": "ClickUp event transport: ClickUp tasks and comments as Cyrus agent sessions",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/teamnovu/nyrus.git",
+		"directory": "packages/clickup-event-transport"
+	},
+	"type": "module",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsgo",
+		"dev": "tsgo --watch",
+		"typecheck": "tsgo --noEmit",
+		"test": "vitest",
+		"test:run": "vitest run"
+	},
+	"dependencies": {
+		"cyrus-comment-sessions": "workspace:*",
+		"cyrus-core": "workspace:*",
+		"fastify": "^5.12.7"
+	},
+	"devDependencies": {
+		"@types/node": "^20.0.0",
+		"@typescript/native-preview": "7.0.0-dev.20260707.2",
+		"vitest": "^4.1.12"
+	},
+	"publishConfig": {
+		"access": "public"
+	}
+}
