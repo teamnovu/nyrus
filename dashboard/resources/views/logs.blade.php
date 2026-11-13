@@ -29,18 +29,18 @@
 
     @if ($error)
         <div class="notice mt-6">
-            <span class="chip bg-peach/20 text-peach"><span class="chip-dot"></span></span>
+            <span class="chip bg-warning/20 text-warning"><span class="chip-dot"></span></span>
             <span>{{ $error }}</span>
         </div>
     @else
         <div class="glass mt-8 overflow-hidden">
             <div class="flex items-center gap-2 px-5 pt-4">
-                <span class="size-3 rounded-full bg-coral/80"></span>
-                <span class="size-3 rounded-full bg-peach/80"></span>
-                <span class="size-3 rounded-full bg-brand/80"></span>
+                <span class="size-3 rounded-full bg-danger/80"></span>
+                <span class="size-3 rounded-full bg-warning/80"></span>
+                <span class="size-3 rounded-full bg-gold/80"></span>
                 <span class="muted ml-3 text-xs">{{ count($entries) }} Zeilen</span>
             </div>
-            <pre class="max-h-[70vh] overflow-auto p-5 font-mono text-xs leading-relaxed text-white/80">@forelse ($entries as $line)<span @class(['text-coral' => str_contains($line, '[ERROR'), 'text-peach' => str_contains($line, '[WARN')])>{{ $line }}</span>
+            <pre class="max-h-[70vh] overflow-auto p-5 font-mono text-xs leading-relaxed text-white/80">@forelse ($entries as $line)<span @class(['text-danger' => str_contains($line, '[ERROR'), 'text-warning' => str_contains($line, '[WARN')])>{{ $line }}</span>
 @empty<span class="text-white/40">Keine Einträge.</span>@endforelse</pre>
         </div>
     @endif

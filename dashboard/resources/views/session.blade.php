@@ -39,19 +39,19 @@
         <h2 class="text-2xl">Verlauf</h2>
         <span class="muted text-xs">{{ count($entries) }} Einträge</span>
     </div>
-    <ol class="relative mt-4 space-y-3 pl-6 before:absolute before:top-2 before:bottom-2 before:left-[7px] before:w-px before:bg-gradient-to-b before:from-brand/60 before:via-white/10 before:to-transparent">
+    <ol class="relative mt-4 space-y-3 pl-6 before:absolute before:top-2 before:bottom-2 before:left-[7px] before:w-px before:bg-gradient-to-b before:from-gold/60 before:via-white/10 before:to-transparent">
         @forelse ($entries as $entry)
             <li class="relative">
                 <span @class([
                     'absolute top-5 -left-[22px] size-3 rounded-full ring-4 ring-ink',
-                    'bg-coral shadow-[0_0_12px_rgb(235_96_82/0.8)]' => $entry['isError'],
-                    'bg-brand shadow-[0_0_12px_rgb(82_208_155/0.7)]' => ! $entry['isError'],
+                    'bg-danger shadow-[0_0_12px_rgb(194_78_56/0.8)]' => $entry['isError'],
+                    'bg-gold shadow-[0_0_12px_rgb(213_194_131/0.7)]' => ! $entry['isError'],
                 ])></span>
                 <div class="glass p-4">
                     <div class="flex flex-wrap items-center gap-2 text-xs">
                         <span class="font-bold text-white/70">{{ $entry['type'] }}</span>
                         @if ($entry['toolName'])<span class="chip bg-white/[0.07] font-mono text-white/70">{{ $entry['toolName'] }}</span>@endif
-                        @if ($entry['isError'])<span class="chip bg-coral/20 text-coral">Fehler</span>@endif
+                        @if ($entry['isError'])<span class="chip bg-danger/20 text-danger">Fehler</span>@endif
                         @if ($entry['timestamp'])<span class="muted ml-auto tabular-nums">{{ \Illuminate\Support\Carbon::createFromTimestampMs($entry['timestamp'])->timezone('Europe/Zurich')->format('H:i:s') }}</span>@endif
                     </div>
                     <pre class="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-white/85">{{ $entry['content'] }}</pre>

@@ -18,8 +18,8 @@
         <div class="glass relative col-span-2 overflow-hidden p-6 lg:col-span-1">
             <div @class([
                 'absolute -top-10 -right-10 size-32 rounded-full blur-2xl',
-                'bg-brand/40' => $health['state'] !== 'down',
-                'bg-coral/40' => $health['state'] === 'down',
+                'bg-gold/40' => $health['state'] !== 'down',
+                'bg-danger/40' => $health['state'] === 'down',
             ])></div>
             <div class="label relative">nyrus</div>
             <div class="relative mt-3 flex flex-wrap items-center gap-2">
@@ -29,14 +29,14 @@
                 @endif
             </div>
             @if ($health['state'] === 'down')
-                <p class="relative mt-3 text-sm text-coral">Prozess antwortet nicht. Daemon in Forge prüfen.</p>
+                <p class="relative mt-3 text-sm text-danger">Prozess antwortet nicht. Daemon in Forge prüfen.</p>
             @endif
         </div>
         @foreach ([
             ['Sessions', $counts['total'], 'from-white/20'],
-            ['Laufen', $counts['active'], 'from-brand/40'],
-            ['Warten auf Antwort', $counts['awaiting'], 'from-peach/40'],
-            ['Fehler', $counts['error'], 'from-coral/40'],
+            ['Laufen', $counts['active'], 'from-gold/40'],
+            ['Warten auf Antwort', $counts['awaiting'], 'from-warning/40'],
+            ['Fehler', $counts['error'], 'from-danger/40'],
         ] as [$label, $value, $glow])
             <div class="glass glass-hover relative overflow-hidden p-6">
                 <div class="absolute -right-8 -bottom-12 size-28 rounded-full bg-gradient-to-br {{ $glow }} to-transparent blur-2xl"></div>
@@ -48,7 +48,7 @@
 
     @if ($error)
         <div class="notice mt-6">
-            <span class="chip bg-peach/20 text-peach"><span class="chip-dot"></span></span>
+            <span class="chip bg-warning/20 text-warning"><span class="chip-dot"></span></span>
             <span>Sessions konnten nicht geladen werden: {{ $error }}</span>
         </div>
     @endif
@@ -81,14 +81,14 @@
                 <x-status-badge :status="$session['status']" class="justify-self-start sm:justify-self-auto" />
                 <div class="flex items-center gap-3 justify-self-start sm:justify-self-end">
                     @if ($session['pullRequestUrl'])
-                        <span class="chip bg-brand/15 text-brand" title="{{ $session['pullRequestUrl'] }}">PR öffnen</span>
+                        <span class="chip bg-gold/15 text-gold" title="{{ $session['pullRequestUrl'] }}">PR öffnen</span>
                     @endif
                     <svg class="size-5 text-white/30 transition duration-300 group-hover:translate-x-1 group-hover:text-white/80" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 0 1 .02-1.06L11.17 10 7.23 6.29a.75.75 0 1 1 1.04-1.08l4.5 4.25a.75.75 0 0 1 0 1.08l-4.5 4.25a.75.75 0 0 1-1.06-.02Z" clip-rule="evenodd"/></svg>
                 </div>
             </a>
         @empty
             <div class="glass px-6 py-14 text-center">
-                <div class="mx-auto grid size-12 place-items-center rounded-full bg-brand/15 text-brand">
+                <div class="mx-auto grid size-12 place-items-center rounded-full bg-gold/15 text-gold">
                     <svg class="size-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0 1 12 15a9.065 9.065 0 0 0-6.23-.693L5 14.5m14.8.8 1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0 1 12 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5"/></svg>
                 </div>
                 <p class="mt-4 font-bold text-white">Noch keine Sessions.</p>

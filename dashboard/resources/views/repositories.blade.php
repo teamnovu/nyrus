@@ -5,7 +5,7 @@
 
     @if ($error)
         <div class="notice mt-6">
-            <span class="chip bg-peach/20 text-peach"><span class="chip-dot"></span></span>
+            <span class="chip bg-warning/20 text-warning"><span class="chip-dot"></span></span>
             <span>Konfiguration konnte nicht geladen werden: {{ $error }}</span>
         </div>
     @endif
@@ -15,7 +15,7 @@
             @php($name = $repo['name'] ?? $repo['id'])
             <details class="glass group overflow-hidden transition duration-300 open:bg-white/[0.08]" @if (old('_repo') === $name) open @endif>
                 <summary class="flex cursor-pointer list-none flex-wrap items-center gap-3 px-6 py-5 [&::-webkit-details-marker]:hidden">
-                    <span class="grid size-10 place-items-center rounded-2xl bg-gradient-to-br from-brand/30 to-[#2bb5a8]/20 text-sm font-extrabold text-brand">{{ mb_strtoupper(mb_substr($name, 0, 2)) }}</span>
+                    <span class="grid size-10 place-items-center rounded-2xl bg-gradient-to-br from-gold/30 to-[#2bb5a8]/20 text-sm font-extrabold text-gold">{{ mb_strtoupper(mb_substr($name, 0, 2)) }}</span>
                     <div class="min-w-0">
                         <div class="font-extrabold text-white">{{ $name }}</div>
                         <div class="muted text-xs">{{ $repo['baseBranch'] ?? 'main' }}@if (! empty($repo['projectKeys'])) · {{ implode(', ', $repo['projectKeys']) }}@endif</div>
@@ -23,7 +23,7 @@
                     @if (($repo['isActive'] ?? true) === false)
                         <span class="chip bg-white/10 text-white/60">inaktiv</span>
                     @else
-                        <span class="chip bg-brand/15 text-brand"><span class="chip-dot"></span>aktiv</span>
+                        <span class="chip bg-gold/15 text-gold"><span class="chip-dot"></span>aktiv</span>
                     @endif
                     <div class="ml-auto flex items-center gap-3">
                         @if ($repo['githubUrl'] ?? null)
@@ -51,19 +51,19 @@
                         </label>
                         <label class="flex items-center gap-3 text-sm font-bold text-white/80">
                             <input type="hidden" name="isActive" value="0">
-                            <input type="checkbox" name="isActive" value="1" @checked($repo['isActive'] ?? true) class="size-5 rounded-md accent-brand"> aktiv
+                            <input type="checkbox" name="isActive" value="1" @checked($repo['isActive'] ?? true) class="size-5 rounded-md accent-gold"> aktiv
                         </label>
                         <div class="muted text-xs sm:col-span-2">Pfad: <span class="font-mono">{{ $repo['repositoryPath'] ?? '–' }}</span></div>
                         <div class="sm:col-span-2">
                             <button class="btn">Routing speichern</button>
                         </div>
                     </form>
-                    <form method="POST" action="{{ route('repositories.destroy', $name) }}" class="mt-5 flex flex-wrap items-center gap-4 rounded-2xl bg-coral/[0.06] px-4 py-3"
+                    <form method="POST" action="{{ route('repositories.destroy', $name) }}" class="mt-5 flex flex-wrap items-center gap-4 rounded-2xl bg-danger/[0.06] px-4 py-3"
                           onsubmit="return confirm('{{ $name }} aus nyrus entfernen?')">
                         @csrf
                         @method('DELETE')
                         <label class="flex items-center gap-2 text-sm text-white/70">
-                            <input type="checkbox" name="deleteFiles" value="1" class="size-4 accent-coral"> auch den Klon auf dem Server löschen
+                            <input type="checkbox" name="deleteFiles" value="1" class="size-4 accent-danger"> auch den Klon auf dem Server löschen
                         </label>
                         <button class="btn-danger ml-auto">Entfernen</button>
                     </form>
