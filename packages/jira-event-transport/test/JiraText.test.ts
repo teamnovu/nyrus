@@ -89,6 +89,20 @@ describe("markdownToWiki", () => {
 		);
 	});
 
+	it("takes a separator row without outer pipes", () => {
+		expect(markdownToWiki("| A | B |\n--- | ---\n| x | y |")).toBe(
+			"||A||B||\n|x|y|",
+		);
+	});
+
+	it("keeps table data rows that start with dashes", () => {
+		expect(
+			markdownToWiki(
+				"| Step | State |\n| --- | --- |\n| build | done |\n| --- | pending |",
+			),
+		).toBe("||Step||State||\n|build|done|\n|---|pending|");
+	});
+
 	it("escapes braces and brackets that would become macros or links", () => {
 		expect(markdownToWiki("Status [WIP]: config {debug: true}")).toBe(
 			"Status \\[WIP\\]: config \\{debug: true\\}",
@@ -112,6 +126,29 @@ describe("wikiToMarkdown", () => {
 		).toBe(
 			"```php\n$a = 1;\n```\nSee [the docs](https://x.y/docs) and https://a.b, @Simon",
 		);
+	});
+
+	it("reads monospace with escaped braces back as inline code", () => {
+		// "C:\\\\" ends in a backslash right before the closing braces.
+		for (const code of ["a}", "{b}", "x{y}z", "plain", "C:\\\\", "a\\b"]) {
+			expect(wikiToMarkdown(markdownToWiki(`\`${code}\``))).toBe(`\`${code}\``);
+		}
+	});
+
+	it("keeps monospace spans apart when the first ends in a backslash", () => {
+		expect(wikiToMarkdown("{{C:\\}} and {{b}}")).toBe("`C:\\` and `b`");
+		expect(wikiToMarkdown("{{a\\}}} and {{b}}")).toBe("`a}` and `b`");
+		expect(wikiToMarkdown("{{}} then {{b}}")).toBe("{{}} then `b`");
+		expect(wikiToMarkdown("{{open and {{b}}")).toBe("`open and {{b`");
+	});
+
+	it("reads unclosed monospace spans in linear time", () => {
+		const started = Date.now();
+		expect(wikiToMarkdown(`{{${"\\}".repeat(5000)} never closed`)).toContain(
+			"never closed",
+		);
+		expect(wikiToMarkdown("{{a".repeat(10000))).toContain("{{a{{a");
+		expect(Date.now() - started).toBeLessThan(200);
 	});
 
 	it("reads pasted smart links", () => {

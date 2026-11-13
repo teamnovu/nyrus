@@ -1626,6 +1626,27 @@ describe("RepositoryRouter", () => {
 				expect(result).toBe(repo2);
 			});
 
+			it("previews the selected repository without consuming the selection", async () => {
+				const repo1 = env.repository("repo-1", "Frontend Repo").build();
+				const repo2 = env.repository("repo-2", "Backend Repo").build();
+				const webhook = env.webhook().withSession("session-1").build();
+				await env.router.elicitUserRepositorySelection(webhook, [repo1, repo2]);
+
+				expect(
+					env.router.previewRepositoryFromResponse("session-1", "Backend Repo"),
+				).toBe(repo2);
+				expect(env.router.hasPendingSelection("session-1")).toBe(true);
+				expect(
+					await env.router.selectRepositoryFromResponse(
+						"session-1",
+						"Backend Repo",
+					),
+				).toBe(repo2);
+				expect(
+					env.router.previewRepositoryFromResponse("session-1", "Backend Repo"),
+				).toBeNull();
+			});
+
 			it("should find and return repository matching name selection", async () => {
 				// Given: User selecting repository by name
 				const repo1 = env.repository("repo-1", "Frontend Repo").build();

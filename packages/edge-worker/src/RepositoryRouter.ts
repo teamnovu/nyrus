@@ -586,7 +586,7 @@ export class RepositoryRouter {
 
 				const fullIssue = await issueTracker.fetchIssue(issueId);
 				const project = await fullIssue?.project;
-				if (!project || !project.name) {
+				if (!project?.name) {
 					this.logger.debug(
 						`No project name found for issue ${issueId} in repository ${repo.name}`,
 					);
@@ -724,6 +724,22 @@ export class RepositoryRouter {
 	 * Select repository from user response
 	 * Returns the selected repository or null if webhook should not be processed further
 	 */
+	/**
+	 * The repository a reply to a pending selection would pick, without
+	 * consuming the selection (e.g. to check the replying user's access first).
+	 */
+	previewRepositoryFromResponse(
+		agentSessionId: string,
+		selectedRepositoryName: string,
+	): RepositoryConfig | null {
+		const pendingData = this.pendingSelections.get(agentSessionId);
+		if (!pendingData) return null;
+		return (
+			resolveSelection(pendingData.workspaceRepos, selectedRepositoryName)
+				.repository ?? null
+		);
+	}
+
 	async selectRepositoryFromResponse(
 		agentSessionId: string,
 		selectedRepositoryName: string,
@@ -739,21 +755,10 @@ export class RepositoryRouter {
 		// Remove from pending map
 		this.pendingSelections.delete(agentSessionId);
 
-		// Linear turns a pasted URL reply into a markdown link: [url](<url>)
-		const reply = selectedRepositoryName
-			.trim()
-			.replace(/^\[([^\]]+)\]\(<?[^)>]*>?\)$/, "$1");
-
-		// Find selected repository by GitHub/GitLab URL or name
-		const selectedRepo = pendingData.workspaceRepos.find(
-			(repo) =>
-				repo.githubUrl === reply ||
-				repo.gitlabUrl === reply ||
-				repo.name === reply,
+		const { selectedRepo, repository } = resolveSelection(
+			pendingData.workspaceRepos,
+			selectedRepositoryName,
 		);
-
-		// Fallback to first repository if not found
-		const repository = selectedRepo || pendingData.workspaceRepos[0];
 		if (!repository) {
 			this.logger.error(
 				`No repository found for selection: ${selectedRepositoryName}`,
@@ -876,4 +881,21 @@ export class RepositoryRouter {
 			}
 		}
 	}
+}
+
+/**
+ * The repository a selection reply names (by GitHub/GitLab URL or name), and
+ * the one used: that one, or the first repository as a fallback.
+ */
+function resolveSelection(
+	workspaceRepos: RepositoryConfig[],
+	reply: string,
+): { selectedRepo?: RepositoryConfig; repository?: RepositoryConfig } {
+	// Linear turns a pasted URL reply into a markdown link: [url](<url>)
+	const name = reply.trim().replace(/^\[([^\]]+)\]\(<?[^)>]*>?\)$/, "$1");
+	const selectedRepo = workspaceRepos.find(
+		(repo) =>
+			repo.githubUrl === name || repo.gitlabUrl === name || repo.name === name,
+	);
+	return { selectedRepo, repository: selectedRepo ?? workspaceRepos[0] };
 }

@@ -31,6 +31,8 @@ export function toCommentTrackerEvent(
 	if (event.kind === "comment" && comment) {
 		return {
 			kind: "comment",
+			// A comment is posted once; a second delivery of it is a retry.
+			eventId: `jira:comment:${comment.id}`,
 			issueId: event.issueKey,
 			commentId: comment.id,
 			body: promptFromComment(comment.body, agent.accountId),

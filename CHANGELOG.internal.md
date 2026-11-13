@@ -12,6 +12,7 @@ This changelog documents internal development changes, refactors, tooling update
 - ClickUp spike tools (`scripts/clickup/`) to check the bot token, workspace plan and comment formats, manage webhooks, and record real webhook deliveries; guide in `docs/nyrus/clickup-spike.md`. ([teamnovu/nyrus#6](https://github.com/teamnovu/nyrus/pull/6))
 
 ### Fixed
+- Jira: a comment delivered twice reaches the agent once; monospace with escaped braces and table rows starting with `---` survive the wiki conversion. ClickUp spike scripts honour `CLICKUP_SPIKE_OUT` from the env file. ([teamnovu/nyrus#9](https://github.com/teamnovu/nyrus/pull/9))
 - Forge deploy script: pin pnpm to the `packageManager` version for every call, including nested `pnpm` calls in package scripts, so a globally installed pnpm of another major version no longer breaks the build.
 - Forge deploy script: a first deploy without a Forge daemon (nyrus not running before, none started) now succeeds with a warning instead of failing after 90 s. Added `deploy/forge/env.example` listing the `.env` variables nyrus needs on Forge and the ones not to set.
 - Forge setup: the Nginx config blocks `/api/` and `/mcp/` from outside (without `CYRUS_API_KEY` the `/mcp/cyrus-tools` endpoint skips its auth check). `env.example` documents `CYRUS_API_KEY` for the dashboard and its current conflict with Slack signature verification.
