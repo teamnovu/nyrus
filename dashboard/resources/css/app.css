@@ -181,6 +181,17 @@
         box-shadow: 0 0 8px 1px currentColor;
     }
 
+    /* status dot in front of a notice: a soft round halo with the dot inside */
+    .notice-dot {
+        @apply grid size-6 shrink-0 place-items-center rounded-full;
+        background: color-mix(in oklab, currentColor 16%, transparent);
+    }
+    .notice-dot::after {
+        content: '';
+        @apply size-2 rounded-full bg-current;
+        box-shadow: 0 0 8px 1px color-mix(in oklab, currentColor 70%, transparent);
+    }
+
     .link {
         @apply font-bold text-gold transition-colors hover:text-gold-light;
     }

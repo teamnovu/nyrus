@@ -5,7 +5,7 @@
 
     @if ($error)
         <div class="notice mt-6">
-            <span class="chip bg-warning/20 text-warning"><span class="chip-dot"></span></span>
+            <span class="notice-dot text-warning" aria-hidden="true"></span>
             <span>Konfiguration konnte nicht geladen werden: {{ $error }}</span>
         </div>
     @endif
@@ -15,7 +15,7 @@
             @php($name = $repo['name'] ?? $repo['id'])
             <details class="glass group overflow-hidden transition duration-300 open:bg-white/[0.08]" @if (old('_repo') === $name) open @endif>
                 <summary class="flex cursor-pointer list-none flex-wrap items-center gap-3 px-6 py-5 [&::-webkit-details-marker]:hidden">
-                    <span class="grid size-10 place-items-center rounded-2xl bg-gradient-to-br from-gold/30 to-[#2bb5a8]/20 text-sm font-extrabold text-gold">{{ mb_strtoupper(mb_substr($name, 0, 2)) }}</span>
+                    <span class="grid size-10 place-items-center rounded-2xl bg-gradient-to-br from-gold/30 to-gold-dark/30 text-sm font-extrabold text-gold">{{ mb_strtoupper(mb_substr($name, 0, 2)) }}</span>
                     <div class="min-w-0">
                         <div class="font-extrabold text-white">{{ $name }}</div>
                         <div class="muted text-xs">{{ $repo['baseBranch'] ?? 'main' }}@if (! empty($repo['projectKeys'])) · {{ implode(', ', $repo['projectKeys']) }}@endif</div>

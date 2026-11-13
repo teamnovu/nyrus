@@ -1,9 +1,9 @@
 <x-app title="Anmelden" :bare="true">
     <div class="flex min-h-screen items-center justify-center py-10">
         <div class="glass-strong w-full max-w-md animate-rise p-8 sm:p-10">
-            <img src="/brand/novu-white.svg" alt="novu" class="h-5 w-auto">
+            <img src="/brand/nyrus-logo.png" alt="" class="size-20 drop-shadow-[0_10px_30px_rgb(213_194_131/0.3)]">
 
-            <h1 class="mt-12 text-6xl leading-none sm:text-7xl">nyrus</h1>
+            <h1 class="mt-8 text-6xl leading-none sm:text-7xl">nyrus</h1>
             <p class="muted mt-3 text-base font-bold">Das Dashboard für unseren Coding-Agent.</p>
 
             <div class="mt-10">
@@ -33,6 +33,10 @@
                         <button class="btn-ghost w-full">Lokal ohne SSO anmelden (nur Entwicklung)</button>
                     </form>
                 @endif
+            </div>
+
+            <div class="mt-10 flex items-center gap-2 text-xs font-bold text-white/40">
+                von <img src="/brand/novu-white.svg" alt="novu" class="h-[10px] w-auto opacity-60">
             </div>
         </div>
     </div>

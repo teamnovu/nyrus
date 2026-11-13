@@ -5,7 +5,7 @@
 
     @if ($error)
         <div class="notice mt-6">
-            <span class="chip bg-warning/20 text-warning"><span class="chip-dot"></span></span>
+            <span class="notice-dot text-warning" aria-hidden="true"></span>
             <span>Einstellungen konnten nicht geladen werden: {{ $error }}</span>
         </div>
     @endif
