@@ -69,6 +69,7 @@ export type {
 	IssueContext,
 	IssueMinimal,
 	RepositoryContext,
+	SessionRunTotals,
 	Workspace,
 } from "./CyrusAgentSession.js";
 // Configuration types

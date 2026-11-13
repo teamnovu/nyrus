@@ -62,7 +62,9 @@
                         @endif
                     </div>
                     <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-white/40">
-                        @if ($session['tracker'] ?? null)<span>{{ $session['tracker'] }}</span>@endif
+                        @if ($session['tracker'] ?? null)<span>{{ ['jira' => 'Jira', 'linear' => 'Linear', 'clickup' => 'ClickUp', 'slack' => 'Slack', 'github' => 'GitHub', 'gitlab' => 'GitLab', 'plane' => 'Plane'][$session['tracker']] ?? $session['tracker'] }}</span>@endif
+                        @if (($session['runtimeMs'] ?? null) !== null)<span class="tabular-nums">{{ max(1, (int) round($session['runtimeMs'] / 60000)) }} min</span>@endif
+                        @if ($session['model'] ?? null)<span>{{ $session['model'] }}</span>@endif
                         <span>{{ collect($session['repositories'])->pluck('id')->filter()->join(', ') ?: 'kein Repository' }}</span>
                         <span>{{ $ts ? \Illuminate\Support\Carbon::createFromTimestampMs($ts)->timezone('Europe/Zurich')->diffForHumans() : '–' }}</span>
                     </div>

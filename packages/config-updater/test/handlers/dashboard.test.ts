@@ -153,6 +153,76 @@ describe("dashboard handlers", () => {
 			expect(entries[1].content.length).toBe(4001);
 		});
 
+		it("reads live state, names Jira sessions and adds runtime and tokens", async () => {
+			vi.useFakeTimers();
+			vi.setSystemTime(100_000);
+			try {
+				const live = {
+					agentSessions: {
+						"jira-99176": {
+							id: "jira-99176",
+							status: "active",
+							createdAt: 1_000,
+							updatedAt: 2_000,
+							issueContext: {
+								trackerId: "linear",
+								issueId: "99176",
+								issueIdentifier: "SAY-686",
+							},
+							metadata: {
+								model: "claude-opus",
+								runStartedAt: 70_000,
+								totals: {
+									runs: 1,
+									durationMs: 60_000,
+									inputTokens: 10,
+									outputTokens: 20,
+									cacheReadTokens: 300,
+									cacheCreationTokens: 4_000,
+									costUsd: 1.25,
+								},
+							},
+						},
+					},
+				};
+				// No state file: the live state is what counts
+				const result = await handleDashboardSession(
+					{ id: "jira-99176" },
+					home,
+					() => live,
+				);
+				expect((result as any).data.session).toMatchObject({
+					tracker: "jira",
+					model: "claude-opus",
+					totalCostUsd: 1.25,
+					runs: 1,
+					// 60 s finished + 30 s of the run in progress
+					runtimeMs: 90_000,
+					tokens: {
+						input: 10,
+						output: 20,
+						cacheRead: 300,
+						cacheCreation: 4_000,
+						total: 4_330,
+					},
+				});
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("has no runtime or tokens before a session's first run", async () => {
+			writeState(state);
+			const sessions = ((await handleDashboardSessions(home)) as any).data
+				.sessions;
+			expect(sessions[0]).toMatchObject({
+				tracker: "clickup",
+				runtimeMs: null,
+				runs: 0,
+				tokens: null,
+			});
+		});
+
 		it("rejects a missing or unknown session id", async () => {
 			writeState(state);
 			expect((await handleDashboardSession({}, home)).success).toBe(false);

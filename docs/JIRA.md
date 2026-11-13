@@ -82,6 +82,8 @@ A request without `webhookEvent` counts as "this issue may have been handed to N
 - Sessions get a `jira` MCP server (`mcp__jira__*`) running as the agent account: `get_issue`, `add_comment` (Markdown, with mentions), `download_attachments`, `add_link` (attaches a pull request; the same URL again retitles it), `list_transitions` and `transition_issue`. Its tools are allowed by default.
 - The description reaches the agent as Markdown, with the names of attached files; the agent downloads them with `download_attachments`.
 
+- After every agent run, the time worked is logged on the issue as a worklog ("🤖 Nyrus: agent run", whole minutes, at least one). If Jira refuses (time tracking off, or the token lacks `write:jira-work`), Nyrus only logs a warning.
+
 ## Not yet
 
 - Images pasted inline into a description (only attachments are listed).

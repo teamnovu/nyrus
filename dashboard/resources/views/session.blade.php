@@ -12,9 +12,22 @@
         <p class="muted mt-2">{{ $session['issue']['title'] }}</p>
     @endif
 
-    @php($fmt = fn ($ms) => $ms ? \Illuminate\Support\Carbon::createFromTimestampMs($ms)->timezone('Europe/Zurich')->format('d.m.Y H:i') : '–')
+    @php
+        $fmt = fn ($ms) => $ms ? \Illuminate\Support\Carbon::createFromTimestampMs($ms)->timezone('Europe/Zurich')->format('d.m.Y H:i') : '–';
+        $trackers = ['jira' => 'Jira', 'linear' => 'Linear', 'clickup' => 'ClickUp', 'slack' => 'Slack', 'github' => 'GitHub', 'gitlab' => 'GitLab', 'plane' => 'Plane'];
+        $num = fn ($n) => number_format($n, 0, '.', "'");
+        $duration = function ($ms) {
+            if ($ms === null) {
+                return '–';
+            }
+            $s = intdiv((int) $ms, 1000);
+            return $s >= 3600
+                ? sprintf('%d h %02d min', intdiv($s, 3600), intdiv($s % 3600, 60))
+                : sprintf('%d min %02d s', intdiv($s, 60), $s % 60);
+        };
+    @endphp
     <dl class="mt-8 grid gap-px overflow-hidden rounded-xl bg-white/[0.07] ring-1 ring-white/[0.07] sm:grid-cols-2 lg:grid-cols-4">
-        <div class="bg-surface p-5"><dt class="label">Tracker</dt><dd class="mt-1 text-white">{{ $session['tracker'] ?? '–' }}</dd></div>
+        <div class="bg-surface p-5"><dt class="label">Tracker</dt><dd class="mt-1 text-white">{{ $trackers[$session['tracker'] ?? ''] ?? ($session['tracker'] ?? '–') }}</dd></div>
         <div class="bg-surface p-5"><dt class="label">Repository / Branch</dt><dd class="mt-1 text-white">
             @forelse ($session['repositories'] as $repo)
                 {{ $repo['id'] }}@if ($repo['branch']) <span class="muted font-mono text-xs">{{ $repo['branch'] }}</span>@endif<br>
@@ -25,7 +38,17 @@
         <div class="bg-surface p-5"><dt class="label">Modell</dt><dd class="mt-1 text-white">{{ $session['model'] ?? '–' }}</dd></div>
         <div class="bg-surface p-5"><dt class="label">Kosten</dt><dd class="mt-1 font-semibold tabular-nums text-white">{{ $session['totalCostUsd'] !== null ? '$'.number_format($session['totalCostUsd'], 2) : '–' }}</dd></div>
         <div class="bg-surface p-5"><dt class="label">Gestartet</dt><dd class="mt-1 text-white">{{ $fmt($session['createdAt']) }}</dd></div>
-        <div class="bg-surface p-5 sm:col-span-2 lg:col-span-3">
+        <div class="bg-surface p-5"><dt class="label">Laufzeit</dt><dd class="mt-1 font-semibold tabular-nums text-white">{{ $duration($session['runtimeMs'] ?? null) }}@if (($session['runs'] ?? 0) > 1) <span class="muted text-xs font-normal">{{ $session['runs'] }} Läufe</span>@endif</dd></div>
+        <div class="bg-surface p-5 sm:col-span-2">
+            <dt class="label">Tokens</dt>
+            <dd class="mt-1 text-white">
+                @if ($session['tokens'] ?? null)
+                    <span class="font-semibold tabular-nums">{{ $num($session['tokens']['total']) }}</span>
+                    <span class="muted text-xs tabular-nums">in {{ $num($session['tokens']['input']) }} · out {{ $num($session['tokens']['output']) }} · Cache {{ $num($session['tokens']['cacheRead'] + $session['tokens']['cacheCreation']) }}</span>
+                @else <span class="muted">– (nach dem ersten Lauf)</span> @endif
+            </dd>
+        </div>
+        <div class="bg-surface p-5 sm:col-span-2 lg:col-span-4">
             <dt class="label">Pull Request</dt>
             <dd class="mt-1 truncate">
                 @if ($session['pullRequestUrl'])

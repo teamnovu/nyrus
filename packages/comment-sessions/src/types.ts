@@ -163,7 +163,26 @@ export interface TrackerIntegration {
 	mcpServers?(): Record<string, StdioMcpServerConfig>;
 	/** Register webhook routes; called once the shared server exists. */
 	register(host: TrackerIntegrationHost): void;
+	/**
+	 * An agent run of a session in this workspace has ended (its result
+	 * arrived), e.g. to log the time worked on the ticket. Errors are logged,
+	 * never thrown at the agent.
+	 */
+	onAgentRunFinished?(run: AgentRunSummary): void | Promise<void>;
 	dispose?(): void;
+}
+
+/** One finished agent run, as {@link TrackerIntegration.onAgentRunFinished} gets it. */
+export interface AgentRunSummary {
+	sessionId: string;
+	/** The ticket's id in the tracker (the Linear-shaped issue id). */
+	issueId: string;
+	issueIdentifier?: string;
+	/** How long the agent worked in this run. */
+	durationMs: number;
+	/** When the run ended (ms since the epoch). */
+	finishedAt: number;
+	isError: boolean;
 }
 
 /**

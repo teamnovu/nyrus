@@ -49,7 +49,20 @@ interface StoredSession {
 	};
 	repositories?: { repositoryId?: string; branchName?: string }[];
 	workspace?: { path?: string };
-	metadata?: { model?: string; totalCostUsd?: number };
+	metadata?: {
+		model?: string;
+		totalCostUsd?: number;
+		runStartedAt?: number;
+		totals?: {
+			runs?: number;
+			durationMs?: number;
+			inputTokens?: number;
+			outputTokens?: number;
+			cacheReadTokens?: number;
+			cacheCreationTokens?: number;
+			costUsd?: number;
+		};
+	} | null;
 }
 
 interface StoredState {
@@ -63,7 +76,13 @@ function readJson(path: string): unknown {
 	return JSON.parse(readFileSync(path, "utf-8"));
 }
 
-function readState(cyrusHome: string): StoredState {
+function readState(
+	cyrusHome: string,
+	readLiveState?: () => unknown,
+): StoredState {
+	if (readLiveState) {
+		return (readLiveState() ?? {}) as StoredState;
+	}
 	const statePath = join(cyrusHome, "state", "edge-worker-state.json");
 	if (!existsSync(statePath)) {
 		return {};
@@ -88,7 +107,61 @@ function lastPullRequestUrl(entries: StoredEntry[]): string | undefined {
 	return found;
 }
 
-function summarizeSession(session: StoredSession, entries: StoredEntry[]) {
+/** Trackers whose sessions run Linear-shaped: their ids are `<platform>-<issue id>`. */
+const COMMENT_TRACKERS = ["jira", "clickup"];
+
+/**
+ * The session's tracker. Jira and ClickUp sessions run as Linear-shaped
+ * sessions (tracker "linear"), so their id prefix names the real one.
+ */
+function trackerOf(session: StoredSession): string | null {
+	const trackerId = session.issueContext?.trackerId ?? null;
+	if (trackerId === "linear") {
+		const prefix = session.id.split("-")[0] ?? "";
+		if (COMMENT_TRACKERS.includes(prefix)) {
+			return prefix;
+		}
+	}
+	return trackerId;
+}
+
+/**
+ * How long the agent worked (finished runs plus the run in progress) and the
+ * tokens of its finished runs.
+ */
+function runtimeAndTokens(session: StoredSession, now: number) {
+	const totals = session.metadata?.totals;
+	const running = session.metadata?.runStartedAt;
+	const runtimeMs =
+		(totals?.durationMs ?? 0) +
+		(session.status === "active" && typeof running === "number"
+			? Math.max(0, now - running)
+			: 0);
+	const tokens = totals
+		? {
+				input: totals.inputTokens ?? 0,
+				output: totals.outputTokens ?? 0,
+				cacheRead: totals.cacheReadTokens ?? 0,
+				cacheCreation: totals.cacheCreationTokens ?? 0,
+				total:
+					(totals.inputTokens ?? 0) +
+					(totals.outputTokens ?? 0) +
+					(totals.cacheReadTokens ?? 0) +
+					(totals.cacheCreationTokens ?? 0),
+			}
+		: null;
+	return {
+		runtimeMs: totals || typeof running === "number" ? runtimeMs : null,
+		runs: totals?.runs ?? 0,
+		tokens,
+	};
+}
+
+function summarizeSession(
+	session: StoredSession,
+	entries: StoredEntry[],
+	now = Date.now(),
+) {
 	const timestamps = entries
 		.map((entry) => entry.metadata?.timestamp)
 		.filter((ts): ts is number => typeof ts === "number");
@@ -97,7 +170,7 @@ function summarizeSession(session: StoredSession, entries: StoredEntry[]) {
 		status: session.status ?? "unknown",
 		createdAt: session.createdAt ?? null,
 		updatedAt: session.updatedAt ?? null,
-		tracker: session.issueContext?.trackerId ?? null,
+		tracker: trackerOf(session),
 		issue: {
 			id: session.issueContext?.issueId ?? session.issue?.id ?? session.issueId,
 			identifier:
@@ -112,7 +185,11 @@ function summarizeSession(session: StoredSession, entries: StoredEntry[]) {
 		})),
 		workspacePath: session.workspace?.path ?? null,
 		model: session.metadata?.model ?? null,
-		totalCostUsd: session.metadata?.totalCostUsd ?? null,
+		totalCostUsd:
+			session.metadata?.totals?.costUsd ??
+			session.metadata?.totalCostUsd ??
+			null,
+		...runtimeAndTokens(session, now),
 		entryCount: entries.length,
 		lastActivityAt: timestamps.length > 0 ? Math.max(...timestamps) : null,
 		pullRequestUrl: lastPullRequestUrl(entries) ?? null,
@@ -122,9 +199,10 @@ function summarizeSession(session: StoredSession, entries: StoredEntry[]) {
 /** GET /api/dashboard/sessions: all known sessions, newest first. */
 export async function handleDashboardSessions(
 	cyrusHome: string,
+	readLiveState?: () => unknown,
 ): Promise<ApiResponse> {
 	try {
-		const state = readState(cyrusHome);
+		const state = readState(cyrusHome, readLiveState);
 		const sessions = Object.values(state.agentSessions ?? {})
 			.map((session) =>
 				summarizeSession(
@@ -147,12 +225,13 @@ export async function handleDashboardSessions(
 export async function handleDashboardSession(
 	query: { id?: string },
 	cyrusHome: string,
+	readLiveState?: () => unknown,
 ): Promise<ApiResponse> {
 	if (!query?.id || typeof query.id !== "string") {
 		return { success: false, error: "Session id is required" };
 	}
 	try {
-		const state = readState(cyrusHome);
+		const state = readState(cyrusHome, readLiveState);
 		const session = state.agentSessions?.[query.id];
 		if (!session) {
 			return { success: false, error: `Session ${query.id} not found` };

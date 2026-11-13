@@ -24,6 +24,7 @@ import {
 	type RunnerType,
 	type SerializedCyrusAgentSession,
 	type SerializedCyrusAgentSessionEntry,
+	type SessionRunTotals,
 	type Workspace,
 } from "cyrus-core";
 
@@ -277,6 +278,7 @@ export class AgentSessionManager extends EventEmitter {
 			tools: claudeSystemMessage.tools,
 			permissionMode: claudeSystemMessage.permissionMode,
 			apiKeySource: claudeSystemMessage.apiKeySource,
+			runStartedAt: Date.now(),
 		};
 	}
 
@@ -381,6 +383,8 @@ export class AgentSessionManager extends EventEmitter {
 		await this.updateSessionStatus(sessionId, status, {
 			totalCostUsd: resultMessage.total_cost_usd,
 			usage: resultMessage.usage,
+			totals: addRunToTotals(session.metadata?.totals, resultMessage),
+			runStartedAt: undefined,
 		});
 
 		if (wasStopRequested) {
@@ -1845,4 +1849,37 @@ export class AgentSessionManager extends EventEmitter {
 			this.activeStatusActivitiesBySession.delete(sessionId);
 		}
 	}
+}
+
+/**
+ * The session's run totals with one more finished run: its duration, tokens
+ * (input, output, cache read and cache creation) and cost.
+ */
+export function addRunToTotals(
+	totals: SessionRunTotals | undefined,
+	result: Pick<SDKResultMessage, "duration_ms" | "total_cost_usd" | "usage">,
+): SessionRunTotals {
+	const usage = (result.usage ?? {}) as {
+		input_tokens?: number;
+		output_tokens?: number;
+		cache_read_input_tokens?: number;
+		cache_creation_input_tokens?: number;
+	};
+	const add = (a: number | undefined, b: unknown) =>
+		(a ?? 0) + (typeof b === "number" && Number.isFinite(b) ? b : 0);
+	return {
+		runs: (totals?.runs ?? 0) + 1,
+		durationMs: add(totals?.durationMs, result.duration_ms),
+		inputTokens: add(totals?.inputTokens, usage.input_tokens),
+		outputTokens: add(totals?.outputTokens, usage.output_tokens),
+		cacheReadTokens: add(
+			totals?.cacheReadTokens,
+			usage.cache_read_input_tokens,
+		),
+		cacheCreationTokens: add(
+			totals?.cacheCreationTokens,
+			usage.cache_creation_input_tokens,
+		),
+		costUsd: add(totals?.costUsd, result.total_cost_usd),
+	};
 }

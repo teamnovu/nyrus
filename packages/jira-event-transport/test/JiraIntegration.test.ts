@@ -3,8 +3,13 @@ import {
 	type LinearShapedWebhook,
 	type SessionState,
 } from "cyrus-comment-sessions";
-import { describe, expect, it } from "vitest";
-import { jiraEventHandler } from "../src/JiraIntegration.js";
+import type { ILogger } from "cyrus-core";
+import { describe, expect, it, vi } from "vitest";
+import {
+	AGENT_RUN_WORKLOG_COMMENT,
+	jiraEventHandler,
+	logAgentRun,
+} from "../src/JiraIntegration.js";
 import { JiraIssueTrackerService } from "../src/JiraIssueTrackerService.js";
 import { signed } from "../src/JiraText.js";
 import type { JiraIssue, JiraWebhookEvent } from "../src/types.js";
@@ -272,5 +277,53 @@ describe("Jira on cyrus-comment-sessions", () => {
 		expect(dispatched[0]!.agentSession).toMatchObject({
 			creator: { id: "simon", name: "Simon", email: "simon@novu.ch" },
 		});
+	});
+});
+
+describe("logAgentRun", () => {
+	const logger = {
+		info: vi.fn(),
+		warn: vi.fn(),
+		error: vi.fn(),
+		debug: vi.fn(),
+	} as unknown as ILogger;
+	const run = {
+		sessionId: "jira-99176",
+		issueId: "99176",
+		issueIdentifier: "SAY-686",
+		durationMs: 6 * 60_000 + 20_000,
+		finishedAt: Date.UTC(2026, 10, 13, 15, 40, 0),
+		isError: false,
+	};
+
+	it("logs the run's minutes on the issue, from when it started", async () => {
+		const api = { addWorklog: vi.fn().mockResolvedValue({ id: "1" }) };
+
+		await logAgentRun(api, run, logger);
+
+		expect(api.addWorklog).toHaveBeenCalledWith("99176", {
+			timeSpentSeconds: 6 * 60,
+			started: new Date(Date.UTC(2026, 10, 13, 15, 33, 40)),
+			comment: AGENT_RUN_WORKLOG_COMMENT,
+		});
+	});
+
+	it("logs at least one minute and skips runs without a duration", async () => {
+		const api = { addWorklog: vi.fn().mockResolvedValue({ id: "1" }) };
+
+		await logAgentRun(api, { ...run, durationMs: 4_000 }, logger);
+		await logAgentRun(api, { ...run, durationMs: 0 }, logger);
+
+		expect(api.addWorklog).toHaveBeenCalledTimes(1);
+		expect(api.addWorklog.mock.calls[0]![1].timeSpentSeconds).toBe(60);
+	});
+
+	it("only warns when Jira refuses the worklog", async () => {
+		const api = {
+			addWorklog: vi.fn().mockRejectedValue(new Error("time tracking off")),
+		};
+
+		await expect(logAgentRun(api, run, logger)).resolves.toBeUndefined();
+		expect(logger.warn).toHaveBeenCalled();
 	});
 });
