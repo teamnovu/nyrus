@@ -10,7 +10,7 @@ The tools are in [scripts/clickup/](../../scripts/clickup). They have no depende
 - **Webhooks** are created through the API only (`POST /team/{team_id}/webhook`), optionally narrowed to a Space, Folder, List or task. Each has its own secret, returned once at creation. ClickUp signs the raw body: `X-Signature` = hex HMAC-SHA256. **Answer an invalid signature with 400, not 401: a 401 suspends the webhook.** Repeated failed deliveries also suspend it (`health.status`); `webhook.mjs list` shows the health and `reactivate` turns it back on. ([webhook signature](https://developer.clickup.com/docs/webhooksignature))
 - **Payloads are thin**: `event`, `task_id`, `webhook_id` and `history_items[]`, whose `id` serves as the idempotency key for retried deliveries. The task itself has to be fetched.
 - **Comments:** `POST /task/{id}/comment` takes plain `comment_text` (Markdown is **not** rendered) or a rich-text `comment` array. Threaded replies: `POST /comment/{id}/reply`. Edit `PUT /comment/{id}`, delete `DELETE /comment/{id}`.
-- **Workspace 14278081** has 296 Spaces, one per customer, so it is on Unlimited or higher. The ClickUp MCP can't tell which plan.
+- **Workspace 14278081** ("UNION") has 296 Spaces, one per customer, and is on the **Enterprise** plan: 10,000 requests/min per token (probe, 2026-11-13).
 
 ## Identity: no bot account
 
@@ -85,7 +85,7 @@ Finally `node scripts/clickup/webhook.mjs delete <id>`.
 
 | # | Question | Finding |
 |---|---|---|
-| 1 | Which plan, which rate limit? | |
+| 1 | Which plan, which rate limit? | Enterprise, `x-ratelimit-limit: 10000` per minute (2026-11-13). Rate limits are no constraint; progress edits stay throttled for readability, not for the limit. |
 | 2 | Guest seat enough for the bot? | Moot: no bot accounts allowed (see Identity). |
 | 3 | Which comment format renders best (rich text array, Markdown, HTML)? Code blocks and lists? | |
 | 4 | How do a `/nyrus` comment and an @mention appear in `taskCommentPosted` (`text_content`, `comment` array with `type: "tag"`)? | |

@@ -38,9 +38,7 @@ async function step(name, method, path, body) {
 
 const user = await step("user", "GET", "/user");
 if (user) {
-	console.log(
-		`    bot user: ${user.user.username} (id ${user.user.id}) → CLICKUP_BOT_USER_ID=${user.user.id}`,
-	);
+	console.log(`    user: ${user.user.username} (id ${user.user.id})`);
 }
 const teams = await step("teams", "GET", "/team");
 const team = teams?.teams?.find((t) => String(t.id) === teamId);
