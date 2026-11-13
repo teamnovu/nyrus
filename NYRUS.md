@@ -13,7 +13,7 @@ Project brief (German): [ClickUp doc "novu cyrus"](https://app.clickup.com/14278
 | Deploying on Laravel Forge (AP1) | [deploy/forge/README.md](deploy/forge/README.md) |
 | Shared base for trackers without agent sessions (AP2): design and how to add a tracker | [packages/comment-sessions/README.md](packages/comment-sessions/README.md) |
 | Where trackers plug into the edge worker | [packages/edge-worker/src/TrackerIntegrations.ts](packages/edge-worker/src/TrackerIntegrations.ts) |
-| ClickUp integration (AP3): spike and findings | `docs/nyrus/clickup-spike.md` (on `feat/clickup-integration` until merged) |
+| ClickUp integration (AP3): spike and findings | [docs/nyrus/clickup-spike.md](docs/nyrus/clickup-spike.md), tools in [scripts/clickup/](scripts/clickup) |
 | ClickUp setup guide (once released) | `docs/CLICKUP.md` |
 | Jira integration (AP4) setup guide (once released) | `docs/JIRA.md` |
 | Plane, the integration ClickUp and Jira are modeled on | [docs/PLANE.md](docs/PLANE.md), [packages/plane-event-transport](packages/plane-event-transport) |
