@@ -1,14 +1,14 @@
 @props(['status'])
 @php
     $styles = [
-        'active' => 'bg-blue-100 text-blue-800',
-        'pending' => 'bg-blue-100 text-blue-800',
-        'awaitingInput' => 'bg-amber-100 text-amber-800',
-        'complete' => 'bg-emerald-100 text-emerald-800',
-        'error' => 'bg-red-100 text-red-800',
-        'idle' => 'bg-emerald-100 text-emerald-800',
-        'busy' => 'bg-blue-100 text-blue-800',
-        'down' => 'bg-red-100 text-red-800',
+        'active' => 'bg-gold-700 text-ink',
+        'pending' => 'bg-gold-600 text-ink',
+        'busy' => 'bg-gold-700 text-ink',
+        'awaitingInput' => 'border border-gold-800 text-gold-900',
+        'complete' => 'bg-ink text-gold-600',
+        'idle' => 'bg-ink text-gold-600',
+        'error' => 'bg-red-700 text-white',
+        'down' => 'bg-red-700 text-white',
     ];
     $labels = [
         'active' => 'läuft',
@@ -21,4 +21,4 @@
         'down' => 'nicht erreichbar',
     ];
 @endphp
-<span {{ $attributes->class(['inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', $styles[$status] ?? 'bg-zinc-100 text-zinc-700']) }}>{{ $labels[$status] ?? $status }}</span>
+<span {{ $attributes->class(['inline-flex items-center px-2 py-0.5 text-xs font-medium tracking-wider uppercase', $styles[$status] ?? 'bg-gold-200 text-brand-gray-dark']) }}>{{ $labels[$status] ?? $status }}</span>

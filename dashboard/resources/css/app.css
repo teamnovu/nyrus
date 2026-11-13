@@ -3,7 +3,81 @@
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../storage/framework/views/*.php';
 
+/*
+ * novu branding, taken from novu.ch (teamnovu/novu-web): black and near-black
+ * surfaces, gold accents, warm beige, neuzeit-grotesk (Adobe Fonts kit, loaded
+ * in the layout; falls back to the system sans if the kit doesn't serve this
+ * domain).
+ */
 @theme {
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
-        'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-sans: neuzeit-grotesk, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+    --color-gold-100: #fffdf5;
+    --color-gold-200: #f1efea;
+    --color-gold-600: #ebdfb7;
+    --color-gold-700: #d5c283;
+    --color-gold-800: #bca763;
+    --color-gold-900: #998d68;
+
+    --color-brand-gold: #9f9061;
+    --color-brand-beige: #f1efea;
+    --color-brand-gray-medium: #92918d;
+    --color-brand-gray-dark: #5e5e5b;
+
+    --color-ink: #121212;
+    --color-ink-soft: #181818;
+}
+
+@layer base {
+    body {
+        @apply bg-brand-beige text-ink;
+    }
+
+    h1,
+    h2 {
+        @apply font-bold tracking-wide uppercase;
+    }
+
+    ::selection {
+        @apply bg-gold-600 text-ink;
+    }
+}
+
+@layer components {
+    .card {
+        @apply rounded-none border border-black/10 bg-white;
+    }
+
+    .btn {
+        @apply inline-flex items-center justify-center gap-2 bg-ink px-4 py-2 text-sm font-medium tracking-wide text-white uppercase transition-colors hover:bg-black hover:text-gold-700;
+    }
+
+    .btn-secondary {
+        @apply inline-flex items-center justify-center gap-2 border border-ink px-4 py-2 text-sm font-medium tracking-wide uppercase transition-colors hover:bg-ink hover:text-gold-700;
+    }
+
+    .btn-danger {
+        @apply inline-flex items-center justify-center gap-2 border border-red-700 px-3 py-1.5 text-sm text-red-700 transition-colors hover:bg-red-700 hover:text-white;
+    }
+
+    .field {
+        @apply mt-1 w-full rounded-none border border-black/20 bg-white px-3 py-2 outline-none focus:border-gold-800 focus:ring-2 focus:ring-gold-600;
+    }
+
+    .label {
+        @apply text-xs font-medium tracking-wider text-brand-gray-dark uppercase;
+    }
+
+    /* the gold dash novu.ch uses as bullet */
+    .eyebrow {
+        @apply flex items-center gap-3 text-xs font-medium tracking-widest text-brand-gold uppercase before:inline-block before:h-0.5 before:w-6 before:bg-gold-700;
+    }
+
+    .table-head {
+        @apply border-b border-black/10 bg-gold-200 text-xs tracking-wider text-brand-gray-dark uppercase;
+    }
+
+    .link {
+        @apply text-brand-gold underline decoration-gold-700/60 underline-offset-2 hover:text-ink;
+    }
 }
