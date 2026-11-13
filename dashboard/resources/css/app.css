@@ -4,74 +4,200 @@
 @source '../../storage/framework/views/*.php';
 
 /*
- * Union Group branding (union-group.ch): black and white, very bold
- * Helvetica, green as the brand color with black text on it, browns and
- * grays from the brand palette, coral/peach as signal colors.
+ * nyrus dashboard: Union Group colors in a "liquid glass" look. Dark canvas
+ * with slowly drifting color light, translucent frosted surfaces with soft
+ * depth instead of borders, pill controls, gentle motion.
  */
 @theme {
     --font-sans: 'Helvetica Neue', Helvetica, Arial, ui-sans-serif, system-ui, sans-serif;
 
-    --color-ink: #080808;
+    --color-ink: #070707;
     --color-brand: #52d09b;
     --color-brand-strong: #0d8e5f;
     --color-brand-muted: #d3f8e3;
     --color-brown: #3d3c36;
     --color-brown-light: #7b776b;
-    --color-subtle: #949084;
     --color-coral: #eb6052;
     --color-peach: #ebba9a;
-    --color-paper: #f4f3f0;
+
+    --animate-drift-a: drift-a 28s ease-in-out infinite alternate;
+    --animate-drift-b: drift-b 34s ease-in-out infinite alternate;
+    --animate-drift-c: drift-c 40s ease-in-out infinite alternate;
+    --animate-rise: rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+    --animate-pulse-soft: pulse-soft 2.4s ease-in-out infinite;
+
+    @keyframes drift-a {
+        to { transform: translate3d(12vw, 8vh, 0) scale(1.15); }
+    }
+    @keyframes drift-b {
+        to { transform: translate3d(-10vw, -6vh, 0) scale(1.2); }
+    }
+    @keyframes drift-c {
+        to { transform: translate3d(6vw, -10vh, 0) scale(0.9); }
+    }
+    @keyframes rise {
+        /* opacity and transform only: a lingering filter on an ancestor would break the glass (backdrop-filter) */
+        from { opacity: 0; transform: translateY(14px); }
+        to { opacity: 1; transform: none; }
+    }
+    @keyframes pulse-soft {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.45; transform: scale(0.8); }
+    }
 }
 
 @layer base {
+    html {
+        color-scheme: dark;
+    }
+
     body {
-        @apply bg-paper text-ink;
+        @apply bg-ink text-white/90 antialiased;
+        font-feature-settings: 'ss01', 'tnum';
     }
 
     h1,
-    h2 {
-        @apply font-extrabold tracking-tight;
+    h2,
+    h3 {
+        @apply font-extrabold tracking-tight text-white;
     }
 
     ::selection {
-        @apply bg-brand text-ink;
+        @apply bg-brand/80 text-ink;
+    }
+
+    :focus-visible {
+        @apply outline-none ring-2 ring-brand/70 ring-offset-0;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+            animation: none !important;
+            transition: none !important;
+        }
     }
 }
 
 @layer components {
-    .card {
-        @apply rounded-2xl border border-ink bg-white;
+    /* the moving color light behind everything */
+    .aurora {
+        @apply pointer-events-none fixed inset-0 -z-10 overflow-hidden;
+    }
+    .aurora::after {
+        /* soft vignette + very faint grain-like haze */
+        content: '';
+        @apply absolute inset-0;
+        background:
+            radial-gradient(ellipse at 50% 0%, transparent 0%, rgb(7 7 7 / 0.55) 70%),
+            linear-gradient(to bottom, transparent, rgb(7 7 7 / 0.6));
+    }
+    .aurora-blob {
+        @apply absolute rounded-full opacity-60 blur-3xl will-change-transform;
+    }
+
+    /* frosted glass surfaces: depth from shadow and a light edge, no borders */
+    .glass {
+        @apply rounded-3xl bg-white/[0.06] backdrop-blur-2xl backdrop-saturate-150;
+        box-shadow:
+            inset 0 1px 0 0 rgb(255 255 255 / 0.14),
+            inset 0 0 0 1px rgb(255 255 255 / 0.03),
+            0 20px 50px -20px rgb(0 0 0 / 0.7),
+            0 2px 6px -2px rgb(0 0 0 / 0.4);
+    }
+    .glass-strong {
+        @apply rounded-3xl bg-white/[0.1] backdrop-blur-3xl backdrop-saturate-200;
+        box-shadow:
+            inset 0 1px 0 0 rgb(255 255 255 / 0.22),
+            inset 0 -1px 0 0 rgb(255 255 255 / 0.04),
+            0 24px 60px -24px rgb(0 0 0 / 0.8);
+    }
+    .glass-hover {
+        @apply transition duration-300 ease-out hover:-translate-y-0.5 hover:bg-white/[0.09];
+    }
+    .glass-hover:hover {
+        box-shadow:
+            inset 0 1px 0 0 rgb(255 255 255 / 0.2),
+            0 28px 60px -24px rgb(0 0 0 / 0.85),
+            0 0 0 1px rgb(82 208 155 / 0.12);
     }
 
     .btn {
-        @apply inline-flex items-center justify-center gap-2 rounded-full bg-brand px-5 py-2 text-sm font-bold text-ink transition-colors hover:bg-ink hover:text-brand;
+        @apply relative inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-bold text-ink transition duration-300 ease-out hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98];
+        background: linear-gradient(180deg, #7fe2b8 0%, #52d09b 55%, #3fbf89 100%);
+        box-shadow:
+            inset 0 1px 0 rgb(255 255 255 / 0.55),
+            inset 0 -2px 6px rgb(13 142 95 / 0.35),
+            0 10px 30px -8px rgb(82 208 155 / 0.55);
     }
-
-    .btn-secondary {
-        @apply inline-flex items-center justify-center gap-2 rounded-full border border-ink bg-white px-5 py-2 text-sm font-bold transition-colors hover:bg-ink hover:text-white;
+    .btn:hover {
+        box-shadow:
+            inset 0 1px 0 rgb(255 255 255 / 0.65),
+            inset 0 -2px 6px rgb(13 142 95 / 0.35),
+            0 16px 40px -8px rgb(82 208 155 / 0.7);
     }
-
+    .btn-ghost {
+        @apply inline-flex items-center justify-center gap-2 rounded-full bg-white/[0.08] px-5 py-2.5 text-sm font-bold text-white/90 backdrop-blur-xl transition duration-300 ease-out hover:-translate-y-0.5 hover:bg-white/[0.14] active:scale-[0.98];
+        box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.15), 0 8px 24px -12px rgb(0 0 0 / 0.6);
+    }
     .btn-danger {
-        @apply inline-flex items-center justify-center gap-2 rounded-full border border-coral px-4 py-1.5 text-sm font-bold text-coral transition-colors hover:bg-coral hover:text-white;
+        @apply inline-flex items-center justify-center gap-2 rounded-full bg-coral/15 px-4 py-2 text-sm font-bold text-coral transition duration-300 hover:bg-coral hover:text-white;
+        box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
     }
 
     .field {
-        @apply mt-1 w-full rounded-xl border border-ink bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-brand;
+        @apply mt-1.5 w-full rounded-2xl bg-white/[0.06] px-4 py-2.5 text-white placeholder:text-white/30 transition duration-200 outline-none focus:bg-white/[0.1];
+        box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.35), inset 0 0 0 1px rgb(255 255 255 / 0.05);
+    }
+    .field:focus {
+        box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.35), 0 0 0 3px rgb(82 208 155 / 0.35);
     }
 
     .label {
-        @apply text-xs font-bold text-brown-light;
+        @apply text-xs font-bold text-white/50;
     }
-
+    .muted {
+        @apply text-white/55;
+    }
     .eyebrow {
-        @apply flex w-fit items-center rounded-full bg-ink px-3 py-1 text-xs font-bold text-brand;
+        @apply flex w-fit items-center gap-2 rounded-full bg-white/[0.07] px-3 py-1 text-xs font-bold text-brand backdrop-blur-xl;
+        box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.12);
+    }
+    .eyebrow::before {
+        content: '';
+        @apply size-1.5 rounded-full bg-brand;
+        box-shadow: 0 0 10px 2px rgb(82 208 155 / 0.7);
     }
 
-    .table-head {
-        @apply border-b border-ink text-xs text-brown-light;
+    .chip {
+        @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold backdrop-blur-xl;
+        box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.12);
+    }
+    .chip-dot {
+        @apply size-1.5 rounded-full bg-current;
+        box-shadow: 0 0 8px 1px currentColor;
     }
 
     .link {
-        @apply font-bold text-brand-strong underline decoration-brand underline-offset-4 hover:text-ink;
+        @apply font-bold text-brand transition-colors hover:text-brand-muted;
+    }
+
+    .notice {
+        @apply flex items-start gap-3 rounded-3xl bg-white/[0.06] px-5 py-4 text-sm backdrop-blur-2xl;
+        box-shadow:
+            inset 0 1px 0 0 rgb(255 255 255 / 0.14),
+            0 20px 50px -20px rgb(0 0 0 / 0.7);
+    }
+}
+
+@layer components {
+    /* light that follows the cursor on interactive glass cards (set by app.js) */
+    .glass-hover {
+        background-image: radial-gradient(
+            420px circle at var(--mx, 50%) var(--my, -40%),
+            rgb(255 255 255 / 0.09),
+            transparent 45%
+        );
     }
 }

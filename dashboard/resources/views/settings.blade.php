@@ -1,69 +1,81 @@
 <x-app title="Einstellungen">
     <p class="eyebrow">Konfiguration</p>
-    <h1 class="mt-2 text-5xl">Einstellungen</h1>
-    <p class="mt-1 text-sm text-brown-light">Variablen in der <span class="font-mono">.env</span> von nyrus. Werte werden nie angezeigt, nur überschrieben. nyrus liest die Datei bei Änderungen automatisch neu ein.</p>
+    <h1 class="mt-3 text-5xl sm:text-6xl">Einstellungen</h1>
+    <p class="muted mt-2 text-sm">Variablen in der <span class="font-mono">.env</span> von nyrus. Werte werden nie angezeigt, nur überschrieben. nyrus liest die Datei bei Änderungen automatisch neu ein.</p>
 
     @if ($error)
-        <div class="mt-6 rounded-2xl bg-peach px-4 py-3 text-sm font-bold">Einstellungen konnten nicht geladen werden: {{ $error }}</div>
+        <div class="notice mt-6">
+            <span class="chip bg-peach/20 text-peach"><span class="chip-dot"></span></span>
+            <span>Einstellungen konnten nicht geladen werden: {{ $error }}</span>
+        </div>
     @endif
 
     @if ($gh !== null)
-        <div class="mt-6 card p-4 text-sm">
-            <span class="font-medium">GitHub CLI:</span>
+        <div class="glass mt-8 flex flex-wrap items-center gap-3 px-6 py-4 text-sm">
+            <span class="font-bold text-white">GitHub CLI</span>
             @if (($gh['isInstalled'] ?? false) && ($gh['isAuthenticated'] ?? false))
-                <span class="text-brand-strong font-medium">installiert und angemeldet</span>
+                <span class="chip bg-brand/15 text-brand"><span class="chip-dot"></span>installiert und angemeldet</span>
             @elseif ($gh['isInstalled'] ?? false)
-                <span class="text-brown">installiert, aber nicht angemeldet (auf dem Server <span class="font-mono">gh auth login</span> ausführen)</span>
+                <span class="chip bg-peach/20 text-peach"><span class="chip-dot"></span>nicht angemeldet</span>
+                <span class="muted">auf dem Server <span class="font-mono text-white/80">gh auth login</span> ausführen</span>
             @else
-                <span class="text-coral">nicht installiert</span>
+                <span class="chip bg-coral/20 text-coral"><span class="chip-dot"></span>nicht installiert</span>
             @endif
         </div>
     @endif
 
-    <div class="mt-6 overflow-x-auto card">
-        <table class="w-full text-left text-sm">
-            <thead class="table-head">
-                <tr><th class="px-4 py-2 font-medium">Variable</th><th class="px-4 py-2 font-medium">Status</th><th class="px-4 py-2 font-medium">Wofür</th></tr>
-            </thead>
-            <tbody class="divide-y divide-ink/10">
-                @php($rows = collect($known)->keys()->merge($set->keys())->unique()->sort()->values())
-                @foreach ($rows as $key)
-                    <tr>
-                        <td class="px-4 py-2 font-mono text-xs">{{ $key }}</td>
-                        <td class="px-4 py-2">
-                            @if ($set->has($key) && $set[$key]['hasValue'])
-                                <span class="text-brand-strong font-medium">gesetzt</span>
-                            @elseif ($set->has($key))
-                                <span class="text-brown">leer</span>
-                            @else
-                                <span class="text-subtle">nicht gesetzt</span>
-                            @endif
-                            @if (in_array($key, $protected, true))
-                                <span class="ml-1 text-xs text-subtle">(nur auf dem Server)</span>
-                            @endif
-                        </td>
-                        <td class="px-4 py-2 text-brown-light">{{ $known[$key] ?? '' }}</td>
-                    </tr>
-                @endforeach
-            </tbody>
-        </table>
+    <div class="mt-6 grid gap-3 sm:grid-cols-2">
+        @php($rows = collect($known)->keys()->merge($set->keys())->unique()->sort()->values())
+        @foreach ($rows as $key)
+            @php($isSet = $set->has($key) && $set[$key]['hasValue'])
+            <div class="glass flex items-start gap-4 p-5">
+                <span @class([
+                    'mt-1 size-2.5 shrink-0 rounded-full',
+                    'bg-brand shadow-[0_0_10px_rgb(82_208_155/0.8)]' => $isSet,
+                    'bg-peach shadow-[0_0_10px_rgb(235_186_154/0.6)]' => ! $isSet && $set->has($key),
+                    'bg-white/20' => ! $set->has($key),
+                ])></span>
+                <div class="min-w-0 flex-1">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span class="truncate font-mono text-sm font-bold text-white">{{ $key }}</span>
+                        @if (in_array($key, $protected, true))
+                            <span class="chip bg-white/[0.07] text-white/50">nur auf dem Server</span>
+                        @endif
+                    </div>
+                    <div class="mt-1 text-xs">
+                        @if ($isSet)
+                            <span class="font-bold text-brand">gesetzt</span>
+                        @elseif ($set->has($key))
+                            <span class="font-bold text-peach">leer</span>
+                        @else
+                            <span class="muted">nicht gesetzt</span>
+                        @endif
+                        @if ($known[$key] ?? null)
+                            <span class="muted"> · {{ $known[$key] }}</span>
+                        @endif
+                    </div>
+                </div>
+            </div>
+        @endforeach
     </div>
 
-    <h2 class="mt-10 text-2xl font-extrabold">Variable setzen</h2>
-    <form method="POST" action="{{ route('settings.update') }}" class="mt-4 grid gap-4 card p-4 sm:grid-cols-3">
-        @csrf
-        <label class="text-sm">Name
-            <input name="key" list="known-keys" value="{{ old('key') }}" required placeholder="GITHUB_TOKEN" class="field font-mono">
-            <datalist id="known-keys">
-                @foreach (array_keys($known) as $key)<option value="{{ $key }}">@endforeach
-            </datalist>
-        </label>
-        <label class="text-sm sm:col-span-2">Wert
-            <input name="value" type="password" required autocomplete="new-password" class="field font-mono">
-        </label>
-        <div class="sm:col-span-3">
-            <button class="btn">Speichern</button>
-            <span class="ml-3 text-xs text-brown-light">Ins Audit-Log kommt nur der Name, nie der Wert.</span>
-        </div>
-    </form>
+    <div class="glass mt-10 p-6 sm:p-8">
+        <h2 class="text-2xl">Variable setzen</h2>
+        <form method="POST" action="{{ route('settings.update') }}" class="mt-6 grid gap-4 sm:grid-cols-3">
+            @csrf
+            <label class="label">Name
+                <input name="key" list="known-keys" value="{{ old('key') }}" required placeholder="GITHUB_TOKEN" class="field font-mono font-normal">
+                <datalist id="known-keys">
+                    @foreach (array_keys($known) as $key)<option value="{{ $key }}">@endforeach
+                </datalist>
+            </label>
+            <label class="label sm:col-span-2">Wert
+                <input name="value" type="password" required autocomplete="new-password" class="field font-mono font-normal">
+            </label>
+            <div class="flex flex-wrap items-center gap-4 sm:col-span-3">
+                <button class="btn">Speichern</button>
+                <span class="muted text-xs">Ins Audit-Log kommt nur der Name, nie der Wert.</span>
+            </div>
+        </form>
+    </div>
 </x-app>
