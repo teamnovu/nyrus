@@ -87,6 +87,7 @@ export const LINEAR_DEFAULT_ALLOWED_TOOLS = [
 	"mcp__linear",
 	"mcp__plane",
 	"mcp__jira",
+	"mcp__clickup",
 	"mcp__cyrus-tools",
 	"mcp__cyrus-docs",
 	"mcp__slack",

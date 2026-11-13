@@ -16,7 +16,7 @@ The tools are in [scripts/clickup/](../../scripts/clickup). They have no depende
 
 novu's ClickUp policy allows **no non-personal accounts** (admins, 2026-11-13). A `nyrus` bot user was invited as a guest and has to be removed again by an admin (`nyrus@novu.ch`, id `105741187`). ClickUp also has no way for a self-built integration to appear as its own participant: only partner agents (Cursor, Codegen) do, and OAuth apps act as the person who authorized them.
 
-So nyrus works through the API **in the name of a real person**, and is started without assigning or mentioning a bot user. Proposed, not yet decided:
+So nyrus works through the API **in the name of a real person**, and is started without assigning or mentioning a bot user. Built this way (see [docs/CLICKUP.md](../CLICKUP.md)); whose token is used in production still needs the admins' OK:
 
 - **Writing** with one person's access (personal token for the spike, an OAuth app in production), every comment starting with "🤖 nyrus:". Needs the admins' OK.
 - **Starting** with a tag `nyrus` on a task (works the whole task; removing it stops) and comments starting with `/nyrus` (questions and instructions).

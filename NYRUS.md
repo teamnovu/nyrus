@@ -26,7 +26,7 @@ Setup guides for users go in `docs/<TRACKER>.md`, like upstream's. Notes for dev
 |---|---|---|---|
 | AP1 | Hosting & operations (Forge) | Deploy script and dashboard on `main`, prod at https://nyrus.novu.ch | `main` |
 | AP2 | Shared base for trackers without agent sessions | Merged: [#5](https://github.com/teamnovu/nyrus/pull/5), fixes in [#9](https://github.com/teamnovu/nyrus/pull/9) | `main` |
-| AP3 | ClickUp integration | Stage 1 merged ([#6](https://github.com/teamnovu/nyrus/pull/6)): receives and records webhooks. Next: webhook test on prod, then sessions | `main` |
+| AP3 | ClickUp integration | Sessions on `main`: tag `nyrus` and `/nyrus` comments, acting with one person's token ([docs/CLICKUP.md](docs/CLICKUP.md)). Next: test on prod in the sandbox Space, confirm webhook payloads, admins' OK for the token | `main` |
 | AP4 | Jira integration | Merged on the AP2 base ([#3](https://github.com/teamnovu/nyrus/pull/3), fixes in [#9](https://github.com/teamnovu/nyrus/pull/9)); not yet tested against a real Jira site | `main` |
 | AP5 | Tracker-neutral prompts, status mapping, PR links | Open | — |
 | AP6 | Tests & pilot | Open | — |
@@ -44,6 +44,7 @@ Keep this table current when a package changes state.
 | 2026-11-13 | Assigning the bot means "work the whole ticket"; mentioning it in a comment means a question or instruction. |
 | 2026-11-13 | ClickUp: no bot user. novu allows no non-personal ClickUp accounts, so nyrus has to act through the API in a person's name. Whose, and how it is started instead of assign/@mention, is open: see [docs/nyrus/clickup-spike.md](docs/nyrus/clickup-spike.md#identity-no-bot-account). |
 | 2026-11-13 | ClickUp routing: a Space (one per customer) is the team, a List is the project. |
+| 2026-11-13 | ClickUp sessions start on the tag `nyrus` (hand-over) and on comments starting with `/nyrus` (questions); assignment only with `CLICKUP_TRIGGER_ON_ASSIGN=true`. nyrus reads tasks and comments from the API instead of trusting webhook payloads, and only acts in `CLICKUP_SPACE_IDS`. Tasks are `CU-<id>` (branch `CU-<id>-<title>`) and a Space's id is its team key. No time entries, since they would land on the token person's timesheet. Whose token in production is still open. |
 
 Open: Jira Cloud or Data Center, where nyrus runs in production, and which projects and repositories the pilot uses.
 
