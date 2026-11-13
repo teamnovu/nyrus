@@ -1,14 +1,14 @@
 @props(['status'])
 @php
     $styles = [
-        'active' => 'bg-gold/20 text-gold',
-        'pending' => 'bg-gold-light/15 text-gold-light',
-        'busy' => 'bg-gold/20 text-gold',
-        'awaitingInput' => 'bg-warning/20 text-warning',
-        'complete' => 'bg-white/10 text-white/75',
-        'idle' => 'bg-gold/20 text-gold',
-        'error' => 'bg-danger/20 text-danger',
-        'down' => 'bg-danger/20 text-danger',
+        'active' => 'text-gold',
+        'pending' => 'text-gold-light',
+        'busy' => 'text-gold',
+        'awaitingInput' => 'text-warning',
+        'complete' => 'text-white/55',
+        'idle' => 'text-white/80',
+        'error' => 'text-danger',
+        'down' => 'text-danger',
     ];
     $labels = [
         'active' => 'läuft',
@@ -22,6 +22,6 @@
     ];
     $pulse = in_array($status, ['active', 'busy', 'pending'], true);
 @endphp
-<span {{ $attributes->class(['chip', $styles[$status] ?? 'bg-white/10 text-white/70']) }}>
-    <span @class(['chip-dot', 'animate-pulse-soft' => $pulse])></span>{{ $labels[$status] ?? $status }}
+<span {{ $attributes->class(['chip', $styles[$status] ?? 'text-white/60']) }}>
+    <span @class(['chip-dot', 'animate-pulse' => $pulse])></span>{{ $labels[$status] ?? $status }}
 </span>

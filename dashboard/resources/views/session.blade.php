@@ -1,64 +1,59 @@
 <x-app :title="$session['issue']['identifier'] ?? 'Session'">
-    <a href="{{ route('dashboard') }}" class="btn-ghost !py-1.5 !pl-3 text-xs">
+    <a href="{{ route('dashboard') }}" class="muted inline-flex items-center gap-1 text-sm transition-colors hover:text-white">
         <svg class="size-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M12.79 5.23a.75.75 0 0 1-.02 1.06L8.83 10l3.94 3.71a.75.75 0 1 1-1.04 1.08l-4.5-4.25a.75.75 0 0 1 0-1.08l4.5-4.25a.75.75 0 0 1 1.06.02Z" clip-rule="evenodd"/></svg>
         Übersicht
     </a>
 
     <div class="mt-6 flex flex-wrap items-center gap-3">
-        <h1 class="text-5xl sm:text-6xl">{{ $session['issue']['identifier'] ?? $session['id'] }}</h1>
+        <h1 class="text-3xl sm:text-4xl">{{ $session['issue']['identifier'] ?? $session['id'] }}</h1>
         <x-status-badge :status="$session['status']" />
     </div>
     @if ($session['issue']['title'] ?? null)
-        <p class="muted mt-2 text-lg">{{ $session['issue']['title'] }}</p>
+        <p class="muted mt-2">{{ $session['issue']['title'] }}</p>
     @endif
 
-    <div class="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div class="glass p-5"><div class="label">Tracker</div><div class="mt-1 font-bold text-white">{{ $session['tracker'] ?? '–' }}</div></div>
-        <div class="glass p-5"><div class="label">Repository / Branch</div><div class="mt-1 font-bold text-white">
+    @php($fmt = fn ($ms) => $ms ? \Illuminate\Support\Carbon::createFromTimestampMs($ms)->timezone('Europe/Zurich')->format('d.m.Y H:i') : '–')
+    <dl class="mt-8 grid gap-px overflow-hidden rounded-xl bg-white/[0.07] ring-1 ring-white/[0.07] sm:grid-cols-2 lg:grid-cols-4">
+        <div class="bg-surface p-5"><dt class="label">Tracker</dt><dd class="mt-1 text-white">{{ $session['tracker'] ?? '–' }}</dd></div>
+        <div class="bg-surface p-5"><dt class="label">Repository / Branch</dt><dd class="mt-1 text-white">
             @forelse ($session['repositories'] as $repo)
-                {{ $repo['id'] }}@if ($repo['branch']) <span class="muted font-normal">· {{ $repo['branch'] }}</span>@endif<br>
+                {{ $repo['id'] }}@if ($repo['branch']) <span class="muted font-mono text-xs">{{ $repo['branch'] }}</span>@endif<br>
             @empty
                 –
             @endforelse
-        </div></div>
-        <div class="glass p-5"><div class="label">Modell</div><div class="mt-1 font-bold text-white">{{ $session['model'] ?? '–' }}</div></div>
-        <div class="glass p-5"><div class="label">Kosten</div><div class="mt-1 text-2xl font-extrabold tabular-nums text-white">{{ $session['totalCostUsd'] !== null ? '$'.number_format($session['totalCostUsd'], 2) : '–' }}</div></div>
-        <div class="glass p-5"><div class="label">Gestartet</div><div class="mt-1 font-bold text-white">{{ $session['createdAt'] ? \Illuminate\Support\Carbon::createFromTimestampMs($session['createdAt'])->timezone('Europe/Zurich')->format('d.m.Y H:i') : '–' }}</div></div>
-        <div class="glass p-5 sm:col-span-2 lg:col-span-3">
-            <div class="label">Pull Request</div>
-            <div class="mt-1 truncate">
+        </dd></div>
+        <div class="bg-surface p-5"><dt class="label">Modell</dt><dd class="mt-1 text-white">{{ $session['model'] ?? '–' }}</dd></div>
+        <div class="bg-surface p-5"><dt class="label">Kosten</dt><dd class="mt-1 font-semibold tabular-nums text-white">{{ $session['totalCostUsd'] !== null ? '$'.number_format($session['totalCostUsd'], 2) : '–' }}</dd></div>
+        <div class="bg-surface p-5"><dt class="label">Gestartet</dt><dd class="mt-1 text-white">{{ $fmt($session['createdAt']) }}</dd></div>
+        <div class="bg-surface p-5 sm:col-span-2 lg:col-span-3">
+            <dt class="label">Pull Request</dt>
+            <dd class="mt-1 truncate">
                 @if ($session['pullRequestUrl'])
                     <a href="{{ $session['pullRequestUrl'] }}" target="_blank" rel="noopener" class="link">{{ $session['pullRequestUrl'] }}</a>
                 @else <span class="muted">–</span> @endif
-            </div>
+            </dd>
         </div>
-        <div class="glass p-5 sm:col-span-2 lg:col-span-4"><div class="label">Arbeitsverzeichnis</div><div class="mt-1 break-all font-mono text-xs text-white/70">{{ $session['workspacePath'] ?? '–' }}</div></div>
-    </div>
+        <div class="bg-surface p-5 sm:col-span-2 lg:col-span-4"><dt class="label">Arbeitsverzeichnis</dt><dd class="mt-1 break-all font-mono text-xs text-white/65">{{ $session['workspacePath'] ?? '–' }}</dd></div>
+    </dl>
 
-    <div class="mt-10 flex items-baseline justify-between">
-        <h2 class="text-2xl">Verlauf</h2>
+    <div class="mt-12 flex items-baseline justify-between">
+        <h2 class="text-lg">Verlauf</h2>
         <span class="muted text-xs">{{ count($entries) }} Einträge</span>
     </div>
-    <ol class="relative mt-4 space-y-3 pl-6 before:absolute before:top-2 before:bottom-2 before:left-[7px] before:w-px before:bg-gradient-to-b before:from-gold/60 before:via-white/10 before:to-transparent">
+    <ol class="card divided mt-3 overflow-hidden">
         @forelse ($entries as $entry)
-            <li class="relative">
-                <span @class([
-                    'absolute top-5 -left-[22px] size-3 rounded-full ring-4 ring-ink',
-                    'bg-danger shadow-[0_0_12px_rgb(194_78_56/0.8)]' => $entry['isError'],
-                    'bg-gold shadow-[0_0_12px_rgb(213_194_131/0.7)]' => ! $entry['isError'],
-                ])></span>
-                <div class="glass p-4">
-                    <div class="flex flex-wrap items-center gap-2 text-xs">
-                        <span class="font-bold text-white/70">{{ $entry['type'] }}</span>
-                        @if ($entry['toolName'])<span class="chip bg-white/[0.07] font-mono text-white/70">{{ $entry['toolName'] }}</span>@endif
-                        @if ($entry['isError'])<span class="chip bg-danger/20 text-danger">Fehler</span>@endif
-                        @if ($entry['timestamp'])<span class="muted ml-auto tabular-nums">{{ \Illuminate\Support\Carbon::createFromTimestampMs($entry['timestamp'])->timezone('Europe/Zurich')->format('H:i:s') }}</span>@endif
-                    </div>
-                    <pre class="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-white/85">{{ $entry['content'] }}</pre>
+            <li class="px-5 py-4">
+                <div class="flex flex-wrap items-center gap-2 text-xs">
+                    <span @class(['size-1.5 rounded-full', 'bg-danger' => $entry['isError'], 'bg-gold' => ! $entry['isError']]) aria-hidden="true"></span>
+                    <span class="font-medium text-white/75">{{ $entry['type'] }}</span>
+                    @if ($entry['toolName'])<span class="font-mono text-white/45">{{ $entry['toolName'] }}</span>@endif
+                    @if ($entry['isError'])<span class="chip text-danger">Fehler</span>@endif
+                    @if ($entry['timestamp'])<span class="muted ml-auto font-mono tabular-nums">{{ \Illuminate\Support\Carbon::createFromTimestampMs($entry['timestamp'])->timezone('Europe/Zurich')->format('H:i:s') }}</span>@endif
                 </div>
+                <pre class="mt-2 max-h-80 overflow-auto font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-white/80">{{ $entry['content'] }}</pre>
             </li>
         @empty
-            <li class="muted text-sm">Noch keine Einträge.</li>
+            <li class="muted px-5 py-8 text-sm">Noch keine Einträge.</li>
         @endforelse
     </ol>
 </x-app>

@@ -64,20 +64,7 @@ function setupBusyForms() {
     });
 }
 
-/** Cursor-following light on glass cards for a subtle 3D feel. */
-function setupGlassLight() {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    document.addEventListener('pointermove', (event) => {
-        const card = event.target.closest?.('.glass-hover');
-        if (!card) return;
-        const rect = card.getBoundingClientRect();
-        card.style.setProperty('--mx', `${event.clientX - rect.left}px`);
-        card.style.setProperty('--my', `${event.clientY - rect.top}px`);
-    });
-}
-
 document.addEventListener('DOMContentLoaded', () => {
     setupLiveRegions();
     setupBusyForms();
-    setupGlassLight();
 });

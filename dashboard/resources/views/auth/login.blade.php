@@ -1,42 +1,35 @@
 <x-app title="Anmelden" :bare="true">
     <div class="flex min-h-screen items-center justify-center py-10">
-        <div class="glass-strong w-full max-w-md animate-rise p-8 sm:p-10">
-            <img src="/brand/nyrus-logo.png" alt="" class="size-20 drop-shadow-[0_10px_30px_rgb(213_194_131/0.3)]">
+        <div class="w-full max-w-sm">
+            <div class="flex items-center gap-2 text-xl font-semibold tracking-tight text-white">
+                <span class="size-2.5 rounded-full bg-gold" aria-hidden="true"></span>nyrus
+            </div>
+            <p class="muted mt-2 text-sm">Dashboard für den Coding-Agent.</p>
 
-            <h1 class="mt-8 text-6xl leading-none sm:text-7xl">nyrus</h1>
-            <p class="muted mt-3 text-base font-bold">Das Dashboard für unseren Coding-Agent.</p>
-
-            <div class="mt-10">
+            <div class="card mt-8 p-6">
                 @if (request()->has('logout'))
-                    <p class="text-sm font-bold text-white/70">Du bist abgemeldet.</p>
+                    <p class="mb-4 text-sm text-white/70">Du bist abgemeldet.</p>
                 @elseif ($failed && ! session('error'))
-                    <p class="text-sm font-bold text-danger">Die Anmeldung über novu SSO hat nicht geklappt. Bitte nochmals versuchen.</p>
+                    <p class="mb-4 text-sm text-danger">Die Anmeldung über novu SSO hat nicht geklappt. Bitte nochmals versuchen.</p>
                 @elseif (session('error'))
-                    <p class="text-sm font-bold text-danger">{{ session('error') }}</p>
+                    <p class="mb-4 text-sm text-danger">{{ session('error') }}</p>
                 @endif
 
                 @if ($configured)
-                    <a href="{{ route('sso') }}" class="btn mt-5 w-full !py-3.5 !text-base">
-                        Mit novu anmelden
-                        <svg class="size-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M3 10a.75.75 0 0 1 .75-.75h10.64l-3.97-3.97a.75.75 0 1 1 1.06-1.06l5.25 5.25a.75.75 0 0 1 0 1.06l-5.25 5.25a.75.75 0 1 1-1.06-1.06l3.97-3.97H3.75A.75.75 0 0 1 3 10Z" clip-rule="evenodd"/></svg>
-                    </a>
+                    <a href="{{ route('sso') }}" class="btn w-full !h-10">Mit novu anmelden</a>
                 @else
-                    <div class="mt-5 rounded-2xl bg-warning/10 px-4 py-3 text-sm text-warning">
-                        novu SSO ist noch nicht eingerichtet: <span class="font-mono">NOVU_AUTH_CLIENT_ID</span> und
+                    <p class="text-sm text-warning">
+                        SSO ist noch nicht eingerichtet: <span class="font-mono">NOVU_AUTH_CLIENT_ID</span> und
                         <span class="font-mono">NOVU_AUTH_CLIENT_SECRET</span> fehlen (OAuth Client auf auth.novu.ch).
-                    </div>
+                    </p>
                 @endif
 
                 @if ($devLogin)
                     <form method="POST" action="{{ route('auth.dev') }}" class="mt-3">
                         @csrf
-                        <button class="btn-ghost w-full">Lokal ohne SSO anmelden (nur Entwicklung)</button>
+                        <button class="btn-ghost w-full !h-10">Lokal ohne SSO anmelden</button>
                     </form>
                 @endif
-            </div>
-
-            <div class="mt-10 flex items-center gap-2 text-xs font-bold text-white/40">
-                von <img src="/brand/novu-white.svg" alt="novu" class="h-[10px] w-auto opacity-60">
             </div>
         </div>
     </div>
