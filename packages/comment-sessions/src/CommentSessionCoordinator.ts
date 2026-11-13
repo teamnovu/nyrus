@@ -1,285 +1,354 @@
 import { createLogger, type ILogger, type Issue } from "cyrus-core";
-import type { SessionDirectory, SessionRecord } from "./SessionDirectory.js";
+import { type SessionStore, sessionIdFor } from "./SessionStore.js";
 import type {
 	CommentTracker,
 	CommentTrackerEvent,
+	IssueChangedEvent,
 	IssueCommentEvent,
 	LinearShapedWebhook,
 	SessionState,
+	TrackerUser,
 } from "./types.js";
+
+/** How long the next event for a ticket waits for the edge worker to take this one over. */
+export interface DispatchTiming {
+	/** After a prompt, at most this long. */
+	promptSettleMs: number;
+	/** After a new session, until the edge worker knows it, checked this often... */
+	startPollMs: number;
+	/** ...for at most this long. */
+	startSettleMaxMs: number;
+}
+
+const DEFAULT_TIMING: DispatchTiming = {
+	promptSettleMs: 5_000,
+	startPollMs: 250,
+	startSettleMaxMs: 2 * 60 * 1000,
+};
 
 export interface CommentSessionCoordinatorDeps {
 	tracker: CommentTracker;
-	directory: SessionDirectory;
+	store: SessionStore;
 	getSessionState: (sessionId: string) => SessionState;
 	/** Hand the Linear-shaped webhook to the edge worker. */
 	dispatch: (webhook: LinearShapedWebhook) => Promise<void> | void;
-	/**
-	 * Pass comments that don't mention the bot to the session while it works
-	 * or waits for an answer (default true). Otherwise only mentions reach it.
-	 */
-	followUpsWithoutMention?: boolean;
 	logger?: ILogger;
-	now?: () => number;
+	timing?: Partial<DispatchTiming>;
 }
 
-/** Webhooks are retried for minutes, not hours. */
+/** A hand-over this soon after a session started is part of starting it. */
+const RECENT_START_MS = 2 * 60 * 1000;
+/** Retried deliveries come within minutes, not hours. */
 const DEDUPE_TTL_MS = 60 * 60 * 1000;
 
-/** Same as the edge worker's text stop request ("stop", "stop working", ...). */
-const STOP_COMMAND = /^\s*stop(\s+session|\s+working)?[\s.!?]*$/i;
+/** Sent as the prompt when a ticket the agent already worked on is handed back. */
+export const HANDED_BACK_PROMPT =
+	"This issue was handed to you again. Re-read it (its description and comments may have changed) and continue.";
 
 /**
  * Turns a comment tracker's events into the AgentSessionEvent webhooks the
- * edge worker handles for Linear, with Cyrus keeping the sessions:
+ * edge worker handles for Linear. Every ticket has at most one session.
  *
- * - Assigning the bot starts a delegation session (the whole ticket), unless
- *   one is already working on it.
- * - Unassigning it stops the ticket's sessions (as Linear's unassignment).
- * - A comment mentioning the bot resumes the ticket's latest session, or
- *   starts a conversational session on that comment if there is none.
- * - While a session works or waits for an answer, other comments are
- *   follow-ups too, so the bot need not be mentioned in every reply.
- * - "stop" (e.g. "@bot stop") stops a working session.
+ * - A ticket handed to the agent (trigger label or tag, or assigned to its
+ *   account, as the tracker decides) starts a delegation: the session gets no
+ *   comment, so the agent works the whole ticket. Handing a ticket back after
+ *   its session ended continues that session.
+ * - Taking the ticket away (removing the label, unassigning) stops the session.
+ * - A comment that mentions the agent on a ticket without a session starts a
+ *   conversation on that comment, like a Linear @mention.
+ * - On a ticket with a session, comments are follow-up prompts: all of them
+ *   while the ticket is handed over, afterwards only those that mention the
+ *   agent or answer a question it asked. A comment saying just "stop" stops
+ *   the session (the edge worker reads it as a stop request).
+ * - The agent's own comments and retried deliveries are ignored.
  *
- * Retried webhooks and the bot's own changes are dropped. Events for the same
- * ticket are handled one at a time, in arrival order.
+ * The ticket is always read fresh from the tracker, so the webhook only has
+ * to say which ticket changed. Events for the same ticket are decided one at
+ * a time, in arrival order. The edge worker's handling of a new session lasts
+ * as long as its agent run, so the next event only waits until the edge
+ * worker has taken the previous one over: a stop or an answer to a question
+ * must reach the running session.
  */
 export class CommentSessionCoordinator {
-	private readonly seen = new Map<string, number>();
+	/** Sessions this coordinator started, with when. */
+	private readonly started = new Map<string, number>();
 	private readonly queues = new Map<string, Promise<void>>();
+	private readonly handled = new Map<string, number>();
 	private readonly logger: ILogger;
-	private readonly now: () => number;
+	private readonly timing: DispatchTiming;
 
 	constructor(private readonly deps: CommentSessionCoordinatorDeps) {
 		this.logger =
 			deps.logger ?? createLogger({ component: "CommentSessionCoordinator" });
-		this.now = deps.now ?? Date.now;
+		this.timing = { ...DEFAULT_TIMING, ...deps.timing };
 	}
 
 	handle(event: CommentTrackerEvent): Promise<void> {
-		const { issueId } = event;
-		const previous = this.queues.get(issueId) ?? Promise.resolve();
+		const key = event.issueId;
+		const previous = this.queues.get(key) ?? Promise.resolve();
 		const next = previous
-			.then(() => this.process(event))
+			.then(() => this.processOnce(event))
 			.catch((error) => {
 				this.logger.error(
-					`${this.deps.tracker.platform} ${issueId}: failed to handle ${event.kind} event`,
+					`${this.deps.tracker.platform} ${key}: failed to handle ${event.kind} event`,
 					error,
 				);
 			});
-		this.queues.set(issueId, next);
+		this.queues.set(key, next);
 		void next.finally(() => {
-			if (this.queues.get(issueId) === next) {
-				this.queues.delete(issueId);
+			if (this.queues.get(key) === next) {
+				this.queues.delete(key);
 			}
 		});
 		return next;
 	}
 
-	private async process(event: CommentTrackerEvent): Promise<void> {
-		const { tracker, directory } = this.deps;
-		if (this.isDuplicate(event.eventId)) {
-			this.logger.debug(`Dropping duplicate event ${event.eventId}`);
+	/** Process an event unless it was handled before; only a handled one counts. */
+	private async processOnce(event: CommentTrackerEvent): Promise<void> {
+		if (event.eventId && this.wasHandled(event.eventId)) {
+			this.logger.debug(`Dropping retried event ${event.eventId}`);
 			return;
 		}
-		if (event.actorId && event.actorId === tracker.botUserId) {
-			return; // the bot's own comment or change
+		await this.process(event);
+		if (event.eventId) this.handled.set(event.eventId, Date.now());
+	}
+
+	private wasHandled(eventId: string): boolean {
+		const now = Date.now();
+		for (const [id, at] of this.handled) {
+			if (now - at < DEDUPE_TTL_MS) break; // insertion order = time order
+			this.handled.delete(id);
+		}
+		return this.handled.has(eventId);
+	}
+
+	private async process(event: CommentTrackerEvent): Promise<void> {
+		const { tracker, store } = this.deps;
+		// Cheap check first: many comment webhooks are the agent's own.
+		if (
+			event.kind === "comment" &&
+			(event.own || store.isOwnComment(event.commentId))
+		) {
+			return;
 		}
 
-		const latest = directory.latestForIssue(event.issueId);
-		const state = latest
-			? this.deps.getSessionState(latest.sessionId)
-			: "unknown";
-		const busy = state === "working" || state === "awaiting-input";
+		const { issue, handedOver } = await tracker.fetchIssueState(event.issueId);
+		const sessionId = sessionIdFor(tracker.platform, issue.id);
+		const state = this.deps.getSessionState(sessionId);
+		const known = this.started.has(sessionId) || state !== "unknown";
 
-		switch (event.kind) {
-			case "assigned": {
-				if (latest && busy) {
-					this.logger.info(
-						`${event.issueId}: assigned again while session ${latest.sessionId} is ${state}; ignoring`,
-					);
-					return;
-				}
-				const record = directory.create(event.issueId);
-				await this.dispatchSession("created", record, event.actorId);
-				return;
-			}
-
-			case "unassigned":
-				await this.dispatchUnassigned(event.issueId);
-				return;
-
-			case "comment":
-				await this.processComment(event, latest, state, busy);
-				return;
+		if (event.kind === "comment") {
+			await this.processComment(event, issue, sessionId, {
+				known,
+				handedOver,
+				awaiting: state === "awaiting-input",
+			});
+			return;
 		}
+		await this.processIssueChange(event, issue, sessionId, {
+			known,
+			handedOver,
+		});
 	}
 
 	private async processComment(
 		event: IssueCommentEvent,
-		latest: SessionRecord | undefined,
-		state: SessionState,
-		busy: boolean,
+		issue: Issue,
+		sessionId: string,
+		{
+			known,
+			handedOver,
+			awaiting,
+		}: { known: boolean; handedOver: boolean; awaiting: boolean },
 	): Promise<void> {
-		const { directory } = this.deps;
-		const followUps = this.deps.followUpsWithoutMention ?? true;
-
-		if (STOP_COMMAND.test(event.body)) {
-			if (latest && busy && (event.mentionsBot || followUps)) {
-				await this.dispatchSession("prompted", latest, event.actorId, {
-					commentId: event.commentId,
-					body: event.body,
-					stop: true,
-				});
-			}
-			return;
-		}
-
-		if (latest && busy && (event.mentionsBot || followUps)) {
-			await this.dispatchSession("prompted", latest, event.actorId, {
-				commentId: event.commentId,
-				body: this.resolveOption(latest, event.body),
+		const prompt = { commentId: event.commentId, body: event.body };
+		// While the ticket is handed over every comment steers the agent;
+		// otherwise only comments that mention it, or answer its question.
+		if (known && (handedOver || event.mentionsAgent || awaiting)) {
+			await this.dispatch("prompted", issue, sessionId, event.actor, {
+				...prompt,
+				body: this.deps.store.resolveAnswer(sessionId, event.body),
 			});
-			return;
+		} else if (!known && event.mentionsAgent) {
+			this.started.set(sessionId, Date.now());
+			await this.dispatch("created", issue, sessionId, event.actor, prompt);
 		}
+	}
 
-		if (!event.mentionsBot) {
-			return; // a comment between people
-		}
-
-		if (latest && state === "idle") {
-			await this.dispatchSession("prompted", latest, event.actorId, {
-				commentId: event.commentId,
-				body: event.body,
+	private async processIssueChange(
+		event: IssueChangedEvent,
+		issue: Issue,
+		sessionId: string,
+		{ known, handedOver }: { known: boolean; handedOver: boolean },
+	): Promise<void> {
+		if (handedOver && !known) {
+			this.started.set(sessionId, Date.now());
+			await this.dispatch("created", issue, sessionId, event.actor, {});
+		} else if (
+			handedOver &&
+			event.handOver === "added" &&
+			!this.startedRecently(sessionId)
+		) {
+			await this.dispatch("prompted", issue, sessionId, event.actor, {
+				body: HANDED_BACK_PROMPT,
 			});
-			return;
+		} else if (!handedOver && known && event.handOver === "removed") {
+			// A hand-over right after this one is a real one again.
+			this.started.delete(sessionId);
+			await this.dispatch("prompted", issue, sessionId, event.actor, {
+				body: "stop",
+				stop: true,
+			});
 		}
-
-		const record = directory.create(event.issueId, event.commentId);
-		await this.dispatchSession("created", record, event.actorId, {
-			commentId: event.commentId,
-			body: event.body,
-		});
 	}
 
-	/** A reply "2" to a question with options means the second option. */
-	private resolveOption(record: SessionRecord, body: string): string {
-		const options = record.pendingOptions;
-		if (!options?.length) return body;
-		this.deps.directory.update(record.sessionId, {
-			pendingOptions: undefined,
-		});
-		const choice = /^\s*(\d+)[.)]?\s*$/.exec(body);
-		const index = choice ? Number(choice[1]) - 1 : -1;
-		return options[index] ?? body;
+	/**
+	 * Assigning and labelling a ticket in one go sends two webhooks; the
+	 * second one shouldn't tell the new session it was "handed back".
+	 */
+	private startedRecently(sessionId: string): boolean {
+		const at = this.started.get(sessionId);
+		return at !== undefined && Date.now() - at < RECENT_START_MS;
 	}
 
-	private isDuplicate(eventId: string): boolean {
-		const now = this.now();
-		for (const [id, at] of this.seen) {
-			if (now - at < DEDUPE_TTL_MS) break; // insertion order = time order
-			this.seen.delete(id);
+	/**
+	 * The actor with a name and email, if the tracker will tell: user access
+	 * control matches by id or email, and webhooks often leave the email out.
+	 * The id is kept even when the lookup fails, so an id-based block list
+	 * still applies.
+	 */
+	private async withDetails(
+		actor: TrackerUser | undefined,
+	): Promise<TrackerUser | undefined> {
+		if (!actor || actor.email) return actor;
+		try {
+			const user = await this.deps.tracker.fetchUser(actor.id);
+			return {
+				id: actor.id,
+				name: actor.name ?? user.name,
+				email: user.email || undefined,
+			};
+		} catch {
+			return actor;
 		}
-		if (this.seen.has(eventId)) return true;
-		this.seen.set(eventId, now);
-		return false;
 	}
 
-	private async dispatchSession(
+	private async dispatch(
 		action: "created" | "prompted",
-		record: SessionRecord,
-		actorId: string | undefined,
-		comment?: { commentId: string; body: string; stop?: boolean },
+		issue: Issue,
+		sessionId: string,
+		actor: TrackerUser | undefined,
+		prompt: { commentId?: string; body?: string; stop?: boolean },
 	): Promise<void> {
 		const { tracker } = this.deps;
-		const issue = await tracker.fetchIssue(record.issueId);
-		const creator = actorId
-			? await tracker.fetchUser(actorId).catch(() => undefined)
-			: undefined;
-		const now = new Date(this.now()).toISOString();
+		const [team, creator] = await Promise.all([
+			issue.team,
+			this.withDetails(actor),
+		]);
+		const now = new Date().toISOString();
 
 		const webhook: LinearShapedWebhook = {
 			type: "AgentSessionEvent",
 			action,
 			organizationId: tracker.workspaceKey,
 			oauthClientId: tracker.platform,
-			appUserId: tracker.botUserId,
+			appUserId: tracker.platform,
 			createdAt: now,
 			guidance: [],
 			agentSession: {
-				id: record.sessionId,
-				appUserId: tracker.botUserId,
+				id: sessionId,
+				appUserId: tracker.platform,
 				organizationId: tracker.workspaceKey,
-				createdAt: new Date(record.createdAt).toISOString(),
+				createdAt: now,
 				updatedAt: now,
 				status: "active",
 				type: "issue",
 				issueId: issue.id,
-				issue: await issueSummary(issue),
+				issue: {
+					id: issue.id,
+					identifier: issue.identifier,
+					title: issue.title,
+					url: issue.url,
+					teamId: team?.id,
+					team: team
+						? { id: team.id, key: team.key, name: team.name }
+						: undefined,
+				},
 				...(action === "created" &&
-					comment && {
-						comment: { id: comment.commentId, body: comment.body },
+					prompt.body !== undefined && {
+						comment: { id: prompt.commentId ?? "", body: prompt.body },
 					}),
 				...(creator && {
-					creator: { id: creator.id, name: creator.name, email: creator.email },
+					creator: {
+						id: creator.id,
+						name: creator.name ?? creator.id,
+						email: creator.email ?? "",
+					},
 				}),
 			},
 		};
 
-		if (action === "prompted" && comment) {
+		if (action === "prompted") {
 			webhook.agentActivity = {
-				id: comment.commentId,
-				agentSessionId: record.sessionId,
+				id: `${tracker.platform}-activity-${prompt.commentId ?? Date.now()}`,
+				agentSessionId: sessionId,
 				createdAt: now,
 				updatedAt: now,
-				content: { type: "prompt", body: comment.body },
-				sourceCommentId: comment.commentId,
-				...(comment.stop && { signal: "stop" }),
+				content: { type: "prompt", body: prompt.body ?? "" },
+				...(prompt.stop && { signal: "stop" }),
+				...(prompt.commentId && { sourceCommentId: prompt.commentId }),
 			};
 		}
 
 		this.logger.info(
-			`${tracker.platform} ${issue.identifier}: dispatching ${action} for session ${record.sessionId}`,
+			`${tracker.platform} ${issue.identifier}: dispatching ${action}`,
 		);
-		await this.deps.dispatch(webhook);
+		await this.deliver(action, sessionId, issue.identifier, webhook);
 	}
 
-	private async dispatchUnassigned(issueId: string): Promise<void> {
-		const { tracker } = this.deps;
-		const issue = await tracker.fetchIssue(issueId);
-		const now = new Date(this.now()).toISOString();
-		this.logger.info(
-			`${tracker.platform} ${issue.identifier}: bot unassigned, dispatching issueUnassignedFromYou`,
-		);
-		await this.deps.dispatch({
-			type: "AppUserNotification",
-			action: "issueUnassignedFromYou",
-			organizationId: tracker.workspaceKey,
-			oauthClientId: tracker.platform,
-			appUserId: tracker.botUserId,
-			createdAt: now,
-			notification: {
-				id: `${tracker.platform}-unassigned-${issueId}-${this.now()}`,
-				type: "issueUnassignedFromYou",
-				createdAt: now,
-				updatedAt: now,
-				userId: tracker.botUserId,
-				issueId: issue.id,
-				issue: await issueSummary(issue),
-			},
-		});
+	/**
+	 * Hand the webhook to the edge worker without waiting for the agent run
+	 * it starts: return once the edge worker is done with it, or has taken it
+	 * over (a new session is known to it; a prompt had a few seconds to reach
+	 * the session).
+	 */
+	private async deliver(
+		action: "created" | "prompted",
+		sessionId: string,
+		identifier: string,
+		webhook: LinearShapedWebhook,
+	): Promise<void> {
+		const delivery = Promise.resolve()
+			.then(() => this.deps.dispatch(webhook))
+			.catch((error) => {
+				this.logger.error(
+					`${this.deps.tracker.platform} ${identifier}: handling ${action} failed`,
+					error,
+				);
+			});
+		let settled = false;
+		const { promptSettleMs, startPollMs, startSettleMaxMs } = this.timing;
+		const takenOver =
+			action === "created"
+				? (async () => {
+						const deadline = Date.now() + startSettleMaxMs;
+						while (
+							!settled &&
+							Date.now() < deadline &&
+							this.deps.getSessionState(sessionId) === "unknown"
+						) {
+							await sleep(startPollMs);
+						}
+					})()
+				: sleep(promptSettleMs);
+		await Promise.race([delivery, takenOver]);
+		settled = true;
 	}
 }
 
-async function issueSummary(issue: Issue): Promise<Record<string, unknown>> {
-	const team = await issue.team;
-	return {
-		id: issue.id,
-		identifier: issue.identifier,
-		title: issue.title,
-		url: issue.url,
-		teamId: team?.id,
-		team: team ? { id: team.id, key: team.key, name: team.name } : undefined,
-	};
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => {
+		const timer = setTimeout(resolve, ms);
+		timer.unref?.();
+	});
 }

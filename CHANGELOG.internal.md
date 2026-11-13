@@ -6,7 +6,7 @@ This changelog documents internal development changes, refactors, tooling update
 
 ### Added
 - Laravel Forge deploy script and setup guide (`deploy/forge/`): installs, builds and smoke-tests the CLI, waits until nyrus is idle so running agent sessions finish, then restarts it under the Forge daemon. ([teamnovu/nyrus#1](https://github.com/teamnovu/nyrus/pull/1))
-- New `cyrus-comment-sessions` package: agent sessions over plain ticket comments, the shared base for the ClickUp and Jira integrations (which have no built-in agent sessions). The EdgeWorker gains a `TrackerIntegration` hook (`packages/edge-worker/src/TrackerIntegrations.ts`) so each tracker plugs in with one factory. ([teamnovu/nyrus#5](https://github.com/teamnovu/nyrus/pull/5))
+- New `cyrus-comment-sessions` package, the shared base for the ClickUp and Jira integrations (which have no built-in agent sessions): one session per ticket, started when the ticket is handed to the agent or the agent is mentioned, continued by comments, stopped when the ticket is taken away; progress, questions and answers as comments; the agent's own comments recognized by id and signature. Combines this package's first design with the Jira integration's coordinator. The EdgeWorker gains a `TrackerIntegration` hook (`packages/edge-worker/src/TrackerIntegrations.ts`) so each tracker plugs in with one factory. ([teamnovu/nyrus#5](https://github.com/teamnovu/nyrus/pull/5))
 
 ### Fixed
 - Forge deploy script: pin pnpm to the `packageManager` version for every call, including nested `pnpm` calls in package scripts, so a globally installed pnpm of another major version no longer breaks the build.
