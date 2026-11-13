@@ -24,12 +24,30 @@ const MAX_OWN_COMMENTS = 5000;
 
 /**
  * What the coordinator and the publisher share, in memory: the comments the
- * agent posted (so their webhooks are ignored) and the options of questions
- * waiting for an answer (so a reply "2" can be resolved).
+ * agent posted (so their webhooks are ignored), the options of questions
+ * waiting for an answer (so a reply "2" can be resolved), and the comment
+ * that started each conversational session.
  */
 export class SessionStore {
 	private readonly ownComments = new Set<string>();
 	private readonly questions = new Map<string, QuestionOption[]>();
+	private readonly startComments = new Map<
+		string,
+		{ id: string; body: string }
+	>();
+
+	/**
+	 * The comment that started a session (a mention). Linear sends it with
+	 * every webhook of the session, and the edge worker reads it from there,
+	 * e.g. after the user picked a repository.
+	 */
+	setStartComment(sessionId: string, comment: { id: string; body: string }) {
+		this.startComments.set(sessionId, comment);
+	}
+
+	startComment(sessionId: string): { id: string; body: string } | undefined {
+		return this.startComments.get(sessionId);
+	}
 
 	rememberOwnComment(commentId: string): void {
 		this.ownComments.add(commentId);

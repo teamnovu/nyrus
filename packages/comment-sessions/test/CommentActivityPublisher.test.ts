@@ -90,6 +90,15 @@ describe("CommentActivityPublisher", () => {
 		expect(store.resolveAnswer("fake-t-1", "api")).toBe("api");
 	});
 
+	it("closes an open question when the agent answers instead", async () => {
+		const { publish, store } = setup();
+		await publish({ type: "elicitation", body: "Which one?" }, {
+			signalMetadata: { options: [{ value: "web" }, { value: "api" }] },
+		} as Partial<AgentActivityCreateInput>);
+		await publish({ type: "response", body: "Never mind, I found it." });
+		expect(store.resolveAnswer("fake-t-1", "2")).toBe("2");
+	});
+
 	it("posts errors with a warning sign", async () => {
 		const { publish, tracker } = setup();
 		const error = await publish({ type: "error", body: "Tests failed" });
