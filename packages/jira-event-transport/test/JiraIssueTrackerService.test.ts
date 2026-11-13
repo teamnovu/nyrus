@@ -93,8 +93,12 @@ describe("JiraIssueTrackerService", () => {
 				options: [{ value: "https://github.com/teamnovu/zoo-zurich" }],
 			},
 		} as never);
+		// A numbered list in wiki markup; a reply "1" means the first option.
 		expect((calls[0]!.body as { body: string }).body).toBe(
-			`${AGENT_SIGNATURE}\nWhich repository should I work in for this issue?\n\nReply with a comment containing one of:\n* {{https://github.com/teamnovu/zoo-zurich}}`,
+			`${AGENT_SIGNATURE}\nWhich repository should I work in for this issue?\n\n# {{https://github.com/teamnovu/zoo-zurich}}\n\nReply with the number or the name.`,
+		);
+		expect(tracker.sessions.store.resolveAnswer(session, "1")).toBe(
+			"https://github.com/teamnovu/zoo-zurich",
 		);
 	});
 

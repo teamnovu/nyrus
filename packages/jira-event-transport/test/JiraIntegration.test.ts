@@ -1,11 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { JiraIssueTrackerService } from "../src/JiraIssueTrackerService.js";
-import { signed } from "../src/JiraText.js";
 import {
 	HANDED_BACK_PROMPT,
-	JiraWebhookCoordinator,
-	type LinearShapedAgentSessionWebhook,
-} from "../src/JiraWebhookCoordinator.js";
+	type LinearShapedWebhook,
+	type SessionState,
+} from "cyrus-comment-sessions";
+import { describe, expect, it } from "vitest";
+import { jiraEventHandler } from "../src/JiraIntegration.js";
+import { JiraIssueTrackerService } from "../src/JiraIssueTrackerService.js";
+import { signed } from "../src/JiraText.js";
 import type { JiraIssue, JiraWebhookEvent } from "../src/types.js";
 import { AGENT, fakeJira, jiraIssue } from "./fakeJira.js";
 
@@ -15,7 +16,7 @@ function setup(
 	options: {
 		triggerOnAssign?: boolean;
 		/** What the edge worker does with a webhook (default: returns at once). */
-		handle?: (w: LinearShapedAgentSessionWebhook) => Promise<void>;
+		handle?: (w: LinearShapedWebhook) => Promise<void>;
 		routes?: Record<string, unknown>;
 		/** Sessions waiting for the user's answer. */
 		awaiting?: string[];
@@ -29,20 +30,35 @@ function setup(
 	const tracker = new JiraIssueTrackerService(api, "jira-novu", {
 		triggerLabel: "nyrus",
 		triggerOnAssign: options.triggerOnAssign ?? true,
+		dispatchTiming: { promptSettleMs: 5, startPollMs: 1, startSettleMaxMs: 20 },
 	});
-	const dispatched: LinearShapedAgentSessionWebhook[] = [];
-	const coordinator = new JiraWebhookCoordinator({
-		tracker,
-		isKnownSession: (id) => known.includes(id),
-		isAwaitingAnswer: (id) => options.awaiting?.includes(id) ?? false,
-		dispatch: (w) => {
+	const dispatched: LinearShapedWebhook[] = [];
+	const sessionState = (id: string): SessionState =>
+		options.awaiting?.includes(id)
+			? "awaiting-input"
+			: known.includes(id)
+				? "idle"
+				: "unknown";
+	const sessions = tracker.sessions.createCoordinator({
+		fastify: {} as never,
+		dispatch: async (w) => {
 			dispatched.push(w);
-			return options.handle?.(w);
+			await options.handle?.(w);
 		},
-		timing: { promptSettleMs: 5, startPollMs: 1, startSettleMaxMs: 20 },
+		getSessionState: sessionState,
+		logger: silent,
 	});
+	// The path the integration's webhook takes: Jira event -> shared coordinator.
+	const coordinator = { handle: jiraEventHandler(tracker, sessions, silent) };
 	return { coordinator, dispatched, calls };
 }
+
+const silent = {
+	debug() {},
+	info() {},
+	warn() {},
+	error() {},
+} as never;
 
 function issueEvent(
 	items: JiraWebhookEvent["changelog"],
@@ -71,7 +87,7 @@ const labelled = jiraIssue({ labels: ["nyrus"] });
 const labelAdded = { field: "labels", fromString: "", toString: "nyrus" };
 const labelRemoved = { field: "labels", fromString: "nyrus", toString: "" };
 
-describe("JiraWebhookCoordinator", () => {
+describe("Jira on cyrus-comment-sessions", () => {
 	it("starts a delegation when the trigger label is added", async () => {
 		const { coordinator, dispatched } = setup(labelled);
 		await coordinator.handle(issueEvent([labelAdded]));

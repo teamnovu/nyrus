@@ -1,4 +1,11 @@
 import {
+	CommentAgentSessions,
+	type CommentTracker,
+	type DispatchTiming,
+	sessionIdFor,
+	issueIdFromSessionId as sessionIssueId,
+} from "cyrus-comment-sessions";
+import {
 	type AgentActivityCreateInput,
 	type AgentActivityPayload,
 	type AgentEventTransportConfig,
@@ -25,7 +32,6 @@ import {
 	type WorkflowState,
 } from "cyrus-core";
 import type { JiraApiClient } from "./JiraApiClient.js";
-import { JiraProgressNotes } from "./JiraProgressNotes.js";
 import {
 	isSigned,
 	markdownToWiki,
@@ -68,27 +74,27 @@ const PRIORITY_TO_NUMBER: Record<string, number> = {
 };
 const NUMBER_TO_PRIORITY = [undefined, "Highest", "High", "Medium", "Low"];
 
-const SESSION_PREFIX = "jira-";
+const PLATFORM = "jira";
 
 /**
  * Jira has no agent sessions, so Cyrus keeps one session per issue, with an
- * id derived from the issue's id: comments on the issue continue it, also
- * after a restart.
+ * id derived from the issue's id (`jira-<id>`, see cyrus-comment-sessions):
+ * comments on the issue continue it, also after a restart.
  */
 export function jiraSessionId(issueId: string): string {
-	return `${SESSION_PREFIX}${issueId}`;
+	return sessionIdFor(PLATFORM, issueId);
 }
 
 export function issueIdFromSessionId(sessionId: string): string | undefined {
-	return sessionId.startsWith(SESSION_PREFIX)
-		? sessionId.slice(SESSION_PREFIX.length)
-		: undefined;
+	return sessionIssueId(PLATFORM, sessionId);
 }
 
 export interface JiraIssueTrackerOptions extends JiraTriggerOptions {
 	logger?: ILogger;
-	/** Minimum time between edits of a progress note (tests). */
+	/** Minimum time between edits of a progress comment (tests). */
 	progressMinUpdateMs?: number;
+	/** Hand-off timing of the session coordinator (tests). */
+	dispatchTiming?: Partial<DispatchTiming>;
 }
 
 /**
@@ -102,17 +108,21 @@ export interface JiraIssueTrackerOptions extends JiraTriggerOptions {
  * state types. Moving an issue to a state runs the workflow transition that
  * leads there.
  *
- * Agent activities become comments, written as the agent account: thoughts
- * and actions update one progress comment, while responses, questions and
- * errors are posted as comments of their own.
+ * Sessions are cyrus-comment-sessions': agent activities become comments,
+ * written (and signed) as the agent account: thoughts and actions update one
+ * progress comment, while responses, questions and errors are posted as
+ * comments of their own. This service is the `CommentTracker` they use.
  */
-export class JiraIssueTrackerService implements IIssueTrackerService {
+export class JiraIssueTrackerService
+	implements IIssueTrackerService, CommentTracker
+{
+	readonly platform = PLATFORM;
+	/** Session handling shared with the other comment trackers (ClickUp). */
+	readonly sessions: CommentAgentSessions;
 	private readonly logger: ILogger;
-	private readonly ownComments = new Set<string>();
 	private readonly commentIssues = new Map<string, string>();
 	private readonly cache = new Map<string, { at: number; value: unknown }>();
 	private agentRequest: Promise<JiraUser> | null = null;
-	private readonly progress: JiraProgressNotes;
 
 	constructor(
 		readonly api: JiraApiClient,
@@ -121,11 +131,10 @@ export class JiraIssueTrackerService implements IIssueTrackerService {
 	) {
 		this.logger =
 			options.logger ?? createLogger({ component: "JiraIssueTrackerService" });
-		this.progress = new JiraProgressNotes(api, {
-			logger: this.logger,
+		this.sessions = new CommentAgentSessions(this, {
 			minUpdateMs: options.progressMinUpdateMs,
-			onCreated: (commentId, issueId) =>
-				this.rememberOwnComment(commentId, issueId),
+			timing: options.dispatchTiming,
+			logger: this.logger,
 		});
 	}
 
@@ -161,7 +170,53 @@ export class JiraIssueTrackerService implements IIssueTrackerService {
 
 	/** True for comments Cyrus wrote itself; their webhooks are ignored. */
 	isOwnComment(commentId: string, body?: string): boolean {
-		return this.ownComments.has(commentId) || isSigned(body);
+		return this.sessions.store.isOwnComment(commentId) || isSigned(body);
+	}
+
+	// ========================================================================
+	// COMMENT TRACKER (for cyrus-comment-sessions)
+	// ========================================================================
+
+	async fetchIssueState(
+		idOrKey: string,
+	): Promise<{ issue: Issue; handedOver: boolean }> {
+		const [agent, jiraIssue] = await Promise.all([
+			this.agent(),
+			this.fetchJiraIssue(idOrKey),
+		]);
+		return {
+			issue: this.toIssue(jiraIssue),
+			handedOver: this.isHandedToAgent(jiraIssue, agent),
+		};
+	}
+
+	/** Markdown as signed wiki markup. Jira can't post a comment silently; edits are. */
+	async postComment(
+		issueId: string,
+		markdown: string,
+	): Promise<{ id: string }> {
+		const comment = await this.api.createComment(
+			issueId,
+			signed(markdownToWiki(markdown)),
+		);
+		this.rememberComment(comment.id, issueId);
+		return { id: comment.id };
+	}
+
+	async updateComment(
+		issueId: string,
+		commentId: string,
+		markdown: string,
+	): Promise<void> {
+		await this.api.updateComment(
+			issueId,
+			commentId,
+			signed(markdownToWiki(markdown)),
+		);
+	}
+
+	async deleteComment(issueId: string, commentId: string): Promise<void> {
+		await this.api.deleteComment(issueId, commentId);
 	}
 
 	fetchJiraIssue(idOrKey: string): Promise<JiraIssue> {
@@ -344,93 +399,35 @@ export class JiraIssueTrackerService implements IIssueTrackerService {
 	}
 
 	// ========================================================================
-	// AGENT SESSIONS (one per issue)
+	// AGENT SESSIONS (one per issue, see cyrus-comment-sessions)
 	// ========================================================================
 
-	async createAgentSessionOnIssue(
-		_input: AgentSessionCreateOnIssueInput,
+	createAgentSessionOnIssue(
+		input: AgentSessionCreateOnIssueInput,
 	): Promise<IssueTrackerAgentSessionPayload> {
-		throw new Error(
-			"Starting a Jira session from Cyrus is not supported yet: assign or label the issue in Jira",
-		);
+		return this.sessions.createAgentSessionOnIssue(input);
 	}
 
-	async createAgentSessionOnComment(
-		_input: AgentSessionCreateOnCommentInput,
+	createAgentSessionOnComment(
+		input: AgentSessionCreateOnCommentInput,
 	): Promise<IssueTrackerAgentSessionPayload> {
-		throw new Error(
-			"Starting a Jira session from Cyrus is not supported yet: mention the agent in a Jira comment",
-		);
+		return this.sessions.createAgentSessionOnComment(input);
 	}
 
-	async fetchAgentSession(
-		sessionId: string,
-	): Promise<IssueTrackerAgentSession> {
-		return {
-			id: sessionId,
-			status: "active",
-			issueId: issueIdFromSessionId(sessionId),
-		} as unknown as IssueTrackerAgentSession;
+	fetchAgentSession(sessionId: string): Promise<IssueTrackerAgentSession> {
+		return this.sessions.fetchAgentSession(sessionId);
 	}
 
-	async emitStopSignalEvent(_sessionId: string): Promise<void> {
+	emitStopSignalEvent(sessionId: string): Promise<void> {
 		// Stops come from Jira: unassigning, removing the label, or a "stop" comment.
+		return this.sessions.emitStopSignalEvent(sessionId);
 	}
 
-	// ========================================================================
-	// AGENT ACTIVITIES (= comments)
-	// ========================================================================
-
-	async createAgentActivity(
+	/** Activities become comments (cyrus-comment-sessions' publisher). */
+	createAgentActivity(
 		input: AgentActivityCreateInput,
 	): Promise<AgentActivityPayload> {
-		const issueId = issueIdFromSessionId(input.agentSessionId);
-		if (!issueId) {
-			throw new Error(`Not a Jira session: ${input.agentSessionId}`);
-		}
-		const content = input.content as {
-			type: string;
-			body?: string;
-			action?: string;
-			parameter?: unknown;
-		};
-		let id = "";
-		switch (content.type) {
-			case "thought":
-				void this.progress.onStep(issueId, { thought: content.body });
-				break;
-			case "action":
-				void this.progress.onStep(issueId, {
-					action: describeAction(content.action, content.parameter),
-				});
-				break;
-			case "response":
-			case "elicitation":
-			case "error": {
-				await this.progress.finish(issueId);
-				const comment = await this.api.createComment(
-					issueId,
-					signed(
-						activityWiki(
-							content.type,
-							content.body ?? "",
-							input.signalMetadata,
-						),
-					),
-				);
-				this.rememberOwnComment(comment.id, issueId);
-				id = comment.id;
-				break;
-			}
-			default:
-				// "prompt" activities are the user's own comments.
-				break;
-		}
-		return {
-			success: true,
-			lastSyncId: 0,
-			agentActivity: Promise.resolve({ id }),
-		} as unknown as AgentActivityPayload;
+		return this.sessions.createAgentActivity(input);
 	}
 
 	// ========================================================================
@@ -464,9 +461,9 @@ export class JiraIssueTrackerService implements IIssueTrackerService {
 		);
 	}
 
-	/** Stop pending progress-note edits (on shutdown). */
+	/** Stop pending progress-comment edits (on shutdown). */
 	dispose(): void {
-		this.progress.dispose();
+		this.sessions.dispose();
 	}
 
 	// ========================================================================
@@ -474,7 +471,7 @@ export class JiraIssueTrackerService implements IIssueTrackerService {
 	// ========================================================================
 
 	private rememberOwnComment(commentId: string, issueId: string): void {
-		this.ownComments.add(commentId);
+		this.sessions.store.rememberOwnComment(commentId);
 		this.rememberComment(commentId, issueId);
 	}
 
@@ -638,48 +635,6 @@ function issueDescription(issue: JiraIssue): string {
 		return description;
 	}
 	return `${description}\n\n---\nAttached files (download them with the jira tool download_attachments): ${files.join(", ")}`.trim();
-}
-
-/** A response, question or error as a comment body (wiki markup). Exported for tests. */
-export function activityWiki(
-	type: "response" | "elicitation" | "error",
-	body: string,
-	signalMetadata?: unknown,
-): string {
-	const text = markdownToWiki(body);
-	if (type === "error") {
-		return `⚠️ ${text}`;
-	}
-	if (type === "elicitation") {
-		const options =
-			(signalMetadata as { options?: Array<{ value: string; label?: string }> })
-				?.options ?? [];
-		if (options.length > 0) {
-			const list = options
-				.map((o) =>
-					o.label && o.label !== o.value
-						? `* ${o.label}: {{${o.value}}}`
-						: `* {{${o.value}}}`,
-				)
-				.join("\n");
-			return `${text}\n\nReply with a comment containing one of:\n${list}`;
-		}
-		return `${text}\n\n_Reply with a comment._`;
-	}
-	return text;
-}
-
-function describeAction(
-	action: string | undefined,
-	parameter: unknown,
-): string {
-	const name = action ?? "action";
-	if (parameter === undefined || parameter === null || parameter === "") {
-		return name;
-	}
-	const text =
-		typeof parameter === "string" ? parameter : JSON.stringify(parameter);
-	return `${name}: ${text}`;
 }
 
 function toWorkflowState(status: JiraStatus, position: number): WorkflowState {

@@ -1,14 +1,19 @@
 export { JiraApiClient, JiraApiError } from "./JiraApiClient.js";
 export { JiraEventTransport, normalizeWebhook } from "./JiraEventTransport.js";
 export {
-	activityWiki,
+	createJiraIntegration,
+	createJiraIntegrationFactory,
+	handOverChange,
+	jiraEventHandler,
+	toCommentTrackerEvent,
+} from "./JiraIntegration.js";
+export {
 	branchName,
 	issueIdFromSessionId,
 	type JiraIssueTrackerOptions,
 	JiraIssueTrackerService,
 	jiraSessionId,
 } from "./JiraIssueTrackerService.js";
-export { JiraProgressNotes } from "./JiraProgressNotes.js";
 export {
 	AGENT_NAME,
 	AGENT_SIGNATURE,
@@ -19,12 +24,6 @@ export {
 	signed,
 	wikiToMarkdown,
 } from "./JiraText.js";
-export {
-	HANDED_BACK_PROMPT,
-	JiraWebhookCoordinator,
-	type JiraWebhookCoordinatorDeps,
-	type LinearShapedAgentSessionWebhook,
-} from "./JiraWebhookCoordinator.js";
 export {
 	createJiraToolsServer,
 	jiraToolsMcpServerConfig,

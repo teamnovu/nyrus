@@ -509,6 +509,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.32.2
         version: 1.32.2(zod@4.6.7)
+      cyrus-comment-sessions:
+        specifier: workspace:*
+        version: link:../comment-sessions
       cyrus-core:
         specifier: workspace:*
         version: link:../core
@@ -3611,7 +3614,7 @@ snapshots:
       obug: 2.2.1
       std-env: 4.3.0
       tinyrainbow: 3.2.0
-      vitest: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@20.19.39)(@vitest/coverage-v8@4.1.12)(@vitest/ui@4.1.12)(vite@8.3.4(@types/node@20.19.39)(esbuild@0.28.1)(tsx@4.23.0)(yaml@2.8.3))
+      vitest: 4.1.12(@opentelemetry/api@1.9.1)(@types/node@20.19.39)(@vitest/coverage-v8@4.1.12)(@vitest/ui@4.1.12)(vite@8.3.4(@types/node@20.19.39)(esbuild@0.28.1)(tsx@4.23.0)(yaml@2.8.3))
 
   '@vitest/expect@4.1.12':
     dependencies:
@@ -3657,7 +3660,7 @@ snapshots:
       sirv: 3.0.2
       tinyglobby: 0.2.17
       tinyrainbow: 3.2.0
-      vitest: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@20.19.39)(@vitest/coverage-v8@4.1.12)(@vitest/ui@4.1.12)(vite@8.3.4(@types/node@20.19.39)(esbuild@0.28.1)(tsx@4.23.0)(yaml@2.8.3))
+      vitest: 4.1.12(@opentelemetry/api@1.9.1)(@types/node@20.19.39)(@vitest/coverage-v8@4.1.12)(@vitest/ui@4.1.12)(vite@8.3.4(@types/node@20.19.39)(esbuild@0.28.1)(tsx@4.23.0)(yaml@2.8.3))
 
   '@vitest/utils@4.1.12':
     dependencies:

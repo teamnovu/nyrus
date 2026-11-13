@@ -22,6 +22,7 @@
 	},
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "^1.32.2",
+		"cyrus-comment-sessions": "workspace:*",
 		"cyrus-core": "workspace:*",
 		"fastify": "^5.12.7",
 		"zod": "^4.6.7"
