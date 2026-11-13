@@ -19,6 +19,7 @@ import {
 } from "cyrus-claude-runner";
 import { getCyrusAppUrl } from "cyrus-cloudflare-tunnel-client";
 import { CodexRunner } from "cyrus-codex-runner";
+import type { SessionState, TrackerIntegration } from "cyrus-comment-sessions";
 import {
 	ConfigUpdater,
 	ensureGhTokenResolver,
@@ -204,6 +205,7 @@ import { resolveSandboxWritablePaths } from "./sandboxWritablePaths.js";
 import type { IActivitySink } from "./sinks/IActivitySink.js";
 import { LinearActivitySink } from "./sinks/LinearActivitySink.js";
 import { ToolPermissionResolver } from "./ToolPermissionResolver.js";
+import { createTrackerIntegrations } from "./TrackerIntegrations.js";
 import type { AgentSessionData, EdgeWorkerEvents } from "./types.js";
 import { UserAccessControl } from "./UserAccessControl.js";
 import { ZulipChatAdapter } from "./ZulipChatAdapter.js";
@@ -246,6 +248,7 @@ export class EdgeWorker extends EventEmitter {
 	private zulipEventTransport: ZulipEventTransport | null = null;
 	private planeIssueTracker: PlaneIssueTrackerService | null = null; // Plane agent runs (PLANE_* env vars)
 	private planeEventTransport: PlaneEventTransport | null = null;
+	private trackerIntegrations: TrackerIntegration[] = []; // ClickUp, Jira, ... (see TrackerIntegrations.ts)
 	private zulipChatSessionHandler: ChatSessionHandler<ZulipWebhookEvent> | null =
 		null;
 	private chatSessionHandler: ChatSessionHandler<SlackWebhookEvent> | null =
@@ -586,6 +589,16 @@ export class EdgeWorker extends EventEmitter {
 			);
 		}
 
+		// Comment-session trackers (ClickUp, Jira) work the same way.
+		this.trackerIntegrations = createTrackerIntegrations({
+			env: process.env,
+			cyrusHome: this.cyrusHome,
+			logger: this.logger,
+		});
+		for (const integration of this.trackerIntegrations) {
+			this.issueTrackers.set(integration.workspaceKey, integration.tracker);
+		}
+
 		// Create activity sinks per workspace (one per workspace, mirrors issueTrackers)
 		for (const [workspaceId, issueTracker] of this.issueTrackers) {
 			this.activitySinks.set(
@@ -639,7 +652,9 @@ export class EdgeWorker extends EventEmitter {
 			getTrackerMcpServers: (workspaceId) =>
 				this.planeIssueTracker?.workspaceKey === workspaceId
 					? { plane: this.planeIssueTracker.toolsMcpServerConfig() }
-					: undefined,
+					: this.trackerIntegrations
+							.find((i) => i.workspaceKey === workspaceId)
+							?.mcpServers?.(),
 		});
 		this.runnerConfigBuilder = new RunnerConfigBuilder(
 			this.toolPermissionResolver,
@@ -898,6 +913,7 @@ export class EdgeWorker extends EventEmitter {
 		this.registerSlackEventTransport();
 		this.registerZulipEventTransport();
 		this.registerPlaneEventTransport();
+		this.registerTrackerIntegrations();
 
 		// 3. Create and register ConfigUpdater (both platforms)
 		this.configUpdater = new ConfigUpdater(
@@ -1388,6 +1404,47 @@ export class EdgeWorker extends EventEmitter {
 		this.logger.info(
 			`✅ Plane event transport registered for ${tracker.api.baseUrl} (workspace ${tracker.api.workspaceSlug}, key ${tracker.workspaceKey})${tracker.api.isInstalled ? "" : " — app not installed yet"}`,
 		);
+	}
+
+	/**
+	 * Register the webhook routes of the comment-session trackers (ClickUp,
+	 * Jira). Their events become Linear-shaped agent session webhooks, handled
+	 * like Linear's; Cyrus keeps the sessions, since these trackers have none.
+	 */
+	private registerTrackerIntegrations(): void {
+		for (const integration of this.trackerIntegrations) {
+			integration.register({
+				fastify: this.sharedApplicationServer.getFastifyInstance(),
+				dispatch: (webhook) =>
+					this.handleWebhook(
+						webhook as unknown as Webhook,
+						Array.from(this.repositories.values()),
+					),
+				getSessionState: (sessionId) => this.commentSessionState(sessionId),
+				logger: this.logger,
+			});
+			this.logger.info(
+				`✅ Tracker integration registered (workspace key ${integration.workspaceKey})`,
+			);
+		}
+	}
+
+	/** Whether a comment-tracker session is working, waiting for an answer, finished or gone. */
+	private commentSessionState(sessionId: string): SessionState {
+		if (
+			this.repositoryRouter.hasPendingSelection(sessionId) ||
+			this.askUserQuestionHandler.hasPendingQuestion(sessionId) ||
+			[...this.parkedSessions.values()].some(
+				(parked) => parked.agentSession.id === sessionId,
+			)
+		) {
+			return "awaiting-input";
+		}
+		const session = this.agentSessionManager.getSession(sessionId);
+		if (!session) {
+			return "unknown";
+		}
+		return session.agentRunner?.isRunning() ? "working" : "idle";
 	}
 
 	/**
@@ -3155,6 +3212,9 @@ ${taskSection}`;
 		// Stop config file watcher
 		await this.configManager.stop();
 		this.planeIssueTracker?.dispose();
+		for (const integration of this.trackerIntegrations) {
+			integration.dispose?.();
+		}
 
 		try {
 			await this.savePersistedState();

@@ -4,6 +4,9 @@ This changelog documents internal development changes, refactors, tooling update
 
 ## [Unreleased]
 
+### Added
+- New `cyrus-comment-sessions` package: agent sessions over plain ticket comments, the shared base for the ClickUp and Jira integrations (which have no built-in agent sessions). The EdgeWorker gains a `TrackerIntegration` hook (`packages/edge-worker/src/TrackerIntegrations.ts`) so each tracker plugs in with one factory.
+
 ## [0.2.78] - 2026-11-12
 
 ### Changed
