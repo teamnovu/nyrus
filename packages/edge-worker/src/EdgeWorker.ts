@@ -596,7 +596,9 @@ export class EdgeWorker extends EventEmitter {
 			logger: this.logger,
 		});
 		for (const integration of this.trackerIntegrations) {
-			this.issueTrackers.set(integration.workspaceKey, integration.tracker);
+			if (integration.tracker) {
+				this.issueTrackers.set(integration.workspaceKey, integration.tracker);
+			}
 		}
 
 		// Create activity sinks per workspace (one per workspace, mirrors issueTrackers)
