@@ -106,12 +106,15 @@ export async function clickup(method, path, body) {
  */
 export function save(group, name, data) {
 	const dir = join(OUT_DIR, group);
-	mkdirSync(dir, { recursive: true });
+	// Real ticket data: readable only by the owner.
+	mkdirSync(dir, { recursive: true, mode: 0o700 });
+	chmodSync(dir, 0o700);
 	const file = join(
 		dir,
 		`${String(name).replace(/[^A-Za-z0-9_-]/g, "_")}.json`,
 	);
-	writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
+	writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
+	chmodSync(file, 0o600);
 	return file;
 }
 

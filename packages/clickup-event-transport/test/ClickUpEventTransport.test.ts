@@ -1,5 +1,11 @@
 import { createHmac } from "node:crypto";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Fastify, { type FastifyRequest } from "fastify";
@@ -142,6 +148,9 @@ describe("ClickUpEventTransport", () => {
 		const saved = JSON.parse(readFileSync(join(dir, files[0]!), "utf8"));
 		expect(saved.body).toEqual(payload);
 		expect(saved.headers).not.toHaveProperty("x-signature");
+		// Real task data: only nyrus's user may read it.
+		expect(statSync(dir).mode & 0o777).toBe(0o700);
+		expect(statSync(join(dir, files[0]!)).mode & 0o777).toBe(0o600);
 	});
 });
 

@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createLogger, type ILogger } from "cyrus-core";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -122,7 +122,9 @@ export class ClickUpEventTransport extends EventEmitter {
 			payload.task_id ?? "no-task",
 		].join("_");
 		try {
-			await mkdir(dir, { recursive: true });
+			// Real task data: readable only by nyrus's user.
+			await mkdir(dir, { recursive: true, mode: 0o700 });
+			await chmod(dir, 0o700);
 			await writeFile(
 				join(dir, `${safeName(name)}.json`),
 				`${JSON.stringify(
