@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ApiResponse, CyrusEnvPayload } from "../types.js";
+import { resolveEnvFilePath } from "./envPath.js";
 
 /**
  * Handle Cyrus environment variables update
@@ -41,7 +42,7 @@ export async function handleCyrusEnv(
 			};
 		}
 
-		const envPath = join(cyrusHome, ".env");
+		const envPath = resolveEnvFilePath(cyrusHome);
 
 		// Ensure the .cyrus directory exists
 		const envDir = dirname(envPath);

@@ -47,3 +47,6 @@ CLAUDE.local.md
 
 # Claude Code harness runtime artifacts
 .claude/scheduled_tasks.lock
+
+# The Laravel dashboard uses npm (not pnpm); keep its lockfile for npm ci
+!dashboard/package-lock.json

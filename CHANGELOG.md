@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Take work from Jira Cloud issues as "Nyrus": add the `nyrus` label or assign the issue to the agent's Jira account to hand it over, mention `@Nyrus` in a comment to ask it something, and steer it with comments. Nyrus shows its progress in one comment that it replaces with its answer, moves the issue to "In Progress", and gives sessions Jira tools (read issues, comment, attach the pull request, transition). See [docs/JIRA.md](./docs/JIRA.md). ([#3](https://github.com/teamnovu/nyrus/pull/3))
+- nyrus dashboard (`dashboard/`, Laravel): status and sessions, repositories and routing, `.env` variables (write-only), logs and an audit log, with Google sign-in limited to one domain. It uses new `/api/dashboard/*` endpoints behind `CYRUS_API_KEY`.
+- `SLACK_DIRECT_WEBHOOKS=true` verifies Slack events by signature even when `CYRUS_API_KEY` is set, so a self-hosted instance can use its own API key and Slack together.
+
+### Fixed
+- With `--env-file`, config updates (`/api/update/cyrus-env`, used by the dashboard) now go to that file instead of `~/.cyrus/.env`, and an env file that gets replaced (as Laravel Forge's Environment page does) is still reloaded.
+- A `config.json` created while Cyrus is running (e.g. the first repository added through the config API on a fresh install) is now loaded right away instead of only after a restart.
+- Self-hosted Cyrus behind a reverse proxy (no `CYRUS_HOST_EXTERNAL`, no `CYRUS_API_KEY`) now accepts Slack events verified with `SLACK_SIGNING_SECRET`, instead of rejecting them. Slack webhooks are always rejected when no verification secret is configured. ([#4](https://github.com/teamnovu/nyrus/pull/4))
 
 ## [0.2.78] - 2026-11-12
 

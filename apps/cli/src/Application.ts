@@ -48,6 +48,9 @@ export class Application {
 
 		// Determine the env file path: use custom path if provided, otherwise default to ~/.cyrus/.env
 		this.envFilePath = customEnvPath || join(cyrusHome, ".env");
+		// Tell the config API (cyrus-config-updater) which file this process
+		// uses, so env updates land in the same file (e.g. a Forge site .env).
+		process.env.CYRUS_ENV_FILE = this.envFilePath;
 
 		// Ensure required directories exist
 		this.ensureRequiredDirectories();
@@ -96,7 +99,20 @@ export class Application {
 				if (eventType === "change") {
 					this.logger.info("🔄 .env file changed, reloading...");
 					this.loadEnvFile();
+					return;
 				}
+				// Editors and deploy tools (e.g. Forge's Environment page) may
+				// replace the file instead of writing in place; the old watcher
+				// then stops firing. Reload and watch the new file.
+				this.envWatcher?.close();
+				this.envWatcher = undefined;
+				setTimeout(() => {
+					if (existsSync(this.envFilePath)) {
+						this.logger.info("🔄 .env file replaced, reloading...");
+						this.loadEnvFile();
+						this.setupEnvFileWatcher();
+					}
+				}, 200);
 			});
 
 			this.logger.info(
