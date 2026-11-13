@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Auth\SsoController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DeployHookController;
 use App\Http\Controllers\LogController;
 use App\Http\Controllers\RepositoryController;
 use App\Http\Controllers\SettingsController;
@@ -31,3 +32,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/logs', [LogController::class, 'index'])->name('logs.index');
     Route::get('/audit', [LogController::class, 'audit'])->name('audit.index');
 });
+
+// Called by the Forge deploy script (see README): clears PHP-FPM's OPcache.
+Route::post('/_deploy/opcache-reset', [DeployHookController::class, 'resetOpcache'])
+    ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class])
+    ->name('deploy.opcache-reset');
