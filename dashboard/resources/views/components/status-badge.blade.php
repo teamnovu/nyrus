@@ -1,14 +1,14 @@
 @props(['status'])
 @php
     $styles = [
-        'active' => 'bg-brand/20 text-brand',
-        'pending' => 'bg-brand-muted/15 text-brand-muted',
-        'busy' => 'bg-brand/20 text-brand',
-        'awaitingInput' => 'bg-peach/20 text-peach',
+        'active' => 'bg-gold/20 text-gold',
+        'pending' => 'bg-gold-light/15 text-gold-light',
+        'busy' => 'bg-gold/20 text-gold',
+        'awaitingInput' => 'bg-warning/20 text-warning',
         'complete' => 'bg-white/10 text-white/75',
-        'idle' => 'bg-brand/20 text-brand',
-        'error' => 'bg-coral/20 text-coral',
-        'down' => 'bg-coral/20 text-coral',
+        'idle' => 'bg-gold/20 text-gold',
+        'error' => 'bg-danger/20 text-danger',
+        'down' => 'bg-danger/20 text-danger',
     ];
     $labels = [
         'active' => 'läuft',

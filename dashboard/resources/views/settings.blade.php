@@ -5,7 +5,7 @@
 
     @if ($error)
         <div class="notice mt-6">
-            <span class="chip bg-peach/20 text-peach"><span class="chip-dot"></span></span>
+            <span class="chip bg-warning/20 text-warning"><span class="chip-dot"></span></span>
             <span>Einstellungen konnten nicht geladen werden: {{ $error }}</span>
         </div>
     @endif
@@ -14,12 +14,12 @@
         <div class="glass mt-8 flex flex-wrap items-center gap-3 px-6 py-4 text-sm">
             <span class="font-bold text-white">GitHub CLI</span>
             @if (($gh['isInstalled'] ?? false) && ($gh['isAuthenticated'] ?? false))
-                <span class="chip bg-brand/15 text-brand"><span class="chip-dot"></span>installiert und angemeldet</span>
+                <span class="chip bg-gold/15 text-gold"><span class="chip-dot"></span>installiert und angemeldet</span>
             @elseif ($gh['isInstalled'] ?? false)
-                <span class="chip bg-peach/20 text-peach"><span class="chip-dot"></span>nicht angemeldet</span>
+                <span class="chip bg-warning/20 text-warning"><span class="chip-dot"></span>nicht angemeldet</span>
                 <span class="muted">auf dem Server <span class="font-mono text-white/80">gh auth login</span> ausführen</span>
             @else
-                <span class="chip bg-coral/20 text-coral"><span class="chip-dot"></span>nicht installiert</span>
+                <span class="chip bg-danger/20 text-danger"><span class="chip-dot"></span>nicht installiert</span>
             @endif
         </div>
     @endif
@@ -31,8 +31,8 @@
             <div class="glass flex items-start gap-4 p-5">
                 <span @class([
                     'mt-1 size-2.5 shrink-0 rounded-full',
-                    'bg-brand shadow-[0_0_10px_rgb(82_208_155/0.8)]' => $isSet,
-                    'bg-peach shadow-[0_0_10px_rgb(235_186_154/0.6)]' => ! $isSet && $set->has($key),
+                    'bg-gold shadow-[0_0_10px_rgb(213_194_131/0.8)]' => $isSet,
+                    'bg-warning shadow-[0_0_10px_rgb(227_178_107/0.6)]' => ! $isSet && $set->has($key),
                     'bg-white/20' => ! $set->has($key),
                 ])></span>
                 <div class="min-w-0 flex-1">
@@ -44,9 +44,9 @@
                     </div>
                     <div class="mt-1 text-xs">
                         @if ($isSet)
-                            <span class="font-bold text-brand">gesetzt</span>
+                            <span class="font-bold text-gold">gesetzt</span>
                         @elseif ($set->has($key))
-                            <span class="font-bold text-peach">leer</span>
+                            <span class="font-bold text-warning">leer</span>
                         @else
                             <span class="muted">nicht gesetzt</span>
                         @endif
