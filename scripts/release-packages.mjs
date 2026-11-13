@@ -48,6 +48,10 @@ export const releasePackages = [
 		name: "cyrus-comment-sessions",
 	},
 	{
+		directory: "packages/jira-event-transport",
+		name: "cyrus-jira-event-transport",
+	},
+	{
 		directory: "packages/simple-agent-runner",
 		name: "cyrus-simple-agent-runner",
 	},
