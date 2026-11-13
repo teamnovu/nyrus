@@ -38,9 +38,9 @@ Google Cloud console → APIs & Services:
 1. OAuth consent screen: user type **Internal** (only accounts of the Google Workspace).
 2. Credentials → OAuth client ID → **Web application**, authorized redirect URI `https://<dashboard-site>/auth/google/callback`.
 
-### 3. Database (MySQL)
+### 3. Database (PostgreSQL)
 
-Forge → server → **Database**: create a database `nyrus_dashboard` and a user with access to it (Forge generates the password). The dashboard stores users, sessions, cache and the audit log there; nyrus itself needs no database.
+Forge → server → **Database**: create a database `nyrus_dashboard` and a user with access to it (Forge generates the password). The dashboard stores users, sessions, cache and the audit log there; nyrus itself needs no database. PHP needs the `pgsql` extension, which Forge installs on Postgres servers.
 
 ### 4. Site
 
@@ -73,9 +73,9 @@ APP_ENV=production
 APP_DEBUG=false
 APP_URL=https://nyrus-dashboard.on-forge.com
 APP_KEY=            # see below
-DB_CONNECTION=mysql
+DB_CONNECTION=pgsql
 DB_HOST=127.0.0.1
-DB_PORT=3306
+DB_PORT=5432
 DB_DATABASE=nyrus_dashboard
 DB_USERNAME=        # the database user from step 3
 DB_PASSWORD=
@@ -100,7 +100,7 @@ php -r 'echo "base64:".base64_encode(random_bytes(32)), PHP_EOL;'
 cd dashboard
 composer install && npm install && npm run build
 cp .env.example .env && php artisan key:generate
-touch database/database.sqlite && php artisan migrate   # SQLite locally; MySQL works too (DB_* in .env)
+touch database/database.sqlite && php artisan migrate   # SQLite locally; PostgreSQL works too (DB_* in .env)
 ```
 
 Point `NYRUS_URL` / `NYRUS_API_KEY` at a local nyrus (started with `CYRUS_API_KEY`), set `DASHBOARD_DEV_LOGIN=true` to sign in without Google (only with `APP_ENV=local`), then `php artisan serve`.
