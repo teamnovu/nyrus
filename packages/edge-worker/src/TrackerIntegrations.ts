@@ -1,3 +1,4 @@
+import { createClickUpIntegration } from "cyrus-clickup-event-transport";
 import type {
 	TrackerIntegration,
 	TrackerIntegrationFactory,
@@ -12,6 +13,7 @@ import { createJiraIntegration } from "cyrus-jira-event-transport";
  */
 export const trackerIntegrationFactories: TrackerIntegrationFactory[] = [
 	createJiraIntegration,
+	createClickUpIntegration,
 ];
 
 /** Build every configured tracker integration; one failing doesn't stop the others. */

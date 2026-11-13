@@ -33,6 +33,7 @@
 		"@ngrok/ngrok": "^1.5.1",
 		"chokidar": "^4.0.3",
 		"cyrus-claude-runner": "workspace:*",
+		"cyrus-clickup-event-transport": "workspace:*",
 		"cyrus-cloudflare-tunnel-client": "workspace:*",
 		"cyrus-codex-runner": "workspace:*",
 		"cyrus-comment-sessions": "workspace:*",

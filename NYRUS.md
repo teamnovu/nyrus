@@ -13,8 +13,8 @@ Project brief (German): [ClickUp doc "novu cyrus"](https://app.clickup.com/14278
 | Deploying on Laravel Forge (AP1) | [deploy/forge/README.md](deploy/forge/README.md) |
 | Shared base for trackers without agent sessions (AP2): design and how to add a tracker | [packages/comment-sessions/README.md](packages/comment-sessions/README.md) |
 | Where trackers plug into the edge worker | [packages/edge-worker/src/TrackerIntegrations.ts](packages/edge-worker/src/TrackerIntegrations.ts) |
-| ClickUp integration (AP3): spike and findings | `docs/nyrus/clickup-spike.md` (on `feat/clickup-integration` until merged) |
-| ClickUp setup guide (once released) | `docs/CLICKUP.md` |
+| ClickUp integration (AP3): spike and findings | [docs/nyrus/clickup-spike.md](docs/nyrus/clickup-spike.md), tools in [scripts/clickup/](scripts/clickup) |
+| ClickUp setup guide | [docs/CLICKUP.md](docs/CLICKUP.md) |
 | Jira integration (AP4) setup guide (once released) | `docs/JIRA.md` |
 | Plane, the integration ClickUp and Jira are modeled on | [docs/PLANE.md](docs/PLANE.md), [packages/plane-event-transport](packages/plane-event-transport) |
 
@@ -41,7 +41,7 @@ Keep this table current when a package changes state.
 | 2026-11-13 | ClickUp and Jira are built in parallel, on the shared AP2 package `cyrus-comment-sessions`. Jira's own coordinator (#3) was merged into it: one session per ticket, hand-over read from the ticket, own comments by id and signature. Merge order: #5, then #3 and #6. |
 | 2026-11-13 | No contributions back to upstream Cyrus. We still merge upstream regularly (AP7). |
 | 2026-11-13 | Assigning the bot means "work the whole ticket"; mentioning it in a comment means a question or instruction. |
-| 2026-11-13 | One bot user with an API token per tracker; an OAuth app only once several customer workspaces need it. |
+| 2026-11-13 | ClickUp: no bot user. novu allows no non-personal ClickUp accounts, so nyrus has to act through the API in a person's name. Whose, and how it is started instead of assign/@mention, is open: see [docs/nyrus/clickup-spike.md](docs/nyrus/clickup-spike.md#identity-no-bot-account). |
 | 2026-11-13 | ClickUp routing: a Space (one per customer) is the team, a List is the project. |
 
 Open: Jira Cloud or Data Center, where nyrus runs in production, and which projects and repositories the pilot uses.
