@@ -5816,6 +5816,15 @@ ${taskSection}`;
 		// The selection handler extracts the choice from the response (or uses fallback)
 		// and caches the repository for future use.
 		if (this.repositoryRouter.hasPendingSelection(agentSessionId)) {
+			// Only a user allowed to use the repository may pick it. Anyone
+			// else's reply is ignored and the selection stays open.
+			const selected = this.repositoryRouter.previewRepositoryFromResponse(
+				agentSessionId,
+				activityBody,
+			);
+			if (!this.isAllowedToAnswer(webhook, selected, "repository selection")) {
+				return;
+			}
 			await this.handleRepositorySelectionResponse(webhook);
 			return;
 		}
@@ -5824,6 +5833,16 @@ ${taskSection}`;
 		// This handles responses to questions posed via the AskUserQuestion tool.
 		// The response is passed to the pending promise resolver.
 		if (this.askUserQuestionHandler.hasPendingQuestion(agentSessionId)) {
+			// Same for the agent's questions: the answer steers the session.
+			const issueIdForQuestion = webhook.agentSession?.issue?.id;
+			const sessionRepoId = this.sessionRepositories.get(agentSessionId);
+			const repository =
+				(issueIdForQuestion &&
+					this.getCachedRepositories(issueIdForQuestion)?.[0]) ||
+				(sessionRepoId ? this.repositories.get(sessionRepoId) : undefined);
+			if (!this.isAllowedToAnswer(webhook, repository, "question")) {
+				return;
+			}
 			await this.handleAskUserQuestionResponse(webhook);
 			return;
 		}
@@ -7493,6 +7512,32 @@ ${input.userComment}
 			return { allowed: false, reason: result.reason, userName };
 		}
 		return { allowed: true };
+	}
+
+	/**
+	 * Whether the user who answered a pending repository selection or agent
+	 * question may do so, by the access rules of the repository involved (the
+	 * global rules alone if it is unknown). A blocked answer is only logged:
+	 * the session keeps waiting for an answer from someone allowed, so the
+	 * session isn't ended on their behalf.
+	 */
+	private isAllowedToAnswer(
+		webhook: AgentSessionPromptedWebhook,
+		repository: RepositoryConfig | null | undefined,
+		what: string,
+	): boolean {
+		const creator = webhook.agentSession.creator;
+		const result = this.userAccessControl.checkAccess(
+			creator?.id,
+			creator?.email,
+			repository?.id ?? "",
+		);
+		if (!result.allowed) {
+			this.logger.info(
+				`Ignoring ${what} answer from ${creator?.name || creator?.id || "unknown user"} in session ${webhook.agentSession.id}: ${result.reason}`,
+			);
+		}
+		return result.allowed;
 	}
 
 	/**
