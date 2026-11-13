@@ -64,14 +64,23 @@ npm ci && npm run build
 $FORGE_PHP artisan migrate --force
 $FORGE_PHP artisan optimize
 
-# With OPcache's timestamp checks off (Forge's OPcache optimization), PHP keeps
-# serving old compiled views/config until PHP-FPM reloads. Try a reload without
-# ever prompting for a password; if forge may not do that, say so and go on.
-sudo -n service "${FORGE_PHP_FPM:-php8.5-fpm}" reload 2>/dev/null \
-    || echo "Could not reload PHP-FPM without a password: restart PHP in Forge, or turn off Forge's OPcache optimization."
+# With OPcache's timestamp checks off (Forge's OPcache optimization), PHP-FPM
+# keeps serving the old compiled views/routes/config while Nginx already serves
+# the new CSS. Clear FPM's OPcache through the app with a one-time token (no
+# sudo needed); fall back to a reload that never prompts for a password.
+token=$($FORGE_PHP -r 'echo bin2hex(random_bytes(24));')
+printf '%s' "$token" > storage/framework/opcache-reset-token
+url=$(grep -E '^APP_URL=' .env | cut -d= -f2- | tr -d '"')
+if curl -fsS -X POST -H "X-Deploy-Token: $token" "$url/_deploy/opcache-reset"; then
+    echo " OPcache cleared"
+else
+    rm -f storage/framework/opcache-reset-token
+    sudo -n service "${FORGE_PHP_FPM:-php8.5-fpm}" reload 2>/dev/null \
+        || echo "Could not clear OPcache: restart PHP in Forge, or turn off Forge's OPcache optimization."
+fi
 ```
 
-If pages look half-updated after a deploy (new CSS, old HTML), PHP is serving old compiled views from OPcache. Either turn off the OPcache optimization for PHP in Forge (Server → PHP → OPcache; then changed files are picked up on their own) or restart PHP in Forge after each deploy.
+If pages look half-updated after a deploy (new CSS, old HTML), PHP is serving old compiled views from OPcache and the reset step above did not run (check the deploy log; the very first deploy that adds it still needs one manual PHP restart, because the old cached routes do not know the endpoint yet). Either turn off the OPcache optimization for PHP in Forge (Server → PHP → OPcache; then changed files are picked up on their own) or restart PHP in Forge after each deploy.
 
 Environment (Forge → site → Environment), starting from `dashboard/.env.example`. Forge stores it in the site's root directory: with Root `/dashboard` that is `dashboard/.env` directly; otherwise `/home/forge/<site>/.env`, which the deploy script links to `dashboard/.env`:
 
