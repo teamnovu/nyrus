@@ -222,6 +222,40 @@ class DashboardPagesTest extends TestCase
         unlink($path);
     }
 
+    public function test_log_tail_returns_only_new_complete_lines(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'nyrus-log');
+        file_put_contents($path, "2026-11-13T11:58:10Z [INFO ] [CLI] First line\n");
+        config(['nyrus.log_path' => $path]);
+
+        $first = $this->getJson('/logs/tail')->assertOk()->assertJson(['reset' => false, 'count' => 1]);
+        $offset = $first->json('offset');
+        $this->assertSame(filesize($path), $offset);
+        $this->assertStringContainsString('First line', $first->json('html'));
+
+        // a complete new line and one still being written
+        file_put_contents($path, "2026-11-13T11:58:11Z [ERROR] [EdgeWorker] Second line\n2026-11-13T11:58:12Z [INFO ] half", FILE_APPEND);
+        $next = $this->getJson("/logs/tail?offset={$offset}")->assertOk()->assertJson(['reset' => false, 'count' => 1]);
+        $this->assertStringContainsString('Second line', $next->json('html'));
+        $this->assertStringNotContainsString('First line', $next->json('html'));
+        $this->assertStringNotContainsString('half', $next->json('html'));
+
+        // filtered by level
+        $this->getJson("/logs/tail?offset={$offset}&level=info")->assertJson(['count' => 0]);
+
+        // truncated (e.g. rotated): start over
+        file_put_contents($path, "2026-11-13T12:00:00Z [INFO ] [CLI] Fresh\n");
+        $this->getJson('/logs/tail?offset=999999')->assertOk()->assertJson(['reset' => true, 'count' => 1]);
+
+        unlink($path);
+    }
+
+    public function test_log_tail_reports_missing_configuration(): void
+    {
+        config(['nyrus.log_path' => null]);
+        $this->getJson('/logs/tail')->assertStatus(503)->assertJsonStructure(['error']);
+    }
+
     public function test_logs_explain_missing_configuration(): void
     {
         config(['nyrus.log_path' => null]);

@@ -30,6 +30,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');
 
     Route::get('/logs', [LogController::class, 'index'])->name('logs.index');
+    Route::get('/logs/tail', [LogController::class, 'tail'])->name('logs.tail');
     Route::get('/audit', [LogController::class, 'audit'])->name('audit.index');
 });
 
