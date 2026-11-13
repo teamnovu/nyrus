@@ -25,9 +25,9 @@ Setup guides for users go in `docs/<TRACKER>.md`, like upstream's. Notes for dev
 | # | Package | Status | Branch |
 |---|---|---|---|
 | AP1 | Hosting & operations (Forge) | Deploy script on `main` | `main` |
-| AP2 | Shared base for trackers without agent sessions | Built, in review | `feat/ap2-comment-sessions` |
-| AP3 | ClickUp integration | Spike | `feat/clickup-integration` (on top of AP2) |
-| AP4 | Jira integration | In progress (other developer) | — |
+| AP2 | Shared base for trackers without agent sessions | In review: [#5](https://github.com/teamnovu/nyrus/pull/5) | `feat/ap2-comment-sessions` |
+| AP3 | ClickUp integration | Spike; webhook receiver in review: [#6](https://github.com/teamnovu/nyrus/pull/6) | `feat/clickup-integration` (on top of AP2) |
+| AP4 | Jira integration | In review on the AP2 base: [#3](https://github.com/teamnovu/nyrus/pull/3) | `feature/jira-adapter` (on top of AP2) |
 | AP5 | Tracker-neutral prompts, status mapping, PR links | Open | — |
 | AP6 | Tests & pilot | Open | — |
 | AP7 | Fork maintenance (merging upstream) | Ongoing | — |
@@ -38,7 +38,7 @@ Keep this table current when a package changes state.
 
 | Date | Decision |
 |---|---|
-| 2026-11-13 | ClickUp and Jira are built in parallel, on the shared AP2 package `cyrus-comment-sessions`. |
+| 2026-11-13 | ClickUp and Jira are built in parallel, on the shared AP2 package `cyrus-comment-sessions`. Jira's own coordinator (#3) was merged into it: one session per ticket, hand-over read from the ticket, own comments by id and signature. Merge order: #5, then #3 and #6. |
 | 2026-11-13 | No contributions back to upstream Cyrus. We still merge upstream regularly (AP7). |
 | 2026-11-13 | Assigning the bot means "work the whole ticket"; mentioning it in a comment means a question or instruction. |
 | 2026-11-13 | One bot user with an API token per tracker; an OAuth app only once several customer workspaces need it. |
