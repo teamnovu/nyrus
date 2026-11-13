@@ -38,7 +38,11 @@ Google Cloud console → APIs & Services:
 1. OAuth consent screen: user type **Internal** (only accounts of the Google Workspace).
 2. Credentials → OAuth client ID → **Web application**, authorized redirect URI `https://<dashboard-site>/auth/google/callback`.
 
-### 3. Site
+### 3. Database (MySQL)
+
+Forge → server → **Database**: create a database `nyrus_dashboard` and a user with access to it (Forge generates the password). The dashboard stores users, sessions, cache and the audit log there; nyrus itself needs no database.
+
+### 4. Site
 
 Forge → same server → new site, e.g. `nyrus-dashboard.on-forge.com`:
 
@@ -58,7 +62,6 @@ cd dashboard
 [ -e .env ] || ln -s ../.env .env
 $FORGE_COMPOSER install --no-dev --no-interaction --prefer-dist --optimize-autoloader
 npm ci && npm run build
-touch database/database.sqlite
 $FORGE_PHP artisan migrate --force
 $FORGE_PHP artisan optimize
 ```
@@ -69,7 +72,13 @@ Environment (Forge → site → Environment), starting from `dashboard/.env.exam
 APP_ENV=production
 APP_DEBUG=false
 APP_URL=https://nyrus-dashboard.on-forge.com
-APP_KEY=            # php artisan key:generate --show
+APP_KEY=            # see below
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=nyrus_dashboard
+DB_USERNAME=        # the database user from step 3
+DB_PASSWORD=
 NYRUS_API_KEY=      # same value as CYRUS_API_KEY in nyrus
 NYRUS_LOG_PATH=     # log file of the nyrus daemon, shown in Forge
 GOOGLE_CLIENT_ID=
@@ -91,7 +100,7 @@ php -r 'echo "base64:".base64_encode(random_bytes(32)), PHP_EOL;'
 cd dashboard
 composer install && npm install && npm run build
 cp .env.example .env && php artisan key:generate
-touch database/database.sqlite && php artisan migrate
+touch database/database.sqlite && php artisan migrate   # SQLite locally; MySQL works too (DB_* in .env)
 ```
 
 Point `NYRUS_URL` / `NYRUS_API_KEY` at a local nyrus (started with `CYRUS_API_KEY`), set `DASHBOARD_DEV_LOGIN=true` to sign in without Google (only with `APP_ENV=local`), then `php artisan serve`.
