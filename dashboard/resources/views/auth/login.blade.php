@@ -1,36 +1,36 @@
 <x-app title="Anmelden" :bare="true">
-    <div class="fixed inset-0 flex items-center justify-center bg-black px-4">
-        <div class="w-full max-w-sm text-center text-white">
-            <img src="/brand/novu-gold.svg" alt="novu" class="mx-auto h-6 w-auto">
-            <p class="mt-4 text-sm font-medium tracking-[0.3em] text-white/60 uppercase">nyrus Dashboard</p>
+    <div class="fixed inset-0 flex flex-col bg-ink px-6 py-6 text-white">
+        <img src="/brand/union-white.svg" alt="Union" class="h-7 w-auto self-start">
 
-            <div class="mt-10">
+        <div class="flex flex-1 flex-col justify-center">
+            <h1 class="text-6xl font-extrabold tracking-tight sm:text-8xl">nyrus</h1>
+            <p class="mt-4 max-w-md text-lg font-bold text-white/70">Das Dashboard für unseren Coding-Agent.</p>
+
+            <div class="mt-10 max-w-md">
                 @if (request()->has('logout'))
-                    <p class="text-sm text-white/70">Du bist abgemeldet.</p>
+                    <p class="text-sm font-bold text-white/70">Du bist abgemeldet.</p>
                 @elseif ($failed && ! session('error'))
-                    <p class="text-sm text-red-300">Die Anmeldung über novu SSO hat nicht geklappt. Bitte nochmals versuchen.</p>
+                    <p class="text-sm font-bold text-coral">Die Anmeldung über novu SSO hat nicht geklappt. Bitte nochmals versuchen.</p>
                 @elseif (session('error'))
-                    <p class="text-sm text-red-300">{{ session('error') }}</p>
-                @else
-                    <p class="text-sm text-white/70">Anmelden mit deinem novu-Konto.</p>
+                    <p class="text-sm font-bold text-coral">{{ session('error') }}</p>
                 @endif
 
                 @if ($configured)
                     <a href="{{ route('sso') }}"
-                       class="mt-6 inline-flex w-full items-center justify-center bg-gold-700 px-4 py-3 text-sm font-bold tracking-widest text-black uppercase transition-colors hover:bg-gold-600">
+                       class="mt-6 inline-flex items-center justify-center rounded-full bg-brand px-8 py-3 text-base font-extrabold text-ink transition-colors hover:bg-white">
                         Mit novu anmelden
                     </a>
                 @else
-                    <p class="mt-6 border border-gold-700/40 px-3 py-2 text-left text-sm text-gold-600">
+                    <p class="mt-6 rounded-2xl border border-peach px-4 py-3 text-sm text-peach">
                         novu SSO ist noch nicht eingerichtet: <span class="font-mono">NOVU_AUTH_CLIENT_ID</span> und
                         <span class="font-mono">NOVU_AUTH_CLIENT_SECRET</span> fehlen (OAuth Client auf auth.novu.ch).
                     </p>
                 @endif
 
                 @if ($devLogin)
-                    <form method="POST" action="{{ route('auth.dev') }}" class="mt-3">
+                    <form method="POST" action="{{ route('auth.dev') }}" class="mt-4">
                         @csrf
-                        <button class="w-full border border-dashed border-white/30 px-4 py-2 text-sm text-white/60 hover:text-white">Lokal ohne SSO anmelden (nur Entwicklung)</button>
+                        <button class="rounded-full border border-dashed border-white/40 px-5 py-2 text-sm font-bold text-white/70 hover:text-white">Lokal ohne SSO anmelden (nur Entwicklung)</button>
                     </form>
                 @endif
             </div>

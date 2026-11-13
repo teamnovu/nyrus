@@ -4,80 +4,74 @@
 @source '../../storage/framework/views/*.php';
 
 /*
- * novu branding, taken from novu.ch (teamnovu/novu-web): black and near-black
- * surfaces, gold accents, warm beige, neuzeit-grotesk (Adobe Fonts kit, loaded
- * in the layout; falls back to the system sans if the kit doesn't serve this
- * domain).
+ * Union Group branding (union-group.ch): black and white, very bold
+ * Helvetica, green as the brand color with black text on it, browns and
+ * grays from the brand palette, coral/peach as signal colors.
  */
 @theme {
-    --font-sans: neuzeit-grotesk, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-sans: 'Helvetica Neue', Helvetica, Arial, ui-sans-serif, system-ui, sans-serif;
 
-    --color-gold-100: #fffdf5;
-    --color-gold-200: #f1efea;
-    --color-gold-600: #ebdfb7;
-    --color-gold-700: #d5c283;
-    --color-gold-800: #bca763;
-    --color-gold-900: #998d68;
-
-    --color-brand-gold: #9f9061;
-    --color-brand-beige: #f1efea;
-    --color-brand-gray-medium: #92918d;
-    --color-brand-gray-dark: #5e5e5b;
-
-    --color-ink: #121212;
-    --color-ink-soft: #181818;
+    --color-ink: #080808;
+    --color-brand: #52d09b;
+    --color-brand-strong: #0d8e5f;
+    --color-brand-muted: #d3f8e3;
+    --color-brown: #3d3c36;
+    --color-brown-light: #7b776b;
+    --color-subtle: #949084;
+    --color-coral: #eb6052;
+    --color-peach: #ebba9a;
+    --color-paper: #f4f3f0;
 }
 
 @layer base {
     body {
-        @apply bg-brand-beige text-ink;
+        @apply bg-paper text-ink;
     }
 
     h1,
     h2 {
-        @apply font-bold tracking-wide uppercase;
+        @apply font-extrabold tracking-tight;
     }
 
     ::selection {
-        @apply bg-gold-600 text-ink;
+        @apply bg-brand text-ink;
     }
 }
 
 @layer components {
     .card {
-        @apply rounded-none border border-black/10 bg-white;
+        @apply rounded-2xl border border-ink bg-white;
     }
 
     .btn {
-        @apply inline-flex items-center justify-center gap-2 bg-ink px-4 py-2 text-sm font-medium tracking-wide text-white uppercase transition-colors hover:bg-black hover:text-gold-700;
+        @apply inline-flex items-center justify-center gap-2 rounded-full bg-brand px-5 py-2 text-sm font-bold text-ink transition-colors hover:bg-ink hover:text-brand;
     }
 
     .btn-secondary {
-        @apply inline-flex items-center justify-center gap-2 border border-ink px-4 py-2 text-sm font-medium tracking-wide uppercase transition-colors hover:bg-ink hover:text-gold-700;
+        @apply inline-flex items-center justify-center gap-2 rounded-full border border-ink bg-white px-5 py-2 text-sm font-bold transition-colors hover:bg-ink hover:text-white;
     }
 
     .btn-danger {
-        @apply inline-flex items-center justify-center gap-2 border border-red-700 px-3 py-1.5 text-sm text-red-700 transition-colors hover:bg-red-700 hover:text-white;
+        @apply inline-flex items-center justify-center gap-2 rounded-full border border-coral px-4 py-1.5 text-sm font-bold text-coral transition-colors hover:bg-coral hover:text-white;
     }
 
     .field {
-        @apply mt-1 w-full rounded-none border border-black/20 bg-white px-3 py-2 outline-none focus:border-gold-800 focus:ring-2 focus:ring-gold-600;
+        @apply mt-1 w-full rounded-xl border border-ink bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-brand;
     }
 
     .label {
-        @apply text-xs font-medium tracking-wider text-brand-gray-dark uppercase;
+        @apply text-xs font-bold text-brown-light;
     }
 
-    /* the gold dash novu.ch uses as bullet */
     .eyebrow {
-        @apply flex items-center gap-3 text-xs font-medium tracking-widest text-brand-gold uppercase before:inline-block before:h-0.5 before:w-6 before:bg-gold-700;
+        @apply flex w-fit items-center rounded-full bg-ink px-3 py-1 text-xs font-bold text-brand;
     }
 
     .table-head {
-        @apply border-b border-black/10 bg-gold-200 text-xs tracking-wider text-brand-gray-dark uppercase;
+        @apply border-b border-ink text-xs text-brown-light;
     }
 
     .link {
-        @apply text-brand-gold underline decoration-gold-700/60 underline-offset-2 hover:text-ink;
+        @apply font-bold text-brand-strong underline decoration-brand underline-offset-4 hover:text-ink;
     }
 }
