@@ -87,10 +87,10 @@ Finally `node scripts/clickup/webhook.mjs delete <id>`.
 |---|---|---|
 | 1 | Which plan, which rate limit? | Enterprise, `x-ratelimit-limit: 10000` per minute (2026-11-13). Rate limits are no constraint; progress edits stay throttled for readability, not for the limit. |
 | 2 | Guest seat enough for the bot? | Moot: no bot accounts allowed (see Identity). |
-| 3 | Which comment format renders best (rich text array, Markdown, HTML)? Code blocks and lists? | |
+| 3 | Which comment format renders best (rich text array, Markdown, HTML)? Code blocks and lists? | **Rich text `comment` array.** It renders bold, italic, inline code, links, bullet and numbered lists, code blocks (with highlighting) and mentions (`{type: "tag", user: {id}}` becomes a real mention). Markdown in `comment_text` mostly stays literal (`**`, `_`, `- `, broken code fences); only inline code and bare URLs render. So nyrus converts its Markdown to the rich text array (block formats such as lists and code blocks go on the `\n` that ends the line, Quill-style). Threaded replies, edit and delete work (2026-11-13). |
 | 4 | How do a `/nyrus` comment and an @mention appear in `taskCommentPosted` (`text_content`, `comment` array with `type: "tag"`)? | |
 | 5 | How does adding or removing a tag arrive (event, `history_items[].field`), and is the tag name in it? | |
-| 6 | Do comments posted through the API trigger webhooks, and with which `user`? | |
+| 6 | Do comments posted through the API trigger webhooks, and with which `user`? | Open. The create response marks API comments with `version.data.context.originating_service: "publicapi_comments"`; check whether webhooks carry it, so nyrus can tell its own comments from the same person's hand-written ones. |
 | 7 | Do threaded replies arrive as `taskCommentPosted`, and how do we know the parent? | |
 | 8 | Retry behavior and suspension after failed deliveries | |
 | 9 | Task ids: are custom task ids (`DEV-123`) on in the Spaces we'd pilot? | Off: tasks have only ClickUp ids (`custom_id` is null on the sandbox task, 2026-11-13). Branch names use the plain id. |
