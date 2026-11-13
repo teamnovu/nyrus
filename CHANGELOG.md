@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Jira: an Atlassian service account (`…@serviceaccount.atlassian.com`) works as the agent account. Its API calls go through Atlassian's API gateway, which service account tokens require; before, Jira rejected them with 401. ([#10](https://github.com/teamnovu/nyrus/pull/10))
 - Take work from Jira Cloud issues as "Nyrus": add the `nyrus` label or assign the issue to the agent's Jira account to hand it over, mention `@Nyrus` in a comment to ask it something, and steer it with comments. Nyrus shows its progress in one comment that it replaces with its answer, moves the issue to "In Progress", and gives sessions Jira tools (read issues, comment, attach the pull request, transition). See [docs/JIRA.md](./docs/JIRA.md). ([#3](https://github.com/teamnovu/nyrus/pull/3))
 - nyrus dashboard (`dashboard/`, Laravel): status and sessions, repositories and routing, `.env` variables (write-only), logs and an audit log, with novu SSO sign-in (auth.novu.ch) limited to one email domain. It uses new `/api/dashboard/*` endpoints behind `CYRUS_API_KEY`.
 - `SLACK_DIRECT_WEBHOOKS=true` verifies Slack events by signature even when `CYRUS_API_KEY` is set, so a self-hosted instance can use its own API key and Slack together.
