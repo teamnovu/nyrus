@@ -178,3 +178,94 @@ describe("EdgeWorker.resolveGitHubToken precedence (CYHOST-913)", () => {
 		expect(provider.getToken).toHaveBeenCalled();
 	});
 });
+
+/**
+ * A self-hosted GitHub App (GITHUB_APP_ID + GITHUB_APP_INSTALLATION_ID) gives
+ * agent sessions an installation token, so `gh` opens pull requests as the
+ * App instead of a user account.
+ */
+describe("EdgeWorker.mintSessionGitHubAppToken", () => {
+	let savedGhTokenEnv: string | undefined;
+
+	const repository = {
+		id: "repo-1",
+		name: "Repo One",
+		repositoryPath: "/tmp/repo-one",
+		workspaceBaseDir: "/tmp/workspaces",
+		baseBranch: "main",
+		linearWorkspaceId: "ws-1",
+		isActive: true,
+		githubUrl: "https://github.com/myorg/repo-one",
+	} as RepositoryConfig;
+
+	function mint(
+		repo: RepositoryConfig,
+		provider: { getToken: (options?: unknown) => Promise<string> } | null,
+		log = { warn: vi.fn(), debug: vi.fn(), info: vi.fn() },
+	): Promise<string | undefined> {
+		return (
+			EdgeWorker.prototype as unknown as {
+				mintSessionGitHubAppToken: (
+					repository: RepositoryConfig,
+					log: unknown,
+				) => Promise<string | undefined>;
+			}
+		).mintSessionGitHubAppToken.call(
+			{ gitHubAppTokenProvider: provider },
+			repo,
+			log,
+		);
+	}
+
+	beforeEach(() => {
+		savedGhTokenEnv = process.env.GH_TOKEN;
+		delete process.env.GH_TOKEN;
+	});
+
+	afterEach(() => {
+		if (savedGhTokenEnv === undefined) {
+			delete process.env.GH_TOKEN;
+		} else {
+			process.env.GH_TOKEN = savedGhTokenEnv;
+		}
+	});
+
+	it("mints a token that stays valid for most of a session", async () => {
+		const provider = { getToken: vi.fn().mockResolvedValue("ghs_session") };
+
+		expect(await mint(repository, provider)).toBe("ghs_session");
+		expect(provider.getToken).toHaveBeenCalledWith({
+			minValidityMs: 50 * 60 * 1000,
+		});
+	});
+
+	it("does nothing without a GitHub App", async () => {
+		expect(await mint(repository, null)).toBeUndefined();
+	});
+
+	it("leaves an operator's own GH_TOKEN alone", async () => {
+		process.env.GH_TOKEN = "ghp_operator";
+		const provider = { getToken: vi.fn().mockResolvedValue("ghs_session") };
+
+		expect(await mint(repository, provider)).toBeUndefined();
+		expect(provider.getToken).not.toHaveBeenCalled();
+	});
+
+	it("skips repositories that are not on GitHub", async () => {
+		const provider = { getToken: vi.fn().mockResolvedValue("ghs_session") };
+		const gitlabRepo = { ...repository, githubUrl: undefined };
+
+		expect(await mint(gitlabRepo, provider)).toBeUndefined();
+		expect(provider.getToken).not.toHaveBeenCalled();
+	});
+
+	it("starts the session without a token when minting fails", async () => {
+		const provider = {
+			getToken: vi.fn().mockRejectedValue(new Error("ENOENT github-app.pem")),
+		};
+		const log = { warn: vi.fn(), debug: vi.fn(), info: vi.fn() };
+
+		expect(await mint(repository, provider, log)).toBeUndefined();
+		expect(log.warn).toHaveBeenCalledOnce();
+	});
+});
