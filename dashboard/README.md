@@ -43,7 +43,7 @@ Google Cloud console → APIs & Services:
 Forge → same server → new site, e.g. `nyrus-dashboard.on-forge.com`:
 
 - Repository `teamnovu/nyrus`, branch `main`; turn off "Install Composer dependencies" (the repo root has no `composer.json`, the deploy script installs in `dashboard/`)
-- Web directory: `/dashboard/public`
+- Web directory: `/dashboard/public`; or, if your Forge has a separate **Root directory**, Root `/dashboard` and Web directory `/public`
 - PHP 8.3 or newer, Let's Encrypt
 
 Deploy script:
@@ -53,8 +53,9 @@ cd /home/forge/nyrus-dashboard.on-forge.com
 git pull origin $FORGE_SITE_BRANCH
 
 cd dashboard
-# Forge keeps the site's Environment in the site root; Laravel reads dashboard/.env
-ln -sfn ../.env .env
+# Laravel reads dashboard/.env. If Forge keeps the Environment in the site
+# root instead (no "Root directory" set), link it; never replace a real file.
+[ -e .env ] || ln -s ../.env .env
 $FORGE_COMPOSER install --no-dev --no-interaction --prefer-dist --optimize-autoloader
 npm ci && npm run build
 touch database/database.sqlite
@@ -62,7 +63,7 @@ $FORGE_PHP artisan migrate --force
 $FORGE_PHP artisan optimize
 ```
 
-Environment (Forge → site → Environment; Forge stores it as `/home/forge/<site>/.env`, the deploy script links `dashboard/.env` to it), starting from `dashboard/.env.example`:
+Environment (Forge → site → Environment), starting from `dashboard/.env.example`. Forge stores it in the site's root directory: with Root `/dashboard` that is `dashboard/.env` directly; otherwise `/home/forge/<site>/.env`, which the deploy script links to `dashboard/.env`:
 
 ```bash
 APP_ENV=production
