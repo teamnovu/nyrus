@@ -10,8 +10,9 @@
 // Env: CLICKUP_API_TOKEN, CLICKUP_TEAM_ID (the workspace id).
 import { clickup, parseArgs, requireEnv } from "./lib.mjs";
 
-/** The events nyrus needs: assignment, comments and status changes. */
+/** The events nyrus needs: tags and assignment (triggers), comments and status changes. */
 const DEFAULT_EVENTS = [
+	"taskTagUpdated",
 	"taskAssigneeUpdated",
 	"taskCommentPosted",
 	"taskCommentUpdated",
