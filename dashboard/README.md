@@ -1,6 +1,6 @@
 # nyrus Dashboard
 
-Laravel app to watch and configure nyrus: status and sessions, repositories and routing, `.env` variables, logs and an audit log. Sign-in with Google, limited to one domain (default `novu.ch`).
+Laravel app to watch and configure nyrus: status and sessions, repositories and routing, `.env` variables, logs and an audit log. Sign-in with novu SSO (auth.novu.ch, like the AI-Usage-Collector), limited to one email domain (default `novu.ch`).
 
 It runs as a second Forge site on the nyrus server and talks to nyrus on `127.0.0.1` with the shared `CYRUS_API_KEY`:
 
@@ -31,19 +31,22 @@ Then deploy nyrus so it has the `/api/dashboard/*` endpoints and picks up the ke
 
 The nyrus Nginx config must block `/api/` and `/mcp/` from outside (see `deploy/forge/README.md`); the dashboard reaches them on `127.0.0.1`.
 
-### 2. Google sign-in
+### 2. novu SSO
 
-Google Cloud console → APIs & Services:
+Sign-in works like in the AI-Usage-Collector: OAuth 2 (authorization code) against **auth.novu.ch**, which itself signs in with Google. On auth.novu.ch create an **OAuth Client** with redirect URI `https://<dashboard-site>/sso/check` (locally e.g. `http://127.0.0.1:8000/sso/check`) and note its client id and secret. The dashboard reads the person's email from `GET /api/me` and lets in emails of `DASHBOARD_ALLOWED_DOMAIN` (empty = everyone novu SSO vouches for).
 
-1. OAuth consent screen: user type **Internal** (only accounts of the Google Workspace).
-2. Credentials → OAuth client ID → **Web application**, authorized redirect URI `https://<dashboard-site>/auth/google/callback`.
+Visitors without a session go straight to novu SSO; `/login` is shown after logout, after a failed login, or while the OAuth client is not configured.
 
-### 3. Site
+### 3. Database (PostgreSQL)
+
+Forge → server → **Database**: create a database `nyrus_dashboard` and a user with access to it (Forge generates the password). The dashboard stores users, sessions, cache and the audit log there; nyrus itself needs no database. PHP needs the `pgsql` extension, which Forge installs on Postgres servers.
+
+### 4. Site
 
 Forge → same server → new site, e.g. `nyrus-dashboard.on-forge.com`:
 
-- Repository `teamnovu/nyrus`, branch `main`
-- Web directory: `/dashboard/public`
+- Repository `teamnovu/nyrus`, branch `main`; turn off "Install Composer dependencies" (the repo root has no `composer.json`, the deploy script installs in `dashboard/`)
+- Web directory: `/dashboard/public`; or, if your Forge has a separate **Root directory**, Root `/dashboard` and Web directory `/public`
 - PHP 8.3 or newer, Let's Encrypt
 
 Deploy script:
@@ -53,25 +56,49 @@ cd /home/forge/nyrus-dashboard.on-forge.com
 git pull origin $FORGE_SITE_BRANCH
 
 cd dashboard
+# Laravel reads dashboard/.env. If Forge keeps the Environment in the site
+# root instead (no "Root directory" set), link it; never replace a real file.
+[ -e .env ] || ln -s ../.env .env
 $FORGE_COMPOSER install --no-dev --no-interaction --prefer-dist --optimize-autoloader
 npm ci && npm run build
-touch database/database.sqlite
 $FORGE_PHP artisan migrate --force
 $FORGE_PHP artisan optimize
+
+# With OPcache's timestamp checks off (Forge's OPcache optimization), PHP keeps
+# serving old compiled views/config until PHP-FPM reloads. Try a reload without
+# ever prompting for a password; if forge may not do that, say so and go on.
+sudo -n service "${FORGE_PHP_FPM:-php8.5-fpm}" reload 2>/dev/null \
+    || echo "Could not reload PHP-FPM without a password: restart PHP in Forge, or turn off Forge's OPcache optimization."
 ```
 
-Environment (Forge → site → Environment; the file is `dashboard/.env`), starting from `.env.example`:
+If pages look half-updated after a deploy (new CSS, old HTML), PHP is serving old compiled views from OPcache. Either turn off the OPcache optimization for PHP in Forge (Server → PHP → OPcache; then changed files are picked up on their own) or restart PHP in Forge after each deploy.
+
+Environment (Forge → site → Environment), starting from `dashboard/.env.example`. Forge stores it in the site's root directory: with Root `/dashboard` that is `dashboard/.env` directly; otherwise `/home/forge/<site>/.env`, which the deploy script links to `dashboard/.env`:
 
 ```bash
 APP_ENV=production
 APP_DEBUG=false
 APP_URL=https://nyrus-dashboard.on-forge.com
-APP_KEY=            # php artisan key:generate --show
+APP_KEY=            # see below
+DB_CONNECTION=pgsql
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_DATABASE=nyrus_dashboard
+DB_USERNAME=        # the database user from step 3
+DB_PASSWORD=
 NYRUS_API_KEY=      # same value as CYRUS_API_KEY in nyrus
 NYRUS_LOG_PATH=     # log file of the nyrus daemon, shown in Forge
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
+NOVU_AUTH_CLIENT_ID=     # OAuth Client on auth.novu.ch (step 2)
+NOVU_AUTH_CLIENT_SECRET=
 DASHBOARD_ALLOWED_DOMAIN=novu.ch
+```
+
+Set the environment **before the first deploy**, and **deploy again after every change**: the deploy script runs `php artisan optimize`, which caches the configuration. With a cached config that lacks `APP_KEY`, every page fails with `No application encryption key has been specified`. To apply changes without a full deploy: `php artisan optimize:clear && php artisan optimize` in `dashboard/`.
+
+Generate `APP_KEY` before the first deploy (vendor is not installed yet, so not via artisan):
+
+```bash
+php -r 'echo "base64:".base64_encode(random_bytes(32)), PHP_EOL;'
 ```
 
 ## Local development
@@ -80,10 +107,10 @@ DASHBOARD_ALLOWED_DOMAIN=novu.ch
 cd dashboard
 composer install && npm install && npm run build
 cp .env.example .env && php artisan key:generate
-touch database/database.sqlite && php artisan migrate
+touch database/database.sqlite && php artisan migrate   # SQLite locally; PostgreSQL works too (DB_* in .env)
 ```
 
-Point `NYRUS_URL` / `NYRUS_API_KEY` at a local nyrus (started with `CYRUS_API_KEY`), set `DASHBOARD_DEV_LOGIN=true` to sign in without Google (only with `APP_ENV=local`), then `php artisan serve`.
+Point `NYRUS_URL` / `NYRUS_API_KEY` at a local nyrus (started with `CYRUS_API_KEY`), set `DASHBOARD_DEV_LOGIN=true` to sign in without SSO (only with `APP_ENV=local`), then `php artisan serve`.
 
 Tests (nyrus is faked with `Http::fake()`):
 

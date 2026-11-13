@@ -35,10 +35,13 @@ return [
         ],
     ],
 
-    'google' => [
-        'client_id' => env('GOOGLE_CLIENT_ID'),
-        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
-        'redirect' => env('GOOGLE_REDIRECT_URI', '/auth/google/callback'),
+    // novu SSO (auth.novu.ch, Laravel Passport): an "OAuth Client" created
+    // there, redirect URI NOVU_APP_URL + /sso/check.
+    'novu_auth' => [
+        'server' => env('NOVU_AUTH_SERVER', 'https://auth.novu.ch'),
+        'client_id' => env('NOVU_AUTH_CLIENT_ID'),
+        'client_secret' => env('NOVU_AUTH_CLIENT_SECRET'),
+        'app_url' => env('NOVU_APP_URL', env('APP_URL')),
     ],
 
 ];

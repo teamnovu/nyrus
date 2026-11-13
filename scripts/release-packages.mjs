@@ -48,6 +48,10 @@ export const releasePackages = [
 		name: "cyrus-comment-sessions",
 	},
 	{
+		directory: "packages/jira-event-transport",
+		name: "cyrus-jira-event-transport",
+	},
+	{
 		directory: "packages/clickup-event-transport",
 		name: "cyrus-clickup-event-transport",
 	},

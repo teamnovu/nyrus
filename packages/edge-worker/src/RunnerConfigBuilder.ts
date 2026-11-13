@@ -192,6 +192,15 @@ export interface IssueRunnerConfigInput {
 	 * every invocation; this snapshot cannot authorize a removed token.
 	 */
 	githubToken?: string;
+	/**
+	 * Installation token of a self-hosted GitHub App (`GITHUB_APP_ID` /
+	 * `GITHUB_APP_INSTALLATION_ID`), minted for this session. Exposed as
+	 * `GH_TOKEN` so `gh` (pull requests, PR comments) acts as the App: a
+	 * self-hosted server has no gh wrapper that maps `CYRUS_GH_TOKEN`. The
+	 * EdgeWorker only mints it when the process has no `GH_TOKEN` of its own,
+	 * and `githubToken` (cyrus-hosted) takes precedence over it.
+	 */
+	githubAppToken?: string;
 }
 
 export function resolveIssueMcpConfigPath(
@@ -525,6 +534,13 @@ export class RunnerConfigBuilder {
 			config.additionalEnv = {
 				...config.additionalEnv,
 				CYRUS_GH_TOKEN: input.githubToken,
+			};
+		} else if (input.githubAppToken) {
+			// Self-hosted GitHub App: no gh wrapper on the host, so `gh` reads
+			// the installation token from GH_TOKEN directly.
+			config.additionalEnv = {
+				...config.additionalEnv,
+				GH_TOKEN: input.githubAppToken,
 			};
 		}
 

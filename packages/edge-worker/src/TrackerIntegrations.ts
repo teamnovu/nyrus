@@ -4,6 +4,7 @@ import type {
 	TrackerIntegrationFactory,
 } from "cyrus-comment-sessions";
 import type { ILogger } from "cyrus-core";
+import { createJiraIntegration } from "cyrus-jira-event-transport";
 
 /**
  * Trackers without built-in agent sessions (ClickUp, Jira), built on
@@ -11,6 +12,7 @@ import type { ILogger } from "cyrus-core";
  * variables are set. Add a tracker by appending its factory here.
  */
 export const trackerIntegrationFactories: TrackerIntegrationFactory[] = [
+	createJiraIntegration,
 	createClickUpIntegration,
 ];
 
