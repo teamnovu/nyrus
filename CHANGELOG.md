@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 - nyrus dashboard (`dashboard/`, Laravel): status and sessions, repositories and routing, `.env` variables (write-only), logs and an audit log, with novu SSO sign-in (auth.novu.ch) limited to one email domain. It uses new `/api/dashboard/*` endpoints behind `CYRUS_API_KEY`.
 - `SLACK_DIRECT_WEBHOOKS=true` verifies Slack events by signature even when `CYRUS_API_KEY` is set, so a self-hosted instance can use its own API key and Slack together.
+- Self-hosted with a GitHub App (`GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID` and `~/.cyrus/github-app.pem`): agent sessions now get a fresh installation token as `GH_TOKEN`, so they open pull requests as the App (`<app>[bot]`) instead of needing a GitHub user account. A private key added after the first failed attempt is now picked up without a restart.
 
 ### Fixed
 - With `--env-file`, config updates (`/api/update/cyrus-env`, used by the dashboard) now go to that file instead of `~/.cyrus/.env`, and an env file that gets replaced (as Laravel Forge's Environment page does) is still reloaded.
