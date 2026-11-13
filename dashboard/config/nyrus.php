@@ -14,10 +14,11 @@ return [
     // Supervisor log of the nyrus Forge daemon (Forge shows the path).
     'log_path' => env('NYRUS_LOG_PATH'),
 
-    // Only Google accounts of this domain may sign in.
+    // Only emails of this domain may sign in (novu SSO may also know external
+    // people). Empty: everyone novu SSO vouches for.
     'allowed_domain' => env('DASHBOARD_ALLOWED_DOMAIN', 'novu.ch'),
 
-    // Local development only: sign in without Google (ignored outside "local").
+    // Local development only: sign in without novu SSO (ignored outside "local").
     'dev_login' => (bool) env('DASHBOARD_DEV_LOGIN', false),
 
 ];

@@ -172,6 +172,73 @@ describe("GitHubAppTokenProvider", () => {
 		fetchSpy.mockRestore();
 	});
 
+	it("mints a new token when the cached one is not valid for minValidityMs", async () => {
+		const token1 = "ghs_half_used_token";
+		const token2 = "ghs_fresh_session_token";
+		// Still valid for 30 minutes: fine by default, too short for a session
+		const halfUsed = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+		const farExpiry = new Date(Date.now() + 3600 * 1000).toISOString();
+
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ token: token1, expires_at: halfUsed }), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				}),
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ token: token2, expires_at: farExpiry }), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				}),
+			);
+
+		const provider = new GitHubAppTokenProvider({
+			appId: "12345",
+			installationId: "67890",
+			privateKeyPath: pemPath,
+		});
+
+		expect(await provider.getToken()).toBe(token1);
+		expect(await provider.getToken()).toBe(token1);
+		expect(await provider.getToken({ minValidityMs: 50 * 60 * 1000 })).toBe(
+			token2,
+		);
+		// The fresh token now serves both kinds of callers
+		expect(await provider.getToken({ minValidityMs: 50 * 60 * 1000 })).toBe(
+			token2,
+		);
+		expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+		fetchSpy.mockRestore();
+	});
+
+	it("reads a private key that appears after a failed attempt", async () => {
+		const latePemPath = join(tmpDir, "late-app.pem");
+		const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString();
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({ token: "ghs_after_key", expires_at: expiresAt }),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				),
+			);
+
+		const provider = new GitHubAppTokenProvider({
+			appId: "12345",
+			installationId: "67890",
+			privateKeyPath: latePemPath,
+		});
+
+		await expect(provider.getToken()).rejects.toThrow(/ENOENT/);
+		await writeFile(latePemPath, testPrivateKeyPem);
+		expect(await provider.getToken()).toBe("ghs_after_key");
+
+		fetchSpy.mockRestore();
+	});
+
 	it("throws on API error", async () => {
 		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
 			new Response("Unauthorized", {

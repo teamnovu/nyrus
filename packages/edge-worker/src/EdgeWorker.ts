@@ -227,6 +227,12 @@ type CyrusToolsMcpContext = {
 };
 
 /**
+ * A session keeps the GitHub App installation token it starts with, and those
+ * tokens last an hour: hand out one that is valid for at least 50 minutes.
+ */
+const SESSION_GITHUB_APP_TOKEN_MIN_VALIDITY_MS = 50 * 60 * 1000;
+
+/**
  * Unified edge worker that **orchestrates**
  *   capturing Linear webhooks,
  *   managing Claude Code processes, and
@@ -1651,6 +1657,39 @@ export class EdgeWorker extends EventEmitter {
 			}
 		}
 		return process.env.GITHUB_TOKEN;
+	}
+
+	/**
+	 * Mint a GitHub App installation token for an agent session (self-hosted
+	 * App: `GITHUB_APP_ID` + `GITHUB_APP_INSTALLATION_ID`), so `gh` in the
+	 * session opens pull requests as the App instead of a user account.
+	 *
+	 * Skipped when the repository isn't on GitHub or the process already has a
+	 * `GH_TOKEN` (the operator's own token wins). A failure only logs a
+	 * warning; the session then starts without the token.
+	 */
+	private async mintSessionGitHubAppToken(
+		repository: RepositoryConfig,
+		log: ILogger,
+	): Promise<string | undefined> {
+		if (
+			!this.gitHubAppTokenProvider ||
+			!repository.githubUrl ||
+			process.env.GH_TOKEN
+		) {
+			return undefined;
+		}
+		try {
+			return await this.gitHubAppTokenProvider.getToken({
+				minValidityMs: SESSION_GITHUB_APP_TOKEN_MIN_VALIDITY_MS,
+			});
+		} catch (error) {
+			log.warn(
+				"Failed to mint a GitHub App installation token for the session; gh runs without it",
+				error instanceof Error ? error : new Error(String(error)),
+			);
+			return undefined;
+		}
 	}
 
 	private async handleGitHubWebhook(
@@ -7278,6 +7317,18 @@ ${input.userComment}
 				resolvedSkillContext,
 			);
 
+		// Org-matched GitHub App installation token (pushed by cyrus-hosted):
+		// exposed to the session as CYRUS_GH_TOKEN so the droplet's gh wrapper
+		// authenticates against this repo's org. Undefined when no token store
+		// entry matches — zero behavior change for self-host users without the
+		// token file. Without one, a self-hosted GitHub App mints the token.
+		const githubToken = repository.githubUrl
+			? this.githubTokenStore.getTokenForRepoUrl(repository.githubUrl)
+			: undefined;
+		const githubAppToken = githubToken
+			? undefined
+			: await this.mintSessionGitHubAppToken(repository, log);
+
 		const result = this.runnerConfigBuilder.buildIssueConfig({
 			session,
 			repository,
@@ -7304,14 +7355,8 @@ ${input.userComment}
 			strictMcpConfig: this.config.strictMcpConfig,
 			linearWorkspaceId,
 			cyrusHome: this.cyrusHome,
-			// Org-matched GitHub App installation token (pushed by cyrus-hosted):
-			// exposed to the session as GH_TOKEN / CYRUS_GH_TOKEN so `gh` and
-			// other tools authenticate against this repo's org. Undefined when
-			// no token store entry matches — zero behavior change for self-host
-			// users without the token file.
-			githubToken: repository.githubUrl
-				? this.githubTokenStore.getTokenForRepoUrl(repository.githubUrl)
-				: undefined,
+			githubToken,
+			githubAppToken,
 			logger: log,
 			plugins,
 			opencodeGlobalConfig: this.config.opencode?.config,

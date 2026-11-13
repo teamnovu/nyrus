@@ -84,6 +84,25 @@ describe("RunnerConfigBuilder GitHub token session env (CYHOST-913)", () => {
 		});
 	});
 
+	it("exposes a self-hosted GitHub App token as GH_TOKEN", () => {
+		const { config } = buildIssueConfig({ githubAppToken: "ghs_app_token" });
+
+		// Self-hosted servers have no gh wrapper that maps CYRUS_GH_TOKEN, so
+		// gh reads the App's installation token from GH_TOKEN directly.
+		expect(config.additionalEnv).toEqual({ GH_TOKEN: "ghs_app_token" });
+	});
+
+	it("prefers the cyrus-hosted token over a self-hosted GitHub App token", () => {
+		const { config } = buildIssueConfig({
+			githubToken: "ghs_org_token",
+			githubAppToken: "ghs_app_token",
+		});
+
+		expect(config.additionalEnv).toEqual({
+			CYRUS_GH_TOKEN: "ghs_org_token",
+		});
+	});
+
 	it("sets no additionalEnv when githubToken is absent (zero behavior change)", () => {
 		const { config } = buildIssueConfig();
 

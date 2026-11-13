@@ -49,7 +49,7 @@
 	},
 	"lint-staged": {
 		"*.{js,mjs,cjs,jsx,ts,mts,cts,tsx,json}": [
-			"biome check --write --unsafe"
+			"biome check --write --unsafe --no-errors-on-unmatched"
 		]
 	}
 }

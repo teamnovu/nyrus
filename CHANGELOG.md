@@ -6,8 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Take work from Jira Cloud issues as "Nyrus": add the `nyrus` label or assign the issue to the agent's Jira account to hand it over, mention `@Nyrus` in a comment to ask it something, and steer it with comments. Nyrus shows its progress in one comment that it replaces with its answer, moves the issue to "In Progress", and gives sessions Jira tools (read issues, comment, attach the pull request, transition). See [docs/JIRA.md](./docs/JIRA.md). ([#3](https://github.com/teamnovu/nyrus/pull/3))
-- nyrus dashboard (`dashboard/`, Laravel): status and sessions, repositories and routing, `.env` variables (write-only), logs and an audit log, with Google sign-in limited to one domain. It uses new `/api/dashboard/*` endpoints behind `CYRUS_API_KEY`.
+- nyrus dashboard (`dashboard/`, Laravel): status and sessions, repositories and routing, `.env` variables (write-only), logs and an audit log, with novu SSO sign-in (auth.novu.ch) limited to one email domain. It uses new `/api/dashboard/*` endpoints behind `CYRUS_API_KEY`.
 - `SLACK_DIRECT_WEBHOOKS=true` verifies Slack events by signature even when `CYRUS_API_KEY` is set, so a self-hosted instance can use its own API key and Slack together.
+- Self-hosted with a GitHub App (`GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID` and `~/.cyrus/github-app.pem`): agent sessions now get a fresh installation token as `GH_TOKEN`, so they open pull requests as the App (`<app>[bot]`) instead of needing a GitHub user account. A private key added after the first failed attempt is now picked up without a restart. ([#7](https://github.com/teamnovu/nyrus/pull/7))
 
 ### Fixed
 - With `--env-file`, config updates (`/api/update/cyrus-env`, used by the dashboard) now go to that file instead of `~/.cyrus/.env`, and an env file that gets replaced (as Laravel Forge's Environment page does) is still reloaded.

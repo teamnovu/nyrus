@@ -28,11 +28,13 @@ export class GitHubAppTokenProvider {
 
 	/**
 	 * Get a valid installation access token.
-	 * Returns cached token if still valid, otherwise mints a new one.
+	 * Returns the cached token if it stays valid for at least `minValidityMs`
+	 * (default 5 minutes), otherwise mints a new one. Agent sessions keep the
+	 * token they start with, so they ask for a long remaining validity.
 	 */
-	async getToken(): Promise<string> {
-		// Refresh 5 minutes before expiry
-		if (this.cachedToken && Date.now() < this.expiresAt - 5 * 60 * 1000) {
+	async getToken(options?: { minValidityMs?: number }): Promise<string> {
+		const minValidityMs = options?.minValidityMs ?? 5 * 60 * 1000;
+		if (this.cachedToken && Date.now() < this.expiresAt - minValidityMs) {
 			return this.cachedToken;
 		}
 
@@ -72,7 +74,15 @@ export class GitHubAppTokenProvider {
 
 	private loadPrivateKey(): Promise<string> {
 		if (!this.privateKeyPromise) {
-			this.privateKeyPromise = readFile(this.config.privateKeyPath, "utf-8");
+			// Don't cache a failed read: a key file put in place after the
+			// first attempt is picked up without a restart.
+			this.privateKeyPromise = readFile(
+				this.config.privateKeyPath,
+				"utf-8",
+			).catch((error: unknown) => {
+				this.privateKeyPromise = null;
+				throw error;
+			});
 		}
 		return this.privateKeyPromise;
 	}
