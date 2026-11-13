@@ -109,6 +109,14 @@ describe("wikiToMarkdown", () => {
 			wikiToMarkdown("[https://github.com/x|https://github.com/x|smart-link]"),
 		).toBe("[https://github.com/x](https://github.com/x)");
 	});
+
+	it("keeps blank lines inside code blocks", () => {
+		expect(
+			wikiToMarkdown(
+				'Before\n\n\n\n{code:python}\ns = """a\n\n\n\nb"""\n{code}',
+			),
+		).toBe('Before\n\n```python\ns = """a\n\n\n\nb"""\n```');
+	});
 });
 
 describe("mentions and signatures", () => {
@@ -124,6 +132,13 @@ describe("mentions and signatures", () => {
 
 	it("recognises signed comments", () => {
 		expect(isSigned(signed("Done."))).toBe(true);
+		expect(isSigned(signed("Done.").replace(/\n/g, "\r\n"))).toBe(true);
 		expect(isSigned("Done.")).toBe(false);
+	});
+
+	it("doesn't take a user's quote of a signed comment for Nyrus's own", () => {
+		expect(isSigned(`As you wrote:\n{quote}${signed("Done.")}{quote}`)).toBe(
+			false,
+		);
 	});
 });

@@ -7,6 +7,7 @@ import { mentionsAgent, promptFromComment } from "./JiraText.js";
 import type {
 	JiraChangelogItem,
 	JiraIssue,
+	JiraTriggerOptions,
 	JiraUser,
 	JiraWebhookEvent,
 } from "./types.js";
@@ -18,6 +19,22 @@ export type LinearShapedAgentSessionWebhook = Record<string, unknown> & {
 	organizationId: string;
 };
 
+/** How long the next event for an issue waits for the edge worker to take this one over. */
+export interface JiraDispatchTiming {
+	/** After a prompt, at most this long. */
+	promptSettleMs: number;
+	/** After a new session, until the edge worker knows it, checked this often... */
+	startPollMs: number;
+	/** ...for at most this long. */
+	startSettleMaxMs: number;
+}
+
+const DEFAULT_TIMING: JiraDispatchTiming = {
+	promptSettleMs: 5_000,
+	startPollMs: 250,
+	startSettleMaxMs: 2 * 60 * 1000,
+};
+
 export interface JiraWebhookCoordinatorDeps {
 	tracker: JiraIssueTrackerService;
 	/** True if Cyrus already has a session (or a pending question) with this id. */
@@ -25,6 +42,7 @@ export interface JiraWebhookCoordinatorDeps {
 	/** Hand the Linear-shaped webhook to the edge worker. */
 	dispatch: (webhook: LinearShapedAgentSessionWebhook) => Promise<void> | void;
 	logger?: ILogger;
+	timing?: Partial<JiraDispatchTiming>;
 }
 
 /** What an issue event changed about the hand-over to Cyrus. */
@@ -54,18 +72,23 @@ export const HANDED_BACK_PROMPT =
  * - Cyrus's own comments are ignored.
  *
  * The issue is always read fresh from Jira, so the webhook only has to say
- * which issue changed. Events for the same issue are handled one at a time,
- * in arrival order.
+ * which issue changed. Events for the same issue are decided one at a time,
+ * in arrival order. The edge worker's handling of a webhook lasts as long as
+ * the agent run it starts, so the next event only waits until the edge worker
+ * has taken the previous one over; a stop or an answer to a question must
+ * reach the running session.
  */
 export class JiraWebhookCoordinator {
 	/** Sessions this coordinator started, with when. */
 	private readonly started = new Map<string, number>();
 	private readonly queues = new Map<string, Promise<void>>();
 	private readonly logger: ILogger;
+	private readonly timing: JiraDispatchTiming;
 
 	constructor(private readonly deps: JiraWebhookCoordinatorDeps) {
 		this.logger =
 			deps.logger ?? createLogger({ component: "JiraWebhookCoordinator" });
+		this.timing = { ...DEFAULT_TIMING, ...deps.timing };
 	}
 
 	handle(event: JiraWebhookEvent): Promise<void> {
@@ -111,6 +134,10 @@ export class JiraWebhookCoordinator {
 				? {
 						accountId: comment.authorAccountId,
 						displayName: comment.authorName,
+						emailAddress:
+							event.actor?.accountId === comment.authorAccountId
+								? event.actor.emailAddress
+								: undefined,
 					}
 				: event.actor;
 			// While the issue is handed to Cyrus every comment steers it;
@@ -130,7 +157,7 @@ export class JiraWebhookCoordinator {
 			return;
 		}
 
-		const change = handOverChange(event, agent, tracker.options.triggerLabel);
+		const change = handOverChange(event, agent, tracker.options);
 		if (handedOver && !known) {
 			this.markStarted(sessionId);
 			await this.dispatch("created", issue, agent, event.actor, {});
@@ -143,6 +170,8 @@ export class JiraWebhookCoordinator {
 				body: HANDED_BACK_PROMPT,
 			});
 		} else if (!handedOver && known && change === "removed") {
+			// A hand-over right after this one is a real one again.
+			this.started.delete(sessionId);
 			await this.dispatch("prompted", issue, agent, event.actor, {
 				body: "stop",
 				stop: true,
@@ -163,6 +192,28 @@ export class JiraWebhookCoordinator {
 		return at !== undefined && Date.now() - at < RECENT_START_MS;
 	}
 
+	/**
+	 * The actor with an email, if Jira will tell: user access control matches
+	 * by account id or email, and webhooks often leave the email out.
+	 */
+	private async withEmail(
+		actor: JiraUser | undefined,
+	): Promise<JiraUser | undefined> {
+		if (!actor || actor.emailAddress) {
+			return actor;
+		}
+		try {
+			const user = await this.deps.tracker.fetchUser(actor.accountId);
+			return {
+				...actor,
+				displayName: actor.displayName ?? user.name,
+				emailAddress: user.email || undefined,
+			};
+		} catch {
+			return actor;
+		}
+	}
+
 	private async dispatch(
 		action: "created" | "prompted",
 		jiraIssue: JiraIssue,
@@ -172,7 +223,10 @@ export class JiraWebhookCoordinator {
 	): Promise<void> {
 		const { tracker } = this.deps;
 		const issue = tracker.toIssue(jiraIssue);
-		const team = await issue.team;
+		const [team, creator] = await Promise.all([
+			issue.team,
+			this.withEmail(actor),
+		]);
 		const sessionId = jiraSessionId(jiraIssue.id);
 		const now = new Date();
 
@@ -207,11 +261,11 @@ export class JiraWebhookCoordinator {
 					prompt.body !== undefined && {
 						comment: { id: prompt.commentId ?? "", body: prompt.body },
 					}),
-				...(actor && {
+				...(creator && {
 					creator: {
-						id: actor.accountId,
-						name: actor.displayName ?? actor.accountId,
-						email: actor.emailAddress ?? "",
+						id: creator.accountId,
+						name: creator.displayName ?? creator.accountId,
+						email: creator.emailAddress ?? "",
 					},
 				}),
 			},
@@ -230,27 +284,74 @@ export class JiraWebhookCoordinator {
 		}
 
 		this.logger.info(`Jira issue ${jiraIssue.key}: dispatching ${action}`);
-		await this.deps.dispatch(webhook);
+		await this.deliver(action, sessionId, jiraIssue.key, webhook);
 	}
+
+	/**
+	 * Hand the webhook to the edge worker without waiting for the agent run
+	 * it starts: return once the edge worker is done with it, or has taken it
+	 * over (a new session is known to it; a prompt had a few seconds to reach
+	 * the session).
+	 */
+	private async deliver(
+		action: "created" | "prompted",
+		sessionId: string,
+		key: string,
+		webhook: LinearShapedAgentSessionWebhook,
+	): Promise<void> {
+		const delivery = Promise.resolve()
+			.then(() => this.deps.dispatch(webhook))
+			.catch((error) => {
+				this.logger.error(
+					`Jira issue ${key}: handling ${action} failed`,
+					error,
+				);
+			});
+		let settled = false;
+		const { promptSettleMs, startPollMs, startSettleMaxMs } = this.timing;
+		const takenOver =
+			action === "created"
+				? (async () => {
+						const deadline = Date.now() + startSettleMaxMs;
+						while (
+							!settled &&
+							Date.now() < deadline &&
+							!this.deps.isKnownSession(sessionId)
+						) {
+							await sleep(startPollMs);
+						}
+					})()
+				: sleep(promptSettleMs);
+		await Promise.race([delivery, takenOver]);
+		settled = true;
+	}
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => {
+		const timer = setTimeout(resolve, ms);
+		timer.unref?.();
+	});
 }
 
 /**
  * Whether this event handed the issue to Cyrus ("added") or took it away
- * ("removed"), from its changelog. A webhook without a changelog (e.g. from
- * a Jira Automation rule) counts as handing it over.
+ * ("removed"), from its changelog. Assignee changes only count when
+ * assignment hands issues over. A webhook without a changelog (e.g. from a
+ * Jira Automation rule) counts as handing it over.
  */
 function handOverChange(
 	event: JiraWebhookEvent,
 	agent: JiraUser,
-	triggerLabel: string,
+	options: JiraTriggerOptions,
 ): HandOverChange {
 	if (event.changelog.length === 0) {
 		return event.webhookEvent === "jira:issue_updated" ? undefined : "added";
 	}
-	const label = triggerLabel.trim().toLowerCase();
+	const label = options.triggerLabel.trim().toLowerCase();
 	for (const item of event.changelog) {
 		const change =
-			item.field === "assignee"
+			item.field === "assignee" && options.triggerOnAssign
 				? assigneeChange(item, agent)
 				: item.field === "labels" && label
 					? labelChange(item, label)

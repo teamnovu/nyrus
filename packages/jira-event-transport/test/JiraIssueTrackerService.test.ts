@@ -117,6 +117,45 @@ describe("JiraIssueTrackerService", () => {
 		});
 	});
 
+	it("takes a transition to a status of the same category when the issue's workflow lacks the one asked for", async () => {
+		const { tracker, calls } = setup({
+			// Tasks go to "In Progress"; this issue is a Bug, whose workflow has "Fixing".
+			"GET /project/100/statuses": [
+				{
+					id: "t1",
+					name: "Task",
+					statuses: [
+						{
+							id: "3",
+							name: "In Progress",
+							statusCategory: { key: "indeterminate" },
+						},
+					],
+				},
+			],
+			"GET /issue/10001/transitions": {
+				transitions: [
+					{
+						id: "21",
+						name: "Start fixing",
+						to: {
+							id: "7",
+							name: "Fixing",
+							statusCategory: { key: "indeterminate" },
+						},
+					},
+				],
+			},
+			"POST /issue/10001/transitions": undefined,
+		});
+		await tracker.fetchWorkflowStates("100");
+		await tracker.updateIssue("10001", { stateId: "3" });
+		expect(
+			calls.find((c) => c.url.endsWith("/transitions") && c.method === "POST")
+				?.body,
+		).toEqual({ transition: { id: "21" } });
+	});
+
 	it("maps a project's statuses onto state types, once each", async () => {
 		const status = (id: string, name: string, key: string) => ({
 			id,

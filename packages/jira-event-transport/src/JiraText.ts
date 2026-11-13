@@ -25,8 +25,9 @@ export function signed(wiki: string): string {
 	return wiki ? `${AGENT_SIGNATURE}\n${wiki}` : AGENT_SIGNATURE;
 }
 
+/** Only the first line counts: a user may quote one of Nyrus's comments. */
 export function isSigned(body: string | undefined | null): boolean {
-	return Boolean(body?.includes(AGENT_SIGNATURE));
+	return body?.split(/\r?\n/, 1)[0]?.trim() === AGENT_SIGNATURE;
 }
 
 export function mentionMarkup(accountId: string): string {
@@ -156,9 +157,8 @@ export function wikiToMarkdown(
 	// Escaped characters
 	text = text.replace(/\\([{}[\]*_|-])/g, "$1");
 
-	return restore(text, kept)
-		.replace(/\n{3,}/g, "\n\n")
-		.trim();
+	// Collapse blank lines before code blocks are put back, so their content stays as it is.
+	return restore(text.replace(/\n{3,}/g, "\n\n"), kept).trim();
 }
 
 function trimBlankLines(text: string): string {

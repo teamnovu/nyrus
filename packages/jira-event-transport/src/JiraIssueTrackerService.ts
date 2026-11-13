@@ -478,9 +478,22 @@ export class JiraIssueTrackerService implements IIssueTrackerService {
 		this.rememberComment(commentId, issueId);
 	}
 
+	/**
+	 * Run the transition that leads to a status. The status may come from the
+	 * project's statuses across all issue types (fetchWorkflowStates), and
+	 * workflows differ per issue type; if this issue's workflow can't reach
+	 * it, take a transition to a status of the same category instead (e.g.
+	 * the Bug workflow's own "In Progress").
+	 */
 	private async transitionTo(issueId: string, statusId: string): Promise<void> {
 		const transitions = await this.api.listTransitions(issueId);
-		const transition = transitions.find((t) => t.to.id === statusId);
+		let transition = transitions.find((t) => t.to.id === statusId);
+		if (!transition) {
+			const { type } = await this.fetchWorkflowState(statusId);
+			transition = transitions.find(
+				(t) => STATE_TYPES[t.to.statusCategory?.key ?? ""] === type,
+			);
+		}
 		if (!transition) {
 			throw new Error(
 				`Jira issue ${issueId} has no transition to status ${statusId} (possible: ${transitions.map((t) => t.to.name).join(", ") || "none"})`,

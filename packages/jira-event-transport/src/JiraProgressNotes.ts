@@ -55,11 +55,17 @@ export class JiraProgressNotes {
 			const thought = step.thought?.trim();
 			const latest =
 				thought && !HOUSEKEEPING.test(thought) ? thought : undefined;
-			let created = this.notes.get(issueId);
+			const created = this.notes.get(issueId);
 			if (!created) {
-				created = this.create(issueId, latest, step.action);
-				this.notes.set(issueId, created);
-				await created;
+				const creating = this.create(issueId, latest, step.action);
+				this.notes.set(issueId, creating);
+				try {
+					await creating;
+				} catch (error) {
+					// Let a later step try again.
+					if (this.notes.get(issueId) === creating) this.notes.delete(issueId);
+					throw error;
+				}
 				return;
 			}
 			const note = await created;
@@ -131,10 +137,13 @@ export class JiraProgressNotes {
 			note.timer = undefined;
 			const body = noteWiki(note);
 			if (body === note.shown) return;
-			note.shown = body;
 			note.lastUpdate = Date.now();
 			void this.api
 				.updateComment(note.issueId, note.commentId, body)
+				.then(() => {
+					// Only once Jira has it, so a failed edit is retried by the next step.
+					note.shown = body;
+				})
 				.catch((error) =>
 					this.logger.warn("Progress note update failed", error),
 				);

@@ -106,6 +106,13 @@ describe("JiraEventTransport", () => {
 		expect(r2.code).toHaveBeenCalledWith(401);
 		expect(events).toEqual([]);
 	});
+
+	it("rejects every request when no secret is configured", async () => {
+		const { routes, events } = setup("");
+		const r = await post(routes, issueUpdated);
+		expect(r.code).toHaveBeenCalledWith(401);
+		expect(events).toEqual([]);
+	});
 });
 
 describe("normalizeWebhook", () => {

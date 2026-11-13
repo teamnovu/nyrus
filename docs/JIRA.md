@@ -25,13 +25,13 @@ In `<cyrus-home>/.env`:
 JIRA_BASE_URL=https://your-site.atlassian.net   # no trailing slash
 JIRA_EMAIL=nyrus@example.com                    # the agent account
 JIRA_API_TOKEN=...
-JIRA_WEBHOOK_SECRET=...                         # same secret as in the Jira webhook
+JIRA_WEBHOOK_SECRET=...                         # required: same secret as in the Jira webhook
 # JIRA_TRIGGER_LABEL=nyrus                      # empty to disable label hand-over
 # JIRA_TRIGGER_ON_ASSIGN=true                   # false: assignment doesn't start Nyrus
 # JIRA_WORKSPACE_KEY=jira-your-site             # defaults to jira-<site>
 ```
 
-Restart after changing these. The log shows `✅ Jira event transport registered` and the agent account it found.
+Restart after changing these. The log shows `✅ Jira event transport registered` and the agent account it found. Without `JIRA_WEBHOOK_SECRET` the webhook is not registered at all: a webhook can make the agent run commands, so it is never left open.
 
 Each repository that should take Jira work uses the workspace key (`jira-<site>`, e.g. `jira-novu` for `novu.atlassian.net`) as its `linearWorkspaceId`. A Jira project counts as both the team (its key, e.g. `SAY`) and the project (its name). `appendInstruction` tells the agent its name and where its Jira tools are:
 

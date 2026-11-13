@@ -44,7 +44,7 @@ function uniqueName(name: string, used: Set<string>): string {
 	return candidate;
 }
 
-const keySchema = z.string().describe('The issue key, e.g. "ZOO-12"');
+const keySchema = z.string().describe('The issue key, e.g. "SAY-12"');
 
 /**
  * MCP tools for an agent working on a Jira issue: read it, comment, attach
@@ -159,10 +159,23 @@ export function createJiraToolsServer(api: JiraApiClient): McpServer {
 				const used = new Set<string>();
 				const files = [];
 				for (const a of issue.fields.attachment ?? []) {
-					const name = uniqueName(basename(a.filename || a.id), used);
+					const original = basename(a.filename || a.id);
 					const data = await api.download(a.content);
-					const path = join(directory, name);
-					await writeFile(path, data);
+					let name = uniqueName(original, used);
+					let path = join(directory, name);
+					// Never overwrite: the directory may be the worktree itself.
+					for (;;) {
+						try {
+							await writeFile(path, data, { flag: "wx" });
+							break;
+						} catch (error) {
+							if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+								throw error;
+							}
+							name = uniqueName(original, used);
+							path = join(directory, name);
+						}
+					}
 					files.push({
 						name,
 						path,

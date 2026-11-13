@@ -1461,9 +1461,11 @@ export class EdgeWorker extends EventEmitter {
 		}
 		const webhookSecret = process.env.JIRA_WEBHOOK_SECRET?.trim() || "";
 		if (!webhookSecret) {
-			this.logger.warn(
-				"JIRA_WEBHOOK_SECRET is not set: Jira webhooks are accepted unsigned. Only do this for local tests.",
+			// An open webhook would let anyone prompt the agent.
+			this.logger.error(
+				"JIRA_WEBHOOK_SECRET is not set: the Jira webhook is not registered. Set it to the secret of the Jira webhook (or of the ?secret= in the Automation URL).",
 			);
+			return;
 		}
 
 		const coordinator = new JiraWebhookCoordinator({

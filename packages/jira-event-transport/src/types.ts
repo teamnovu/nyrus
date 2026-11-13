@@ -177,7 +177,7 @@ export interface JiraEventTransportConfig {
 	 * Checked against `X-Hub-Signature` (HMAC-SHA256 of the raw body, as Jira
 	 * admin webhooks with a secret send it), or compared with an
 	 * `X-Cyrus-Webhook-Secret` header or `?secret=` query parameter (for Jira
-	 * Automation, which cannot sign). Empty accepts every request.
+	 * Automation, which cannot sign). Required: empty rejects every request.
 	 */
 	webhookSecret: string;
 }

@@ -27,6 +27,9 @@ const ISSUE_FIELDS = [
 	"attachment",
 ].join(",");
 
+/** Stop paging comments after this many pages (10 000 comments). */
+const MAX_COMMENT_PAGES = 100;
+
 export class JiraApiError extends Error {
 	constructor(
 		message: string,
@@ -139,14 +142,25 @@ export class JiraApiClient {
 
 	// ----- comments -----
 
+	/** All of an issue's comments, oldest first (Jira pages them by 100). */
 	async listComments(idOrKey: string): Promise<JiraComment[]> {
-		const data = await this.request<{ comments?: JiraComment[] }>(
-			"GET",
-			`/issue/${encodeURIComponent(idOrKey)}/comment`,
-			undefined,
-			{ orderBy: "created", maxResults: "100" },
-		);
-		return data?.comments ?? [];
+		const comments: JiraComment[] = [];
+		for (let page = 0; page < MAX_COMMENT_PAGES; page++) {
+			const data = await this.request<{
+				comments?: JiraComment[];
+				total?: number;
+			}>("GET", `/issue/${encodeURIComponent(idOrKey)}/comment`, undefined, {
+				orderBy: "created",
+				startAt: String(comments.length),
+				maxResults: "100",
+			});
+			const batch = data?.comments ?? [];
+			comments.push(...batch);
+			if (batch.length === 0 || comments.length >= (data?.total ?? 0)) {
+				break;
+			}
+		}
+		return comments;
 	}
 
 	getComment(idOrKey: string, commentId: string): Promise<JiraComment> {

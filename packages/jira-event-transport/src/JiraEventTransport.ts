@@ -90,13 +90,13 @@ export class JiraEventTransport extends EventEmitter {
 	 * A Jira admin webhook with a secret signs the raw body (`X-Hub-Signature:
 	 * sha256=<hex>`). Jira Automation can't sign, so it may send the secret
 	 * itself, in an `X-Cyrus-Webhook-Secret` header or a `secret` query
-	 * parameter. Without a configured secret everything is accepted (local
-	 * tests only).
+	 * parameter. Without a configured secret nothing is accepted: a webhook
+	 * can make the agent run commands, so it must never be open.
 	 */
 	private isAuthorized(request: FastifyRequest): boolean {
 		const secret = this.config.webhookSecret;
 		if (!secret) {
-			return true;
+			return false;
 		}
 		const signature = header(request, "x-hub-signature");
 		if (signature) {

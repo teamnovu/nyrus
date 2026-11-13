@@ -9,14 +9,24 @@ import {
 import type { JiraIssue, JiraWebhookEvent } from "../src/types.js";
 import { AGENT, fakeJira, jiraIssue } from "./fakeJira.js";
 
-function setup(issue: JiraIssue, known: string[] = []) {
+function setup(
+	issue: JiraIssue,
+	known: string[] = [],
+	options: {
+		triggerOnAssign?: boolean;
+		/** What the edge worker does with a webhook (default: returns at once). */
+		handle?: (w: LinearShapedAgentSessionWebhook) => Promise<void>;
+		routes?: Record<string, unknown>;
+	} = {},
+) {
 	const { api, calls } = fakeJira({
 		"GET /myself": AGENT,
 		"GET /issue/ZOO-12": issue,
+		...options.routes,
 	});
 	const tracker = new JiraIssueTrackerService(api, "jira-novu", {
 		triggerLabel: "nyrus",
-		triggerOnAssign: true,
+		triggerOnAssign: options.triggerOnAssign ?? true,
 	});
 	const dispatched: LinearShapedAgentSessionWebhook[] = [];
 	const coordinator = new JiraWebhookCoordinator({
@@ -24,7 +34,9 @@ function setup(issue: JiraIssue, known: string[] = []) {
 		isKnownSession: (id) => known.includes(id),
 		dispatch: (w) => {
 			dispatched.push(w);
+			return options.handle?.(w);
 		},
+		timing: { promptSettleMs: 5, startPollMs: 1, startSettleMaxMs: 20 },
 	});
 	return { coordinator, dispatched, calls };
 }
@@ -160,5 +172,65 @@ describe("JiraWebhookCoordinator", () => {
 		await coordinator.handle(commentEvent(signed("Done, see the PR.")));
 		expect(dispatched).toEqual([]);
 		expect(calls).toEqual([]);
+	});
+
+	it("lets a follow-up through while the agent run is still going", async () => {
+		const { coordinator, dispatched } = setup(labelled, [], {
+			// The edge worker returns only when the run ends; this one doesn't.
+			handle: () => new Promise(() => {}),
+		});
+		await coordinator.handle(issueEvent([labelAdded]));
+		await coordinator.handle(commentEvent("Also fix the footer", "c-2"));
+		expect(dispatched.map((w) => w.action)).toEqual(["created", "prompted"]);
+	});
+
+	it("treats a hand-over right after a stop as handing the issue back", async () => {
+		const issue = jiraIssue({ labels: ["nyrus"] });
+		const known: string[] = [];
+		const { coordinator, dispatched } = setup(issue, known);
+		await coordinator.handle(issueEvent([labelAdded]));
+		known.push("jira-10001"); // the edge worker now has the session
+		issue.fields.labels = [];
+		await coordinator.handle(issueEvent([labelRemoved]));
+		issue.fields.labels = ["nyrus"];
+		await coordinator.handle(issueEvent([labelAdded]));
+
+		expect(dispatched.map((w) => w.action)).toEqual([
+			"created",
+			"prompted",
+			"prompted",
+		]);
+		expect(dispatched[1]!.agentActivity).toMatchObject({ signal: "stop" });
+		expect(dispatched[2]!.agentActivity).toMatchObject({
+			content: { body: HANDED_BACK_PROMPT },
+		});
+	});
+
+	it("ignores assignment when assigning doesn't hand issues over", async () => {
+		const { coordinator, dispatched } = setup(
+			jiraIssue({ labels: ["nyrus"], assignee: { accountId: "agent-1" } }),
+			["jira-10001"],
+			{ triggerOnAssign: false },
+		);
+		await coordinator.handle(
+			issueEvent([{ field: "assignee", from: null, to: "agent-1" }]),
+		);
+		expect(dispatched).toEqual([]);
+	});
+
+	it("gives user access control the comment author's email", async () => {
+		const { coordinator, dispatched } = setup(labelled, ["jira-10001"], {
+			routes: {
+				"GET /user": {
+					accountId: "simon",
+					displayName: "Simon",
+					emailAddress: "simon@novu.ch",
+				},
+			},
+		});
+		await coordinator.handle(commentEvent("Also fix the footer"));
+		expect(dispatched[0]!.agentSession).toMatchObject({
+			creator: { id: "simon", name: "Simon", email: "simon@novu.ch" },
+		});
 	});
 });
