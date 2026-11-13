@@ -1,5 +1,7 @@
 # Cyrus
 
+> **This is nyrus**, novu's fork of Cyrus with ClickUp and Jira support. Start with [NYRUS.md](NYRUS.md).
+
 <div>
   <a href="https://github.com/ceedaragents/cyrus/actions">
     <img src="https://github.com/ceedaragents/cyrus/actions/workflows/ci.yml/badge.svg" alt="CI">

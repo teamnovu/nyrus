@@ -19,6 +19,7 @@ import {
 } from "cyrus-claude-runner";
 import { getCyrusAppUrl } from "cyrus-cloudflare-tunnel-client";
 import { CodexRunner } from "cyrus-codex-runner";
+import type { SessionState, TrackerIntegration } from "cyrus-comment-sessions";
 import {
 	ConfigUpdater,
 	ensureGhTokenResolver,
@@ -133,12 +134,6 @@ import {
 	stripMention as stripGitLabMention,
 } from "cyrus-gitlab-event-transport";
 import {
-	JiraApiClient,
-	JiraEventTransport,
-	JiraIssueTrackerService,
-	JiraWebhookCoordinator,
-} from "cyrus-jira-event-transport";
-import {
 	LinearEventTransport,
 	LinearIssueTrackerService,
 	type LinearOAuthConfig,
@@ -211,6 +206,7 @@ import { resolveSandboxWritablePaths } from "./sandboxWritablePaths.js";
 import type { IActivitySink } from "./sinks/IActivitySink.js";
 import { LinearActivitySink } from "./sinks/LinearActivitySink.js";
 import { ToolPermissionResolver } from "./ToolPermissionResolver.js";
+import { createTrackerIntegrations } from "./TrackerIntegrations.js";
 import type { AgentSessionData, EdgeWorkerEvents } from "./types.js";
 import { UserAccessControl } from "./UserAccessControl.js";
 import { ZulipChatAdapter } from "./ZulipChatAdapter.js";
@@ -253,8 +249,7 @@ export class EdgeWorker extends EventEmitter {
 	private zulipEventTransport: ZulipEventTransport | null = null;
 	private planeIssueTracker: PlaneIssueTrackerService | null = null; // Plane agent runs (PLANE_* env vars)
 	private planeEventTransport: PlaneEventTransport | null = null;
-	private jiraIssueTracker: JiraIssueTrackerService | null = null; // Jira Cloud issues (JIRA_* env vars)
-	private jiraEventTransport: JiraEventTransport | null = null;
+	private trackerIntegrations: TrackerIntegration[] = []; // ClickUp, Jira, ... (see TrackerIntegrations.ts)
 	private zulipChatSessionHandler: ChatSessionHandler<ZulipWebhookEvent> | null =
 		null;
 	private chatSessionHandler: ChatSessionHandler<SlackWebhookEvent> | null =
@@ -595,13 +590,16 @@ export class EdgeWorker extends EventEmitter {
 			);
 		}
 
-		// Jira is configured the same way (JIRA_* env vars).
-		this.jiraIssueTracker = this.createJiraIssueTracker();
-		if (this.jiraIssueTracker) {
-			this.issueTrackers.set(
-				this.jiraIssueTracker.workspaceKey,
-				this.jiraIssueTracker,
-			);
+		// Comment-session trackers (ClickUp, Jira) work the same way.
+		this.trackerIntegrations = createTrackerIntegrations({
+			env: process.env,
+			cyrusHome: this.cyrusHome,
+			logger: this.logger,
+		});
+		for (const integration of this.trackerIntegrations) {
+			if (integration.tracker) {
+				this.issueTrackers.set(integration.workspaceKey, integration.tracker);
+			}
 		}
 
 		// Create activity sinks per workspace (one per workspace, mirrors issueTrackers)
@@ -654,17 +652,12 @@ export class EdgeWorker extends EventEmitter {
 			getCyrusToolsMcpUrl: () => this.getCyrusToolsMcpUrl(),
 			createCyrusToolsOptions: (parentSessionId) =>
 				this.createCyrusToolsOptions(parentSessionId),
-			getTrackerMcpServers: (workspaceId) => {
-				for (const tracker of [this.planeIssueTracker, this.jiraIssueTracker]) {
-					if (tracker?.workspaceKey === workspaceId) {
-						// Named after the platform, so its tools are mcp__plane__* / mcp__jira__*
-						return {
-							[tracker.getPlatformType()]: tracker.toolsMcpServerConfig(),
-						};
-					}
-				}
-				return undefined;
-			},
+			getTrackerMcpServers: (workspaceId) =>
+				this.planeIssueTracker?.workspaceKey === workspaceId
+					? { plane: this.planeIssueTracker.toolsMcpServerConfig() }
+					: this.trackerIntegrations
+							.find((i) => i.workspaceKey === workspaceId)
+							?.mcpServers?.(),
 		});
 		this.runnerConfigBuilder = new RunnerConfigBuilder(
 			this.toolPermissionResolver,
@@ -923,7 +916,7 @@ export class EdgeWorker extends EventEmitter {
 		this.registerSlackEventTransport();
 		this.registerZulipEventTransport();
 		this.registerPlaneEventTransport();
-		this.registerJiraEventTransport();
+		this.registerTrackerIntegrations();
 
 		// 3. Create and register ConfigUpdater (both platforms)
 		this.configUpdater = new ConfigUpdater(
@@ -1417,105 +1410,44 @@ export class EdgeWorker extends EventEmitter {
 	}
 
 	/**
-	 * Jira Cloud issues. Enabled when JIRA_BASE_URL, JIRA_EMAIL and
-	 * JIRA_API_TOKEN (of the account Cyrus works as) are set. Repositories
-	 * that take Jira work use the tracker's key as their linearWorkspaceId:
-	 * `jira-<site>` (e.g. `jira-novu` for novu.atlassian.net), or
-	 * JIRA_WORKSPACE_KEY.
+	 * Register the webhook routes of the comment-session trackers (ClickUp,
+	 * Jira). Their events become Linear-shaped agent session webhooks, handled
+	 * like Linear's; Cyrus keeps the sessions, since these trackers have none.
 	 */
-	private createJiraIssueTracker(): JiraIssueTrackerService | null {
-		const baseUrl = process.env.JIRA_BASE_URL?.trim().replace(/\/+$/, "");
-		const email = process.env.JIRA_EMAIL?.trim();
-		const apiToken = process.env.JIRA_API_TOKEN?.trim();
-		if (!baseUrl || !email || !apiToken) {
-			return null;
+	private registerTrackerIntegrations(): void {
+		for (const integration of this.trackerIntegrations) {
+			integration.register({
+				fastify: this.sharedApplicationServer.getFastifyInstance(),
+				dispatch: (webhook) =>
+					this.handleWebhook(
+						webhook as unknown as Webhook,
+						Array.from(this.repositories.values()),
+					),
+				getSessionState: (sessionId) => this.commentSessionState(sessionId),
+				logger: this.logger,
+			});
+			this.logger.info(
+				`✅ Tracker integration registered (workspace key ${integration.workspaceKey})`,
+			);
 		}
-		let site: string;
-		try {
-			site = new URL(baseUrl).hostname.split(".")[0] ?? "";
-		} catch {
-			this.logger.error(`JIRA_BASE_URL is not a URL: ${baseUrl}`);
-			return null;
-		}
-		const workspaceKey =
-			process.env.JIRA_WORKSPACE_KEY?.trim() || `jira-${site}`;
-		return new JiraIssueTrackerService(
-			new JiraApiClient({ baseUrl, email, apiToken }),
-			workspaceKey,
-			{
-				triggerLabel: process.env.JIRA_TRIGGER_LABEL?.trim() ?? "nyrus",
-				triggerOnAssign:
-					process.env.JIRA_TRIGGER_ON_ASSIGN?.trim().toLowerCase() !== "false",
-			},
-		);
 	}
 
-	/**
-	 * Register the Jira webhook, if Jira is configured. Jira events become
-	 * Linear-shaped agent session webhooks, so they go through the same
-	 * handling as Linear's.
-	 */
-	private registerJiraEventTransport(): void {
-		const tracker = this.jiraIssueTracker;
-		if (!tracker) {
-			return;
+	/** Whether a comment-tracker session is working, waiting for an answer, finished or gone. */
+	private commentSessionState(sessionId: string): SessionState {
+		if (
+			this.repositoryRouter.hasPendingSelection(sessionId) ||
+			this.askUserQuestionHandler.hasPendingQuestion(sessionId) ||
+			[...this.parkedSessions.values()].some(
+				(parked) => parked.agentSession.id === sessionId,
+			)
+		) {
+			return "awaiting-input";
 		}
-		const webhookSecret = process.env.JIRA_WEBHOOK_SECRET?.trim() || "";
-		if (!webhookSecret) {
-			// An open webhook would let anyone prompt the agent.
-			this.logger.error(
-				"JIRA_WEBHOOK_SECRET is not set: the Jira webhook is not registered. Set it to the secret of the Jira webhook (or of the ?secret= in the Automation URL).",
-			);
-			return;
+		const session = this.agentSessionManager.getSession(sessionId);
+		if (!session) {
+			return "unknown";
 		}
-
-		const coordinator = new JiraWebhookCoordinator({
-			tracker,
-			isKnownSession: (sessionId) =>
-				Boolean(this.agentSessionManager.getSession(sessionId)) ||
-				this.repositoryRouter.hasPendingSelection(sessionId),
-			isAwaitingAnswer: (sessionId) =>
-				this.repositoryRouter.hasPendingSelection(sessionId) ||
-				this.askUserQuestionHandler.hasPendingQuestion(sessionId),
-			dispatch: (webhook) =>
-				this.handleWebhook(
-					webhook as unknown as Webhook,
-					Array.from(this.repositories.values()),
-				),
-		});
-
-		this.jiraEventTransport = new JiraEventTransport({
-			fastifyServer: this.sharedApplicationServer.getFastifyInstance(),
-			webhookSecret,
-		});
-		this.jiraEventTransport.on("event", (event) => {
-			void coordinator.handle(event);
-		});
-		this.jiraEventTransport.on("error", (error: Error) => {
-			this.handleError(error);
-		});
-		this.jiraEventTransport.register();
-
-		const { triggerLabel, triggerOnAssign } = tracker.options;
-		const triggers = [
-			triggerLabel && `label "${triggerLabel}"`,
-			triggerOnAssign && "assignment",
-		].filter(Boolean);
-		this.logger.info(
-			`✅ Jira event transport registered for ${tracker.api.baseUrl} (key ${tracker.workspaceKey}, starts on ${triggers.join(" or ") || "mentions only"})`,
-		);
-		// Check the token now; a wrong one would otherwise only show at the first webhook.
-		tracker.agent().then(
-			(agent) =>
-				this.logger.info(
-					`   Jira agent account: ${agent.displayName ?? agent.accountId} (${agent.accountId})`,
-				),
-			(error) =>
-				this.logger.error(
-					"Jira API token check failed (JIRA_EMAIL / JIRA_API_TOKEN)",
-					error,
-				),
-		);
+		return session.agentRunner?.isRunning() ? "working" : "idle";
 	}
 
 	/**
@@ -3280,7 +3212,9 @@ ${taskSection}`;
 		// Stop config file watcher
 		await this.configManager.stop();
 		this.planeIssueTracker?.dispose();
-		this.jiraIssueTracker?.dispose();
+		for (const integration of this.trackerIntegrations) {
+			integration.dispose?.();
+		}
 
 		try {
 			await this.savePersistedState();

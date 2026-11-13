@@ -35,6 +35,7 @@
 		"cyrus-claude-runner": "workspace:*",
 		"cyrus-cloudflare-tunnel-client": "workspace:*",
 		"cyrus-codex-runner": "workspace:*",
+		"cyrus-comment-sessions": "workspace:*",
 		"cyrus-config-updater": "workspace:*",
 		"cyrus-core": "workspace:*",
 		"cyrus-cursor-runner": "workspace:*",
