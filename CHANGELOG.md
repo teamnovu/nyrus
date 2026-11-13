@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- Take work from Jira Cloud issues as "Nyrus": add the `nyrus` label or assign the issue to the agent's Jira account to hand it over, mention `@Nyrus` in a comment to ask it something, and steer it with comments. Nyrus shows its progress in one comment that it replaces with its answer, moves the issue to "In Progress", and gives sessions Jira tools (read issues, comment, attach the pull request, transition). See [docs/JIRA.md](./docs/JIRA.md).
+- Take work from Jira Cloud issues as "Nyrus": add the `nyrus` label or assign the issue to the agent's Jira account to hand it over, mention `@Nyrus` in a comment to ask it something, and steer it with comments. Nyrus shows its progress in one comment that it replaces with its answer, moves the issue to "In Progress", and gives sessions Jira tools (read issues, comment, attach the pull request, transition). See [docs/JIRA.md](./docs/JIRA.md). ([#3](https://github.com/teamnovu/nyrus/pull/3))
 
 ## [0.2.78] - 2026-11-12
 
