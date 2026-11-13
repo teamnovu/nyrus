@@ -24,6 +24,20 @@ export CLICKUP_API_TOKEN=pk_...      # the bot's token
 export CLICKUP_TEAM_ID=14278081
 ```
 
+## Creating the bot user
+
+The bot is an ordinary ClickUp user. Its display name is what people type to mention it (`@nyrus`), and its API token is what nyrus acts with.
+
+1. **Mailbox.** Create `nyrus@novu.ch` as a shared mailbox or group that the team can read. ClickUp sends the invitation, login codes and password resets there. Store the bot's password (and 2FA secret, if the workspace enforces 2FA) in the team password manager, not with one person.
+2. **Invite.** As a workspace owner or admin: Settings → **People** → Invite → `nyrus@novu.ch`.
+   - **Guest** (start here): only sees what is shared with it, which keeps the 295 customer Spaces out of reach. Share the sandbox with it with **Edit** permission, so it can be assigned, comment and change status. Whether a guest is enough (assignable, mentionable, webhooks for its tasks) is spike question 2.
+   - **Member**: if a guest falls short. Costs a paid seat and sees every Space it is added to.
+3. **Accept.** Open the invitation in the bot's mailbox in a private window or separate browser profile (so you don't mix it up with your own session), set the name to `nyrus` and a password. An avatar helps people recognize its comments.
+4. **Quiet its notifications.** As the bot: Settings → Notifications → turn off email (and mobile) notifications. Otherwise every assignment and comment lands in the shared mailbox. Set its timezone to Europe/Zurich.
+5. **API token.** As the bot: Settings → **Apps** → API Token → **Generate**. The token starts with `pk_`, never expires and acts with the bot's permissions. Put it straight into the password manager; never into the repository, chat or tickets. Regenerating it invalidates the old one at once.
+
+Then run step 1 below to confirm the token works.
+
 ## Steps
 
 ### 1. Account, plan, rate limit
