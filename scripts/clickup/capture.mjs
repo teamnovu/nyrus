@@ -5,8 +5,9 @@
 //
 //   node scripts/clickup/capture.mjs [--port 3457]
 //
-// Env: CLICKUP_WEBHOOK_SECRET (from webhook.mjs create). Without it every
-// delivery is accepted and marked unverified.
+// Env (or <cyrus-home>/.env): CLICKUP_WEBHOOK_SECRET, saved there by
+// webhook.mjs create. Without it every delivery is accepted and marked
+// unverified.
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { OUT_DIR, parseArgs, save } from "./lib.mjs";

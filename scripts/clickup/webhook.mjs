@@ -7,8 +7,9 @@
 //   node scripts/clickup/webhook.mjs reactivate <webhook id>
 //   node scripts/clickup/webhook.mjs delete <webhook id>
 //
-// Env: CLICKUP_API_TOKEN, CLICKUP_TEAM_ID (the workspace id).
-import { clickup, parseArgs, requireEnv } from "./lib.mjs";
+// Env (or <cyrus-home>/.env): CLICKUP_API_TOKEN, CLICKUP_TEAM_ID (the
+// workspace id). create saves the webhook's secret to <cyrus-home>/.env.
+import { clickup, ENV_FILE, parseArgs, requireEnv, saveEnv } from "./lib.mjs";
 
 /** The events nyrus needs: tags and assignment (triggers), comments and status changes. */
 const DEFAULT_EVENTS = [
@@ -66,10 +67,12 @@ switch (command) {
 		const result = await clickup("POST", `/team/${teamId}/webhook`, body);
 		if (result.status !== 200) fail(result);
 		console.log(`Created webhook ${result.body.id}`);
-		console.log(
-			`CLICKUP_WEBHOOK_SECRET=${result.body.webhook?.secret ?? result.body.secret}`,
+		// ClickUp returns the signing secret only now; save it, don't print it.
+		saveEnv(
+			"CLICKUP_WEBHOOK_SECRET",
+			result.body.webhook?.secret ?? result.body.secret,
 		);
-		console.log("The secret is shown only now. Put it in <cyrus-home>/.env.");
+		console.log(`Saved CLICKUP_WEBHOOK_SECRET to ${ENV_FILE}`);
 		break;
 	}
 

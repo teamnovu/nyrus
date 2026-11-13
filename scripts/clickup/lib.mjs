@@ -1,5 +1,11 @@
 // Shared helpers for the ClickUp spike scripts. No dependencies; Node 18+.
-import { mkdirSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -9,10 +15,48 @@ export const API = "https://api.clickup.com/api/v2";
 export const OUT_DIR =
 	process.env.CLICKUP_SPIKE_OUT ?? join(homedir(), ".cyrus", "clickup-spike");
 
+/**
+ * nyrus's env file, `<cyrus-home>/.env` (CYRUS_HOME, default ~/.cyrus). The
+ * scripts read CLICKUP_* settings from it when they are not in the
+ * environment, so tokens and secrets never have to be pasted into a shell.
+ */
+export const ENV_FILE = join(
+	process.env.CYRUS_HOME ?? join(homedir(), ".cyrus"),
+	".env",
+);
+
+function loadEnvFile() {
+	if (!existsSync(ENV_FILE)) return;
+	for (const line of readFileSync(ENV_FILE, "utf8").split("\n")) {
+		const match = /^\s*(CLICKUP_[A-Z_]+)\s*=\s*(.*?)\s*$/.exec(line);
+		if (!match) continue;
+		const [, key, raw] = match;
+		const value = raw.replace(/^(['"])(.*)\1$/, "$2");
+		if (!process.env[key]?.trim()) process.env[key] = value;
+	}
+}
+loadEnvFile();
+
+/** Set KEY=value in the env file (replacing an earlier value) and in this process. */
+export function saveEnv(key, value) {
+	mkdirSync(join(ENV_FILE, ".."), { recursive: true });
+	const lines = existsSync(ENV_FILE)
+		? readFileSync(ENV_FILE, "utf8")
+				.split("\n")
+				.filter((line) => !line.startsWith(`${key}=`))
+		: [];
+	while (lines.length && lines[lines.length - 1] === "") lines.pop();
+	writeFileSync(ENV_FILE, `${[...lines, `${key}=${value}`].join("\n")}\n`);
+	chmodSync(ENV_FILE, 0o600); // it holds secrets
+	process.env[key] = value;
+}
+
 export function requireEnv(name) {
 	const value = process.env[name]?.trim();
 	if (!value) {
-		console.error(`Set ${name} (see docs/nyrus/clickup-spike.md)`);
+		console.error(
+			`Set ${name} in ${ENV_FILE} or the environment (see docs/nyrus/clickup-spike.md)`,
+		);
 		process.exit(1);
 	}
 	return value;
@@ -22,7 +66,7 @@ export function requireEnv(name) {
 export const lastRateLimit = {};
 
 /**
- * Call the ClickUp API as the bot. Personal tokens (pk_...) go in the
+ * Call the ClickUp API with the configured token. Personal tokens (pk_...) go in the
  * Authorization header as is, without "Bearer". Returns { status, body }
  * and never throws on HTTP errors, so a probe can report them.
  */

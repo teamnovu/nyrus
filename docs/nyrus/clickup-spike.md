@@ -29,10 +29,14 @@ So nyrus works through the API **in the name of a real person**, and is started 
 2. **Sandbox**: the Space "nyrus Sandbox" below. Don't use customer Spaces or the Musterprojekte templates: test comments notify watchers.
 3. **Public URL** to the capture server: `ngrok http 3457` or `cloudflared tunnel --url http://localhost:3457`.
 
+The scripts read their settings from nyrus's env file `~/.cyrus/.env` (or the environment), so the token never has to be pasted into a shell or chat. Add with an editor:
+
 ```bash
-export CLICKUP_API_TOKEN=pk_...      # the token of the person nyrus acts as
-export CLICKUP_TEAM_ID=14278081
+CLICKUP_API_TOKEN=pk_...      # the token of the person nyrus acts as
+CLICKUP_TEAM_ID=14278081
 ```
+
+`webhook.mjs create` saves the webhook's signing secret there as `CLICKUP_WEBHOOK_SECRET` instead of printing it; `capture.mjs` reads it from there.
 
 ## Sandbox
 
@@ -66,7 +70,7 @@ Then open the task in ClickUp and check which of the test comments render as int
 node scripts/clickup/capture.mjs                     # terminal 1
 ngrok http 3457                                      # terminal 2
 node scripts/clickup/webhook.mjs create --endpoint https://<ngrok host>/clickup-webhook --space <sandbox space id>
-export CLICKUP_WEBHOOK_SECRET=...                    # from the create output; restart capture.mjs
+# create saved CLICKUP_WEBHOOK_SECRET to ~/.cyrus/.env; restart capture.mjs to pick it up
 ```
 
 In the sandbox, do each of these and watch the capture output:
