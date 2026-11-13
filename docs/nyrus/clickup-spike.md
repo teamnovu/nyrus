@@ -24,6 +24,14 @@ export CLICKUP_API_TOKEN=pk_...      # the bot's token
 export CLICKUP_TEAM_ID=14278081
 ```
 
+## Sandbox
+
+| | Name | Id |
+|---|---|---|
+| Space | nyrus Sandbox | `1500750000001463` |
+| List | Tests (statuses: to do → in progress → in review → complete; Multiple Assignees on) | `1500750000002693` |
+| Task | [Probe: comment formats](https://app.clickup.com/t/1amxjbadtjm) | `1amxjbadtjm` |
+
 ## Creating the bot user
 
 The bot is an ordinary ClickUp user. Its display name is what people type to mention it (`@nyrus`), and its API token is what nyrus acts with.
@@ -89,5 +97,5 @@ Finally `node scripts/clickup/webhook.mjs delete <id>`.
 | 6 | Do the bot's own comments trigger webhooks, and with which `user`? | |
 | 7 | Do threaded replies arrive as `taskCommentPosted`, and how do we know the parent? | |
 | 8 | Retry behavior and suspension after failed deliveries | |
-| 9 | Task ids: are custom task ids (`DEV-123`) on in the Spaces we'd pilot? | |
+| 9 | Task ids: are custom task ids (`DEV-123`) on in the Spaces we'd pilot? | Off: tasks have only ClickUp ids (`custom_id` is null on the sandbox task, 2026-11-13). Branch names use the plain id. |
 | 10 | Does ClickUp's GitHub integration link PRs by `CU-<task id>` in the branch name for us? | |
