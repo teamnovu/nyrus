@@ -37,37 +37,47 @@ Install on the server (as `forge`, unless noted):
    location ~ ^/(status|version)$ {
        deny all;
    }
+
+   # Internal only: config API (used by the dashboard on 127.0.0.1) and the
+   # cyrus-tools MCP endpoint (used by agent sessions on 127.0.0.1)
+   location ^~ /api/ {
+       deny all;
+   }
+   location ^~ /mcp/ {
+       deny all;
+   }
    ```
+
+   Only the webhook paths need to be reachable from outside. The `/mcp/` endpoint skips its authorization check when `CYRUS_API_KEY` is not set, so keep these blocks in any case.
 
 Webhooks from ClickUp and Jira then go to `https://nyrus.on-forge.com/…`. No Cloudflare Tunnel is needed.
 
 ## 3. Configuration
 
-nyrus reads its settings from `~/.cyrus/` of the `forge` user (or the directory in `CYRUS_HOME`):
+nyrus keeps its data (repositories, worktrees, state, `config.json`) in `~/.cyrus/` of the `forge` user. Its **variables live in the site's `.env`**, which you edit in **Forge → site → Environment** (the file `/home/forge/nyrus.on-forge.com/.env`). The daemon starts nyrus with `--env-file` pointing at that file (section 5), and nyrus's config API (used by the dashboard) writes to the same file.
 
-- `~/.cyrus/.env`: start from [`env.example`](env.example), which lists every variable we need and the ones not to set:
-
-  ```bash
-  mkdir -p ~/.cyrus
-  cp deploy/forge/env.example ~/.cyrus/.env
-  chmod 600 ~/.cyrus/.env
-  ```
+- **Forge → site → Environment:** replace the content with [`env.example`](env.example), which lists every variable we need and the ones not to set, and fill in the values:
 
   | Variable | Needed | What for |
   |---|---|---|
   | `CYRUS_BASE_URL` | yes | Public URL for webhooks: `https://nyrus.on-forge.com` |
   | `CYRUS_SERVER_PORT` | yes | Local port, `3456` (matches the Nginx proxy) |
+  | `CYRUS_API_KEY` | yes | Shared secret for nyrus's own APIs (`openssl rand -hex 32`); the dashboard uses it as `NYRUS_API_KEY`, and `/mcp/cyrus-tools` only checks auth when it is set. With Slack also set `SLACK_DIRECT_WEBHOOKS=true` |
   | `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` | for agent sessions | Claude access; the token comes from `claude setup-token` (subscription) |
   | `GITHUB_TOKEN` | for pull requests | Token of the GitHub bot account; also `gh auth login` as that account |
   | ClickUp / Jira tokens and webhook secrets | once AP3 / AP4 land | Names are defined by the integrations; placeholders in `env.example` |
 
-  Don't set `CYRUS_HOST_EXTERNAL` (binds to `0.0.0.0` and enables webhook IP allowlists, not needed behind Nginx), `CYRUS_API_KEY` / `CYRUS_TEAM_ID` (hosted Cyrus cloud only; an empty `CYRUS_API_KEY` keeps the `/api/update/*` config endpoints locked), `LINEAR_*` or `CLOUDFLARE_TOKEN`.
+  Don't set `CYRUS_HOST_EXTERNAL` (binds to `0.0.0.0` and enables webhook IP allowlists, not needed behind Nginx), `CYRUS_TEAM_ID` / `CYRUS_APP_URL` (hosted Cyrus cloud only; together with `CYRUS_API_KEY` they mirror session transcripts there), `LINEAR_*` or `CLOUDFLARE_TOKEN`.
 
-  nyrus starts without Linear and without repositories: with only `CYRUS_BASE_URL` and `CYRUS_SERVER_PORT` it runs, listens on `127.0.0.1` and `::1`, and answers `/status` and `/version` (checked locally with v0.2.78). It watches `.env` for changes; to apply them safely, restart with `NYRUS_SKIP_BUILD=1 bash deploy/forge/deploy.sh`.
+  nyrus starts without Linear and without repositories: with only `CYRUS_BASE_URL` and `CYRUS_SERVER_PORT` it runs, listens on `127.0.0.1` and `::1`, and answers `/status` and `/version` (checked locally with v0.2.78). It watches the env file and reloads it when Forge saves it (also when the file is replaced instead of rewritten). Values read only at startup, such as the port, need a restart: `NYRUS_SKIP_BUILD=1 bash deploy/forge/deploy.sh`.
 
 - `~/.cyrus/config.json`: repositories and routing (which project goes to which repository), see `docs/CONFIG_FILE.md`. Without it nyrus starts with no repositories and does nothing until some are added.
 
 Secrets live only on the server, never in the repository.
+
+## Dashboard
+
+The Laravel dashboard in [`dashboard/`](../../dashboard) runs as a second Forge site on the same server and talks to nyrus on `127.0.0.1`. Setup: [`dashboard/README.md`](../../dashboard/README.md).
 
 ## 4. Deploy script
 
@@ -101,13 +111,13 @@ Forge → server → Daemons:
 
 | Field | Value |
 |---|---|
-| Command | `node /home/forge/nyrus.on-forge.com/apps/cli/dist/src/app.js` |
+| Command | `node /home/forge/nyrus.on-forge.com/apps/cli/dist/src/app.js --env-file /home/forge/nyrus.on-forge.com/.env` |
 | User | `forge` |
 | Directory | `/home/forge/nyrus.on-forge.com` |
 | Processes | `1` |
 | Stop seconds | `30` |
 
-Use the **absolute path** of the entry file: the deploy script finds the process by it. The script stops the process with `SIGTERM` (nyrus shuts down gracefully), and Supervisor starts it again with the new build.
+Use the **absolute path** of the entry file: the deploy script finds the process by it. `--env-file` makes nyrus use the variables from Forge's Environment page instead of `~/.cyrus/.env`. The script stops the process with `SIGTERM` (nyrus shuts down gracefully), and Supervisor starts it again with the new build.
 
 ## Checks
 
