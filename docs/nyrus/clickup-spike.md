@@ -71,12 +71,12 @@ export CLICKUP_WEBHOOK_SECRET=...                    # from the create output; r
 
 In the sandbox, do each of these and watch the capture output:
 
-- [ ] assign the bot to a task, then unassign it
-- [ ] assign the bot together with another person
-- [ ] comment mentioning the bot; comment without a mention; reply in a thread
+- [ ] add the tag `nyrus` to a task, then remove it
+- [ ] assign a task to someone (to see `taskAssigneeUpdated`, in case we trigger by assignment after all)
+- [ ] comment starting with `/nyrus`; normal comment; comment with an @mention of a person; reply in a thread
 - [ ] edit a comment; delete a comment
 - [ ] change the status; edit title and description
-- [ ] let the bot comment (via `probe.mjs --task`): does its own comment arrive as a webhook, with the bot as `user`?
+- [ ] let the script comment (via `probe.mjs --task`): does that comment arrive as a webhook too, with the token's person as `user`?
 - [ ] stop `capture.mjs` for a few deliveries: how often and how fast does ClickUp retry, and when does it suspend?
 
 Finally `node scripts/clickup/webhook.mjs delete <id>`.
@@ -86,11 +86,11 @@ Finally `node scripts/clickup/webhook.mjs delete <id>`.
 | # | Question | Finding |
 |---|---|---|
 | 1 | Which plan, which rate limit? | |
-| 2 | Guest seat enough for the bot? | |
+| 2 | Guest seat enough for the bot? | Moot: no bot accounts allowed (see Identity). |
 | 3 | Which comment format renders best (rich text array, Markdown, HTML)? Code blocks and lists? | |
-| 4 | How does a mention of the bot appear in `taskCommentPosted` (item `comment` array, `type: "tag"`)? | |
-| 5 | Does assignment arrive as `taskAssigneeUpdated` with `field: "assignee_add"` and the bot in `after`? With several assignees? | |
-| 6 | Do the bot's own comments trigger webhooks, and with which `user`? | |
+| 4 | How do a `/nyrus` comment and an @mention appear in `taskCommentPosted` (`text_content`, `comment` array with `type: "tag"`)? | |
+| 5 | How does adding or removing a tag arrive (event, `history_items[].field`), and is the tag name in it? | |
+| 6 | Do comments posted through the API trigger webhooks, and with which `user`? | |
 | 7 | Do threaded replies arrive as `taskCommentPosted`, and how do we know the parent? | |
 | 8 | Retry behavior and suspension after failed deliveries | |
 | 9 | Task ids: are custom task ids (`DEV-123`) on in the Spaces we'd pilot? | Off: tasks have only ClickUp ids (`custom_id` is null on the sandbox task, 2026-11-13). Branch names use the plain id. |
