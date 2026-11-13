@@ -1,26 +1,36 @@
 # ClickUp spike (AP3, step 0)
 
-Before building `packages/clickup-event-transport`, we check ClickUp's real behavior with the bot's own token: webhook payloads, comment formatting, the plan's rate limit. The recorded payloads become the test fixtures. Findings go in the table at the end; anything that changes the design also goes in [NYRUS.md](../../NYRUS.md) under Decisions.
+Before building `packages/clickup-event-transport`, we check ClickUp's real behavior through its API: webhook payloads, comment formatting, the plan's rate limit. The recorded payloads become the test fixtures. Findings go in the table at the end; anything that changes the design also goes in [NYRUS.md](../../NYRUS.md) under Decisions.
 
 The tools are in [scripts/clickup/](../../scripts/clickup). They have no dependencies (Node 18+). Their output goes to `~/.cyrus/clickup-spike/`, outside the repository, because it contains real ticket data. Fixtures are copied into the package's `test/fixtures/` by hand, with names and texts anonymized.
 
 ## What we already know (from ClickUp's docs)
 
-- **Auth:** a personal token (`pk_…`) of a bot user, sent as `Authorization: pk_…` (no `Bearer`). Rate limits are per token and depend on the workspace plan: 100 requests/min on Free, Unlimited and Business; 1,000 on Business Plus; 10,000 on Enterprise. ([rate limits](https://developer.clickup.com/docs/rate-limits))
+- **Auth:** a personal token (`pk_…`) of a user, sent as `Authorization: pk_…` (no `Bearer`). Rate limits are per token and depend on the workspace plan: 100 requests/min on Free, Unlimited and Business; 1,000 on Business Plus; 10,000 on Enterprise. ([rate limits](https://developer.clickup.com/docs/rate-limits))
 - **Webhooks** are created through the API only (`POST /team/{team_id}/webhook`), optionally narrowed to a Space, Folder, List or task. Each has its own secret, returned once at creation. ClickUp signs the raw body: `X-Signature` = hex HMAC-SHA256. **Answer an invalid signature with 400, not 401: a 401 suspends the webhook.** Repeated failed deliveries also suspend it (`health.status`); `webhook.mjs list` shows the health and `reactivate` turns it back on. ([webhook signature](https://developer.clickup.com/docs/webhooksignature))
 - **Payloads are thin**: `event`, `task_id`, `webhook_id` and `history_items[]`, whose `id` serves as the idempotency key for retried deliveries. The task itself has to be fetched.
 - **Comments:** `POST /task/{id}/comment` takes plain `comment_text` (Markdown is **not** rendered) or a rich-text `comment` array. Threaded replies: `POST /comment/{id}/reply`. Edit `PUT /comment/{id}`, delete `DELETE /comment/{id}`.
 - **Workspace 14278081** has 296 Spaces, one per customer, so it is on Unlimited or higher. The ClickUp MCP can't tell which plan.
 
+## Identity: no bot account
+
+novu's ClickUp policy allows **no non-personal accounts** (admins, 2026-11-13). A `nyrus` bot user was invited as a guest and has to be removed again by an admin (`nyrus@novu.ch`, id `105741187`). ClickUp also has no way for a self-built integration to appear as its own participant: only partner agents (Cursor, Codegen) do, and OAuth apps act as the person who authorized them.
+
+So nyrus works through the API **in the name of a real person**, and is started without assigning or mentioning a bot user. Proposed, not yet decided:
+
+- **Writing** with one person's access (personal token for the spike, an OAuth app in production), every comment starting with "🤖 nyrus:". Needs the admins' OK.
+- **Starting** with a tag `nyrus` on a task (works the whole task; removing it stops) and comments starting with `/nyrus` (questions and instructions).
+- **Own comments** recognized by the comment ids nyrus posted and the 🤖 prefix, not by the user id, since that is a person who also writes real comments. This changes the shared base (AP2).
+- **Scope** limited in code to the configured Spaces, since a person's token sees all of them.
+
 ## Prerequisites
 
-1. **Bot user** in the workspace, e.g. `nyrus@novu.ch`, display name `nyrus`. To check: whether a guest seat is enough (assignable, can comment, can create an API token) or a member seat is needed.
-2. **API token** of the bot: ClickUp → bot's avatar → Settings → Apps → API Token.
-3. **Sandbox**: a Space "nyrus Sandbox" with one List and a test task, the bot invited. Don't use customer Spaces or the Musterprojekte templates: test comments notify watchers.
-4. **Public URL** to the capture server: `ngrok http 3457` or `cloudflared tunnel --url http://localhost:3457`.
+1. **API token** of the person nyrus acts as: ClickUp → avatar → Settings → **Apps** → API Token → **Generate**. The token starts with `pk_`, never expires and can do everything that person can. Keep it in the password manager; never in the repository, chat or tickets. Regenerating it invalidates the old one at once.
+2. **Sandbox**: the Space "nyrus Sandbox" below. Don't use customer Spaces or the Musterprojekte templates: test comments notify watchers.
+3. **Public URL** to the capture server: `ngrok http 3457` or `cloudflared tunnel --url http://localhost:3457`.
 
 ```bash
-export CLICKUP_API_TOKEN=pk_...      # the bot's token
+export CLICKUP_API_TOKEN=pk_...      # the token of the person nyrus acts as
 export CLICKUP_TEAM_ID=14278081
 ```
 
@@ -31,21 +41,6 @@ export CLICKUP_TEAM_ID=14278081
 | Space | nyrus Sandbox | `1500750000001463` |
 | List | Tests (statuses: to do → in progress → in review → complete; Multiple Assignees on) | `1500750000002693` |
 | Task | [Probe: comment formats](https://app.clickup.com/t/1amxjbadtjm) | `1amxjbadtjm` |
-| Bot user | `nyrus@novu.ch`, Guest (invited 2026-11-13) | `105741187` (`CLICKUP_BOT_USER_ID`) |
-
-## Creating the bot user
-
-The bot is an ordinary ClickUp user. Its display name is what people type to mention it (`@nyrus`), and its API token is what nyrus acts with.
-
-1. **Mailbox.** Create `nyrus@novu.ch` as a shared mailbox or group that the team can read. ClickUp sends the invitation, login codes and password resets there. Store the bot's password (and 2FA secret, if the workspace enforces 2FA) in the team password manager, not with one person.
-2. **Invite.** As a workspace owner or admin: Settings → **People** → Invite → `nyrus@novu.ch`.
-   - **Guest** (start here): only sees what is shared with it, which keeps the 295 customer Spaces out of reach. Share the sandbox with it with **Edit** permission, so it can be assigned, comment and change status. Whether a guest is enough (assignable, mentionable, webhooks for its tasks) is spike question 2.
-   - **Member**: if a guest falls short. Costs a paid seat and sees every Space it is added to.
-3. **Accept.** Open the invitation in the bot's mailbox in a private window or separate browser profile (so you don't mix it up with your own session), set the name to `nyrus` and a password. An avatar helps people recognize its comments.
-4. **Quiet its notifications.** As the bot: Settings → Notifications → turn off email (and mobile) notifications. Otherwise every assignment and comment lands in the shared mailbox. Set its timezone to Europe/Zurich.
-5. **API token.** As the bot: Settings → **Apps** → API Token → **Generate**. The token starts with `pk_`, never expires and acts with the bot's permissions. Put it straight into the password manager; never into the repository, chat or tickets. Regenerating it invalidates the old one at once.
-
-Then run step 1 below to confirm the token works.
 
 ## Steps
 
@@ -55,7 +50,7 @@ Then run step 1 below to confirm the token works.
 node scripts/clickup/probe.mjs
 ```
 
-Note the bot user id (`CLICKUP_BOT_USER_ID`), the plan and the `x-ratelimit-limit` header.
+Note the user id, the plan and the `x-ratelimit-limit` header.
 
 ### 2. Comments
 

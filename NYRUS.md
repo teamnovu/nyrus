@@ -41,7 +41,7 @@ Keep this table current when a package changes state.
 | 2026-11-13 | ClickUp and Jira are built in parallel, on the shared AP2 package `cyrus-comment-sessions`. |
 | 2026-11-13 | No contributions back to upstream Cyrus. We still merge upstream regularly (AP7). |
 | 2026-11-13 | Assigning the bot means "work the whole ticket"; mentioning it in a comment means a question or instruction. |
-| 2026-11-13 | One bot user with an API token per tracker; an OAuth app only once several customer workspaces need it. |
+| 2026-11-13 | ClickUp: no bot user. novu allows no non-personal ClickUp accounts, so nyrus has to act through the API in a person's name. Whose, and how it is started instead of assign/@mention, is open: see [docs/nyrus/clickup-spike.md](docs/nyrus/clickup-spike.md#identity-no-bot-account). |
 | 2026-11-13 | ClickUp routing: a Space (one per customer) is the team, a List is the project. |
 
 Open: Jira Cloud or Data Center, where nyrus runs in production, and which projects and repositories the pilot uses.
