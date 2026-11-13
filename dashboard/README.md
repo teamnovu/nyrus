@@ -64,11 +64,14 @@ npm ci && npm run build
 $FORGE_PHP artisan migrate --force
 $FORGE_PHP artisan optimize
 
-# Reload PHP-FPM so OPcache drops old compiled files (e.g. a cached config
-# without APP_KEY); Forge's standard line, runs without a password prompt.
-( flock -w 10 9 || exit 1
-    echo 'Restarting FPM...'; sudo -S service $FORGE_PHP_FPM reload ) 9>/tmp/fpmlock
+# With OPcache's timestamp checks off (Forge's OPcache optimization), PHP keeps
+# serving old compiled views/config until PHP-FPM reloads. Try a reload without
+# ever prompting for a password; if forge may not do that, say so and go on.
+sudo -n service "${FORGE_PHP_FPM:-php8.5-fpm}" reload 2>/dev/null \
+    || echo "Could not reload PHP-FPM without a password: restart PHP in Forge, or turn off Forge's OPcache optimization."
 ```
+
+If pages look half-updated after a deploy (new CSS, old HTML), PHP is serving old compiled views from OPcache. Either turn off the OPcache optimization for PHP in Forge (Server → PHP → OPcache; then changed files are picked up on their own) or restart PHP in Forge after each deploy.
 
 Environment (Forge → site → Environment), starting from `dashboard/.env.example`. Forge stores it in the site's root directory: with Root `/dashboard` that is `dashboard/.env` directly; otherwise `/home/forge/<site>/.env`, which the deploy script links to `dashboard/.env`:
 
