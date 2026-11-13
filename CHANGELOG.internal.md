@@ -5,7 +5,12 @@ This changelog documents internal development changes, refactors, tooling update
 ## [Unreleased]
 
 ### Added
+- Laravel Forge deploy script and setup guide (`deploy/forge/`): installs, builds and smoke-tests the CLI, waits until nyrus is idle so running agent sessions finish, then restarts it under the Forge daemon. ([teamnovu/nyrus#1](https://github.com/teamnovu/nyrus/pull/1))
 - New `cyrus-comment-sessions` package: agent sessions over plain ticket comments, the shared base for the ClickUp and Jira integrations (which have no built-in agent sessions). The EdgeWorker gains a `TrackerIntegration` hook (`packages/edge-worker/src/TrackerIntegrations.ts`) so each tracker plugs in with one factory.
+
+### Fixed
+- Forge deploy script: pin pnpm to the `packageManager` version for every call, including nested `pnpm` calls in package scripts, so a globally installed pnpm of another major version no longer breaks the build.
+- Forge deploy script: a first deploy without a Forge daemon (nyrus not running before, none started) now succeeds with a warning instead of failing after 90 s. Added `deploy/forge/env.example` listing the `.env` variables nyrus needs on Forge and the ones not to set.
 
 ## [0.2.78] - 2026-11-12
 
