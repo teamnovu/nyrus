@@ -10,6 +10,7 @@ This changelog documents internal development changes, refactors, tooling update
 ### Fixed
 - Forge deploy script: pin pnpm to the `packageManager` version for every call, including nested `pnpm` calls in package scripts, so a globally installed pnpm of another major version no longer breaks the build.
 - Forge deploy script: a first deploy without a Forge daemon (nyrus not running before, none started) now succeeds with a warning instead of failing after 90 s. Added `deploy/forge/env.example` listing the `.env` variables nyrus needs on Forge and the ones not to set.
+- Forge setup: the Nginx config blocks `/api/` and `/mcp/` from outside (without `CYRUS_API_KEY` the `/mcp/cyrus-tools` endpoint skips its auth check). `env.example` documents `CYRUS_API_KEY` for the dashboard and its current conflict with Slack signature verification.
 
 ## [0.2.78] - 2026-11-12
 

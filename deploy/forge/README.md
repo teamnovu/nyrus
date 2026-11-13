@@ -37,7 +37,18 @@ Install on the server (as `forge`, unless noted):
    location ~ ^/(status|version)$ {
        deny all;
    }
+
+   # Internal only: config API (used by the dashboard on 127.0.0.1) and the
+   # cyrus-tools MCP endpoint (used by agent sessions on 127.0.0.1)
+   location ^~ /api/ {
+       deny all;
+   }
+   location ^~ /mcp/ {
+       deny all;
+   }
    ```
+
+   Only the webhook paths need to be reachable from outside. The `/mcp/` endpoint skips its authorization check when `CYRUS_API_KEY` is not set, so keep these blocks in any case.
 
 Webhooks from ClickUp and Jira then go to `https://nyrus.on-forge.com/…`. No Cloudflare Tunnel is needed.
 
@@ -57,11 +68,12 @@ nyrus reads its settings from `~/.cyrus/` of the `forge` user (or the directory 
   |---|---|---|
   | `CYRUS_BASE_URL` | yes | Public URL for webhooks: `https://nyrus.on-forge.com` |
   | `CYRUS_SERVER_PORT` | yes | Local port, `3456` (matches the Nginx proxy) |
+  | `CYRUS_API_KEY` | for the dashboard | Secret for nyrus's own APIs (`openssl rand -hex 32`); unlocks the config API `/api/update/*` and makes `/mcp/cyrus-tools` check auth. **Currently conflicts with Slack:** with it set, Slack signature verification is skipped and Slack requests are rejected, so leave it empty while using Slack (see `env.example`) |
   | `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` | for agent sessions | Claude access; the token comes from `claude setup-token` (subscription) |
   | `GITHUB_TOKEN` | for pull requests | Token of the GitHub bot account; also `gh auth login` as that account |
   | ClickUp / Jira tokens and webhook secrets | once AP3 / AP4 land | Names are defined by the integrations; placeholders in `env.example` |
 
-  Don't set `CYRUS_HOST_EXTERNAL` (binds to `0.0.0.0` and enables webhook IP allowlists, not needed behind Nginx), `CYRUS_API_KEY` / `CYRUS_TEAM_ID` (hosted Cyrus cloud only; an empty `CYRUS_API_KEY` keeps the `/api/update/*` config endpoints locked), `LINEAR_*` or `CLOUDFLARE_TOKEN`.
+  Don't set `CYRUS_HOST_EXTERNAL` (binds to `0.0.0.0` and enables webhook IP allowlists, not needed behind Nginx), `CYRUS_TEAM_ID` / `CYRUS_APP_URL` (hosted Cyrus cloud only; together with `CYRUS_API_KEY` they mirror session transcripts there), `LINEAR_*` or `CLOUDFLARE_TOKEN`.
 
   nyrus starts without Linear and without repositories: with only `CYRUS_BASE_URL` and `CYRUS_SERVER_PORT` it runs, listens on `127.0.0.1` and `::1`, and answers `/status` and `/version` (checked locally with v0.2.78). It watches `.env` for changes; to apply them safely, restart with `NYRUS_SKIP_BUILD=1 bash deploy/forge/deploy.sh`.
 
