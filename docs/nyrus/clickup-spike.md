@@ -66,6 +66,10 @@ Then open the task in ClickUp and check which of the test comments render as int
 
 ### 3. Webhook payloads
 
+**On prod (preferred):** nyrus itself receives and records the deliveries, see [docs/CLICKUP.md](../CLICKUP.md): set `CLICKUP_WEBHOOK_RECORD=1`, create the webhook for the sandbox Space against `https://nyrus.novu.ch/clickup-webhook`, put its secret into Forge → Environment, then work through the list below and read `/home/forge/.cyrus/clickup-webhooks/` (or the daemon log).
+
+**Locally:** with the capture script and a tunnel:
+
 ```bash
 node scripts/clickup/capture.mjs                     # terminal 1
 ngrok http 3457                                      # terminal 2

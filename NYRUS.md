@@ -14,7 +14,7 @@ Project brief (German): [ClickUp doc "novu cyrus"](https://app.clickup.com/14278
 | Shared base for trackers without agent sessions (AP2): design and how to add a tracker | [packages/comment-sessions/README.md](packages/comment-sessions/README.md) |
 | Where trackers plug into the edge worker | [packages/edge-worker/src/TrackerIntegrations.ts](packages/edge-worker/src/TrackerIntegrations.ts) |
 | ClickUp integration (AP3): spike and findings | [docs/nyrus/clickup-spike.md](docs/nyrus/clickup-spike.md), tools in [scripts/clickup/](scripts/clickup) |
-| ClickUp setup guide (once released) | `docs/CLICKUP.md` |
+| ClickUp setup guide | [docs/CLICKUP.md](docs/CLICKUP.md) |
 | Jira integration (AP4) setup guide (once released) | `docs/JIRA.md` |
 | Plane, the integration ClickUp and Jira are modeled on | [docs/PLANE.md](docs/PLANE.md), [packages/plane-event-transport](packages/plane-event-transport) |
 
@@ -26,7 +26,7 @@ Setup guides for users go in `docs/<TRACKER>.md`, like upstream's. Notes for dev
 |---|---|---|---|
 | AP1 | Hosting & operations (Forge) | Deploy script on `main` | `main` |
 | AP2 | Shared base for trackers without agent sessions | Built, in review | `feat/ap2-comment-sessions` |
-| AP3 | ClickUp integration | Spike | `feat/clickup-integration` (on top of AP2) |
+| AP3 | ClickUp integration | Spike; webhook receiver built (receive and record only) | `feat/clickup-integration` (on top of AP2) |
 | AP4 | Jira integration | In progress (other developer) | — |
 | AP5 | Tracker-neutral prompts, status mapping, PR links | Open | — |
 | AP6 | Tests & pilot | Open | — |
