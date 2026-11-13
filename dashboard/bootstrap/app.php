@@ -15,7 +15,11 @@ return Application::configure(basePath: dirname(__DIR__))
         // Behind Cloudflare and Nginx on Forge: trust the forwarded scheme and
         // host so generated URLs (e.g. the Google callback) use https.
         $middleware->trustProxies(at: '*');
-        $middleware->redirectGuestsTo(fn () => route('login'));
+        // Visitors without a session go straight to novu SSO (like the
+        // AI-Usage-Collector); without an OAuth client, the login page explains.
+        $middleware->redirectGuestsTo(fn () => route(
+            app(\App\Services\NovuSso::class)->isConfigured() ? 'sso' : 'login'
+        ));
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

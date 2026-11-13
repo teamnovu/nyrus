@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\Auth\GoogleLoginController;
+use App\Http\Controllers\Auth\SsoController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\LogController;
 use App\Http\Controllers\RepositoryController;
@@ -8,14 +8,14 @@ use App\Http\Controllers\SettingsController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('guest')->group(function () {
-    Route::get('/login', [GoogleLoginController::class, 'show'])->name('login');
-    Route::get('/auth/google/redirect', [GoogleLoginController::class, 'redirect'])->name('auth.google');
-    Route::get('/auth/google/callback', [GoogleLoginController::class, 'callback'])->name('auth.google.callback');
-    Route::post('/auth/dev', [GoogleLoginController::class, 'devLogin'])->name('auth.dev');
+    Route::get('/login', [SsoController::class, 'login'])->name('login');
+    Route::get('/sso', [SsoController::class, 'redirect'])->name('sso');
+    Route::get('/sso/check', [SsoController::class, 'callback'])->name('sso.check');
+    Route::post('/auth/dev', [SsoController::class, 'devLogin'])->name('auth.dev');
 });
 
 Route::middleware('auth')->group(function () {
-    Route::post('/logout', [GoogleLoginController::class, 'logout'])->name('logout');
+    Route::post('/logout', [SsoController::class, 'logout'])->name('logout');
 
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/sessions/{id}', [DashboardController::class, 'session'])->name('sessions.show');

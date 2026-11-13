@@ -1,6 +1,6 @@
 # nyrus Dashboard
 
-Laravel app to watch and configure nyrus: status and sessions, repositories and routing, `.env` variables, logs and an audit log. Sign-in with Google, limited to one domain (default `novu.ch`).
+Laravel app to watch and configure nyrus: status and sessions, repositories and routing, `.env` variables, logs and an audit log. Sign-in with novu SSO (auth.novu.ch, like the AI-Usage-Collector), limited to one email domain (default `novu.ch`).
 
 It runs as a second Forge site on the nyrus server and talks to nyrus on `127.0.0.1` with the shared `CYRUS_API_KEY`:
 
@@ -31,12 +31,11 @@ Then deploy nyrus so it has the `/api/dashboard/*` endpoints and picks up the ke
 
 The nyrus Nginx config must block `/api/` and `/mcp/` from outside (see `deploy/forge/README.md`); the dashboard reaches them on `127.0.0.1`.
 
-### 2. Google sign-in
+### 2. novu SSO
 
-Google Cloud console → APIs & Services:
+Sign-in works like in the AI-Usage-Collector: OAuth 2 (authorization code) against **auth.novu.ch**, which itself signs in with Google. On auth.novu.ch create an **OAuth Client** with redirect URI `https://<dashboard-site>/sso/check` (locally e.g. `http://127.0.0.1:8000/sso/check`) and note its client id and secret. The dashboard reads the person's email from `GET /api/me` and lets in emails of `DASHBOARD_ALLOWED_DOMAIN` (empty = everyone novu SSO vouches for).
 
-1. OAuth consent screen: user type **Internal** (only accounts of the Google Workspace).
-2. Credentials → OAuth client ID → **Web application**, authorized redirect URI `https://<dashboard-site>/auth/google/callback`.
+Visitors without a session go straight to novu SSO; `/login` is shown after logout, after a failed login, or while the OAuth client is not configured.
 
 ### 3. Database (PostgreSQL)
 
@@ -81,8 +80,8 @@ DB_USERNAME=        # the database user from step 3
 DB_PASSWORD=
 NYRUS_API_KEY=      # same value as CYRUS_API_KEY in nyrus
 NYRUS_LOG_PATH=     # log file of the nyrus daemon, shown in Forge
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
+NOVU_AUTH_CLIENT_ID=     # OAuth Client on auth.novu.ch (step 2)
+NOVU_AUTH_CLIENT_SECRET=
 DASHBOARD_ALLOWED_DOMAIN=novu.ch
 ```
 
@@ -103,7 +102,7 @@ cp .env.example .env && php artisan key:generate
 touch database/database.sqlite && php artisan migrate   # SQLite locally; PostgreSQL works too (DB_* in .env)
 ```
 
-Point `NYRUS_URL` / `NYRUS_API_KEY` at a local nyrus (started with `CYRUS_API_KEY`), set `DASHBOARD_DEV_LOGIN=true` to sign in without Google (only with `APP_ENV=local`), then `php artisan serve`.
+Point `NYRUS_URL` / `NYRUS_API_KEY` at a local nyrus (started with `CYRUS_API_KEY`), set `DASHBOARD_DEV_LOGIN=true` to sign in without SSO (only with `APP_ENV=local`), then `php artisan serve`.
 
 Tests (nyrus is faked with `Http::fake()`):
 

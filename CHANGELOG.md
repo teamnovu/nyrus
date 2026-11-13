@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- nyrus dashboard (`dashboard/`, Laravel): status and sessions, repositories and routing, `.env` variables (write-only), logs and an audit log, with Google sign-in limited to one domain. It uses new `/api/dashboard/*` endpoints behind `CYRUS_API_KEY`.
+- nyrus dashboard (`dashboard/`, Laravel): status and sessions, repositories and routing, `.env` variables (write-only), logs and an audit log, with novu SSO sign-in (auth.novu.ch) limited to one email domain. It uses new `/api/dashboard/*` endpoints behind `CYRUS_API_KEY`.
 - `SLACK_DIRECT_WEBHOOKS=true` verifies Slack events by signature even when `CYRUS_API_KEY` is set, so a self-hosted instance can use its own API key and Slack together.
 
 ### Fixed
