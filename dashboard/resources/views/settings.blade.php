@@ -1,21 +1,21 @@
 <x-app title="Einstellungen">
     <p class="eyebrow">Konfiguration</p>
     <h1 class="mt-2 text-5xl">Einstellungen</h1>
-    <p class="mt-1 text-sm text-brown-light">Variablen in der <span class="font-mono">.env</span> von nyrus. Werte werden nie angezeigt, nur überschrieben. nyrus liest die Datei bei Änderungen automatisch neu ein.</p>
+    <p class="mt-1 text-sm text-graphite">Variablen in der <span class="font-mono">.env</span> von nyrus. Werte werden nie angezeigt, nur überschrieben. nyrus liest die Datei bei Änderungen automatisch neu ein.</p>
 
     @if ($error)
-        <div class="mt-6 rounded-2xl bg-peach px-4 py-3 text-sm font-bold">Einstellungen konnten nicht geladen werden: {{ $error }}</div>
+        <div class="mt-6 rounded-2xl bg-warning px-4 py-3 text-sm font-bold">Einstellungen konnten nicht geladen werden: {{ $error }}</div>
     @endif
 
     @if ($gh !== null)
         <div class="mt-6 card p-4 text-sm">
             <span class="font-medium">GitHub CLI:</span>
             @if (($gh['isInstalled'] ?? false) && ($gh['isAuthenticated'] ?? false))
-                <span class="text-brand-strong font-medium">installiert und angemeldet</span>
+                <span class="text-gold-dark font-medium">installiert und angemeldet</span>
             @elseif ($gh['isInstalled'] ?? false)
-                <span class="text-brown">installiert, aber nicht angemeldet (auf dem Server <span class="font-mono">gh auth login</span> ausführen)</span>
+                <span class="text-graphite">installiert, aber nicht angemeldet (auf dem Server <span class="font-mono">gh auth login</span> ausführen)</span>
             @else
-                <span class="text-coral">nicht installiert</span>
+                <span class="text-danger">nicht installiert</span>
             @endif
         </div>
     @endif
@@ -32,17 +32,17 @@
                         <td class="px-4 py-2 font-mono text-xs">{{ $key }}</td>
                         <td class="px-4 py-2">
                             @if ($set->has($key) && $set[$key]['hasValue'])
-                                <span class="text-brand-strong font-medium">gesetzt</span>
+                                <span class="text-gold-dark font-medium">gesetzt</span>
                             @elseif ($set->has($key))
-                                <span class="text-brown">leer</span>
+                                <span class="text-graphite">leer</span>
                             @else
-                                <span class="text-subtle">nicht gesetzt</span>
+                                <span class="text-stone">nicht gesetzt</span>
                             @endif
                             @if (in_array($key, $protected, true))
-                                <span class="ml-1 text-xs text-subtle">(nur auf dem Server)</span>
+                                <span class="ml-1 text-xs text-stone">(nur auf dem Server)</span>
                             @endif
                         </td>
-                        <td class="px-4 py-2 text-brown-light">{{ $known[$key] ?? '' }}</td>
+                        <td class="px-4 py-2 text-graphite">{{ $known[$key] ?? '' }}</td>
                     </tr>
                 @endforeach
             </tbody>
@@ -63,7 +63,7 @@
         </label>
         <div class="sm:col-span-3">
             <button class="btn">Speichern</button>
-            <span class="ml-3 text-xs text-brown-light">Ins Audit-Log kommt nur der Name, nie der Wert.</span>
+            <span class="ml-3 text-xs text-graphite">Ins Audit-Log kommt nur der Name, nie der Wert.</span>
         </div>
     </form>
 </x-app>

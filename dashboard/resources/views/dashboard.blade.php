@@ -3,7 +3,7 @@
         <div>
             <p class="eyebrow">nyrus</p>
             <h1 class="mt-2 text-5xl">Übersicht</h1>
-            <p class="mt-1 text-sm text-brown-light">Zustand von nyrus und alle Sessions, die neueste zuerst.</p>
+            <p class="mt-1 text-sm text-graphite">Zustand von nyrus und alle Sessions, die neueste zuerst.</p>
         </div>
         <a href="{{ route('dashboard') }}" class="btn-secondary">Aktualisieren</a>
     </div>
@@ -18,7 +18,7 @@
                 @endif
             </div>
             @if ($health['state'] === 'down')
-                <p class="mt-2 text-sm text-coral">Prozess antwortet nicht. Daemon in Forge prüfen.</p>
+                <p class="mt-2 text-sm text-danger">Prozess antwortet nicht. Daemon in Forge prüfen.</p>
             @endif
         </div>
         @foreach ([['Sessions', $counts['total']], ['Laufen', $counts['active']], ['Warten auf Antwort', $counts['awaiting']], ['Fehler', $counts['error']]] as [$label, $value])
@@ -30,7 +30,7 @@
     </div>
 
     @if ($error)
-        <div class="mt-6 rounded-2xl bg-peach px-4 py-3 text-sm font-bold">Sessions konnten nicht geladen werden: {{ $error }}</div>
+        <div class="mt-6 rounded-2xl bg-warning px-4 py-3 text-sm font-bold">Sessions konnten nicht geladen werden: {{ $error }}</div>
     @endif
 
     <div class="mt-6 overflow-x-auto card">
@@ -46,21 +46,21 @@
             </thead>
             <tbody class="divide-y divide-ink/10">
                 @forelse ($sessions as $session)
-                    <tr class="hover:bg-brand-muted">
+                    <tr class="hover:bg-gold-light">
                         <td class="px-4 py-2">
-                            <a href="{{ route('sessions.show', $session['id']) }}" class="font-medium text-ink hover:text-brand-strong">
+                            <a href="{{ route('sessions.show', $session['id']) }}" class="font-medium text-ink hover:text-gold-dark">
                                 {{ $session['issue']['identifier'] ?? $session['id'] }}
                             </a>
                             @if ($session['issue']['title'] ?? null)
-                                <div class="text-brown-light">{{ \Illuminate\Support\Str::limit($session['issue']['title'], 70) }}</div>
+                                <div class="text-graphite">{{ \Illuminate\Support\Str::limit($session['issue']['title'], 70) }}</div>
                             @endif
                             @if ($session['tracker'] ?? null)
-                                <div class="text-xs text-subtle">{{ $session['tracker'] }}</div>
+                                <div class="text-xs text-stone">{{ $session['tracker'] }}</div>
                             @endif
                         </td>
                         <td class="px-4 py-2"><x-status-badge :status="$session['status']" /></td>
-                        <td class="px-4 py-2 text-brown-light">{{ collect($session['repositories'])->pluck('id')->filter()->join(', ') ?: '–' }}</td>
-                        <td class="px-4 py-2 text-brown-light">
+                        <td class="px-4 py-2 text-graphite">{{ collect($session['repositories'])->pluck('id')->filter()->join(', ') ?: '–' }}</td>
+                        <td class="px-4 py-2 text-graphite">
                             @php($ts = $session['lastActivityAt'] ?? $session['updatedAt'])
                             {{ $ts ? \Illuminate\Support\Carbon::createFromTimestampMs($ts)->timezone('Europe/Zurich')->diffForHumans() : '–' }}
                         </td>
@@ -68,13 +68,13 @@
                             @if ($session['pullRequestUrl'])
                                 <a href="{{ $session['pullRequestUrl'] }}" target="_blank" rel="noopener" class="link">PR öffnen</a>
                             @else
-                                <span class="text-subtle">–</span>
+                                <span class="text-stone">–</span>
                             @endif
                         </td>
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="5" class="px-4 py-8 text-center text-brown-light">Noch keine Sessions. Sobald nyrus ein Ticket bearbeitet, erscheint es hier.</td>
+                        <td colspan="5" class="px-4 py-8 text-center text-graphite">Noch keine Sessions. Sobald nyrus ein Ticket bearbeitet, erscheint es hier.</td>
                     </tr>
                 @endforelse
             </tbody>

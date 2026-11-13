@@ -1,10 +1,10 @@
 <x-app title="Repositories">
     <p class="eyebrow">Konfiguration</p>
     <h1 class="mt-2 text-5xl">Repositories</h1>
-    <p class="mt-1 text-sm text-brown-light">Woran nyrus arbeitet und welche Tickets in welches Repository gehen. Änderungen übernimmt nyrus ohne Neustart.</p>
+    <p class="mt-1 text-sm text-graphite">Woran nyrus arbeitet und welche Tickets in welches Repository gehen. Änderungen übernimmt nyrus ohne Neustart.</p>
 
     @if ($error)
-        <div class="mt-6 rounded-2xl bg-peach px-4 py-3 text-sm font-bold">Konfiguration konnte nicht geladen werden: {{ $error }}</div>
+        <div class="mt-6 rounded-2xl bg-warning px-4 py-3 text-sm font-bold">Konfiguration konnte nicht geladen werden: {{ $error }}</div>
     @endif
 
     <div class="mt-6 space-y-4">
@@ -14,9 +14,9 @@
                 <summary class="flex cursor-pointer flex-wrap items-center gap-3 px-4 py-3">
                     <span class="font-medium">{{ $name }}</span>
                     @if (($repo['isActive'] ?? true) === false)
-                        <span class="bg-brand-muted rounded-full px-2 py-0.5 text-xs font-bold text-brown">inaktiv</span>
+                        <span class="bg-gold-light rounded-full px-2 py-0.5 text-xs font-bold text-graphite">inaktiv</span>
                     @endif
-                    <span class="text-sm text-brown-light">{{ $repo['baseBranch'] ?? 'main' }}</span>
+                    <span class="text-sm text-graphite">{{ $repo['baseBranch'] ?? 'main' }}</span>
                     @if ($repo['githubUrl'] ?? null)
                         <a href="{{ $repo['githubUrl'] }}" target="_blank" rel="noopener" class="ml-auto text-sm link">GitHub</a>
                     @endif
@@ -42,7 +42,7 @@
                             <input type="hidden" name="isActive" value="0">
                             <input type="checkbox" name="isActive" value="1" @checked($repo['isActive'] ?? true)> aktiv
                         </label>
-                        <div class="text-xs text-brown-light sm:col-span-2">Pfad: <span class="font-mono">{{ $repo['repositoryPath'] ?? '–' }}</span></div>
+                        <div class="text-xs text-graphite sm:col-span-2">Pfad: <span class="font-mono">{{ $repo['repositoryPath'] ?? '–' }}</span></div>
                         <div class="flex flex-wrap gap-2 sm:col-span-2">
                             <button class="btn">Routing speichern</button>
                         </div>
@@ -51,7 +51,7 @@
                           onsubmit="return confirm('{{ $name }} aus nyrus entfernen?')">
                         @csrf
                         @method('DELETE')
-                        <label class="flex items-center gap-2 text-sm text-brown-light">
+                        <label class="flex items-center gap-2 text-sm text-graphite">
                             <input type="checkbox" name="deleteFiles" value="1"> auch den Klon auf dem Server löschen
                         </label>
                         <button class="btn-danger">Entfernen</button>
@@ -59,12 +59,12 @@
                 </div>
             </details>
         @empty
-            <p class="border border-dashed border-ink/30 rounded-2xl bg-white px-4 py-8 text-center text-sm text-brown-light">Noch keine Repositories.</p>
+            <p class="border border-dashed border-ink/30 rounded-2xl bg-white px-4 py-8 text-center text-sm text-graphite">Noch keine Repositories.</p>
         @endforelse
     </div>
 
     <h2 class="mt-10 text-2xl font-extrabold">Repository hinzufügen</h2>
-    <p class="mt-1 text-sm text-brown-light">nyrus klont das Repository auf dem Server (über <span class="font-mono">gh</span>, der Bot-Account braucht Zugriff). Das kann einen Moment dauern.</p>
+    <p class="mt-1 text-sm text-graphite">nyrus klont das Repository auf dem Server (über <span class="font-mono">gh</span>, der Bot-Account braucht Zugriff). Das kann einen Moment dauern.</p>
     <form method="POST" action="{{ route('repositories.store') }}" class="mt-4 grid gap-4 card p-4 sm:grid-cols-2">
         @csrf
         <label class="text-sm sm:col-span-2">Git-URL

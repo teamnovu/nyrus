@@ -4,23 +4,22 @@
 @source '../../storage/framework/views/*.php';
 
 /*
- * Union Group branding (union-group.ch): black and white, very bold
- * Helvetica, green as the brand color with black text on it, browns and
- * grays from the brand palette, coral/peach as signal colors.
+ * novu colors (novu.ch / teamnovu/novu-web): near-black, gold accents with
+ * black text on them, warm beige background, warm grays for secondary text.
+ * Warning and danger are warm tones that sit next to the gold.
  */
 @theme {
     --font-sans: 'Helvetica Neue', Helvetica, Arial, ui-sans-serif, system-ui, sans-serif;
 
-    --color-ink: #080808;
-    --color-brand: #52d09b;
-    --color-brand-strong: #0d8e5f;
-    --color-brand-muted: #d3f8e3;
-    --color-brown: #3d3c36;
-    --color-brown-light: #7b776b;
-    --color-subtle: #949084;
-    --color-coral: #eb6052;
-    --color-peach: #ebba9a;
-    --color-paper: #f4f3f0;
+    --color-ink: #121212;
+    --color-gold: #d5c283;
+    --color-gold-dark: #776b43;
+    --color-gold-light: #ebdfb7;
+    --color-graphite: #5e5e5b;
+    --color-stone: #92918d;
+    --color-warning: #e3b26b;
+    --color-danger: #c24e38;
+    --color-paper: #f1efea;
 }
 
 @layer base {
@@ -34,7 +33,7 @@
     }
 
     ::selection {
-        @apply bg-brand text-ink;
+        @apply bg-gold text-ink;
     }
 }
 
@@ -44,7 +43,7 @@
     }
 
     .btn {
-        @apply inline-flex items-center justify-center gap-2 rounded-full bg-brand px-5 py-2 text-sm font-bold text-ink transition-colors hover:bg-ink hover:text-brand;
+        @apply inline-flex items-center justify-center gap-2 rounded-full bg-gold px-5 py-2 text-sm font-bold text-ink transition-colors hover:bg-ink hover:text-gold;
     }
 
     .btn-secondary {
@@ -52,26 +51,26 @@
     }
 
     .btn-danger {
-        @apply inline-flex items-center justify-center gap-2 rounded-full border border-coral px-4 py-1.5 text-sm font-bold text-coral transition-colors hover:bg-coral hover:text-white;
+        @apply inline-flex items-center justify-center gap-2 rounded-full border border-danger px-4 py-1.5 text-sm font-bold text-danger transition-colors hover:bg-danger hover:text-white;
     }
 
     .field {
-        @apply mt-1 w-full rounded-xl border border-ink bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-brand;
+        @apply mt-1 w-full rounded-xl border border-ink bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-gold;
     }
 
     .label {
-        @apply text-xs font-bold text-brown-light;
+        @apply text-xs font-bold text-graphite;
     }
 
     .eyebrow {
-        @apply flex w-fit items-center rounded-full bg-ink px-3 py-1 text-xs font-bold text-brand;
+        @apply flex w-fit items-center rounded-full bg-ink px-3 py-1 text-xs font-bold text-gold;
     }
 
     .table-head {
-        @apply border-b border-ink text-xs text-brown-light;
+        @apply border-b border-ink text-xs text-graphite;
     }
 
     .link {
-        @apply font-bold text-brand-strong underline decoration-brand underline-offset-4 hover:text-ink;
+        @apply font-bold text-gold-dark underline decoration-gold underline-offset-4 hover:text-ink;
     }
 }
