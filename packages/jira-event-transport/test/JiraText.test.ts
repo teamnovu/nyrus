@@ -89,6 +89,12 @@ describe("markdownToWiki", () => {
 		);
 	});
 
+	it("takes a separator row without outer pipes", () => {
+		expect(markdownToWiki("| A | B |\n--- | ---\n| x | y |")).toBe(
+			"||A||B||\n|x|y|",
+		);
+	});
+
 	it("keeps table data rows that start with dashes", () => {
 		expect(
 			markdownToWiki(
@@ -123,9 +129,17 @@ describe("wikiToMarkdown", () => {
 	});
 
 	it("reads monospace with escaped braces back as inline code", () => {
-		for (const code of ["a}", "{b}", "x{y}z", "plain"]) {
+		// "C:\\\\" ends in a backslash right before the closing braces.
+		for (const code of ["a}", "{b}", "x{y}z", "plain", "C:\\\\", "a\\b"]) {
 			expect(wikiToMarkdown(markdownToWiki(`\`${code}\``))).toBe(`\`${code}\``);
 		}
+	});
+
+	it("reads an unclosed monospace span full of escaped braces in linear time", () => {
+		const input = `{{${"\\}".repeat(5000)} never closed`;
+		const started = Date.now();
+		expect(wikiToMarkdown(input)).toContain("never closed");
+		expect(Date.now() - started).toBeLessThan(200);
 	});
 
 	it("reads pasted smart links", () => {

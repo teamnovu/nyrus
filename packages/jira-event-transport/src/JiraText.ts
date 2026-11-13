@@ -106,9 +106,17 @@ export function wikiToMarkdown(
 			.join("\n"),
 	);
 	// Monospace: an escaped brace (as markdownToWiki writes "}") is content,
-	// not the end of the span.
-	text = text.replace(/\{\{((?:\\[{}]|[^\n])+?)\}\}/g, (_m, code: string) =>
-		keep(`\`${code.replace(/\\([{}])/g, "$1")}\``),
+	// not the end of the span. The alternatives exclude each other (a
+	// backslash is read one way only), so an unclosed span can't make the
+	// regex backtrack exponentially.
+	text = text.replace(
+		/\{\{((?:\\[{}]|\\(?![{}])|[^\n\\])+?)\}\}/g,
+		(_m, code: string) => keep(`\`${code.replace(/\\([{}])/g, "$1")}\``),
+	);
+	// Code ending in a backslash ("{{C:\}}") reads as an escaped brace above
+	// and finds no end; take it as written.
+	text = text.replace(/\{\{([^\n]+?)\}\}/g, (_m, code: string) =>
+		keep(`\`${code}\``),
 	);
 	text = text.replace(
 		/\[~accountid:([^\]]+)\]/g,
@@ -368,10 +376,13 @@ function tableCells(line: string): string[] {
 		.map((cell) => cell.trim());
 }
 
-/** A Markdown table's header separator: every cell like "---", ":--" or "--:". */
+/**
+ * A Markdown table's header separator: every cell like "---", ":--" or
+ * "--:". The outer pipes are optional ("--- | ---" is a separator too).
+ */
 function isSeparatorRow(line: string): boolean {
 	return (
-		isTableRow(line) &&
+		line.includes("-") &&
 		tableCells(line).every((cell) => /^:?-{3,}:?$/.test(cell))
 	);
 }
