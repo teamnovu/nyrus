@@ -44,6 +44,10 @@ export const releasePackages = [
 		name: "cyrus-plane-event-transport",
 	},
 	{
+		directory: "packages/jira-event-transport",
+		name: "cyrus-jira-event-transport",
+	},
+	{
 		directory: "packages/simple-agent-runner",
 		name: "cyrus-simple-agent-runner",
 	},

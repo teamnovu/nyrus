@@ -72,6 +72,7 @@ No installation required. Everything is managed through [app.atcyrus.com](https:
 - **[Git & GitLab Setup](./docs/GIT_GITLAB.md)** - Git and GitLab CLI configuration for MRs
 - **[Zulip Setup](./docs/ZULIP.md)** - Answer @mentions in Zulip topics and DMs
 - **[Plane Setup](./docs/PLANE.md)** - Take work from Plane work items (cloud or self-hosted)
+- **[Jira Setup (Nyrus)](./docs/JIRA.md)** - Take work from Jira Cloud issues (label, assignment or mention)
 - **[Configuration Reference](./docs/CONFIG_FILE.md)** - Detailed config.json options
 - **[Cloudflare Tunnel Setup](./docs/CLOUDFLARE_TUNNEL.md)** - Expose your local instance
 - **[Setup Scripts](./docs/SETUP_SCRIPTS.md)** - Repository and global initialization scripts
