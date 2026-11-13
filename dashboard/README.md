@@ -77,6 +77,14 @@ GOOGLE_CLIENT_SECRET=
 DASHBOARD_ALLOWED_DOMAIN=novu.ch
 ```
 
+Set the environment **before the first deploy**, and **deploy again after every change**: the deploy script runs `php artisan optimize`, which caches the configuration. With a cached config that lacks `APP_KEY`, every page fails with `No application encryption key has been specified`. To apply changes without a full deploy: `php artisan optimize:clear && php artisan optimize` in `dashboard/`.
+
+Generate `APP_KEY` before the first deploy (vendor is not installed yet, so not via artisan):
+
+```bash
+php -r 'echo "base64:".base64_encode(random_bytes(32)), PHP_EOL;'
+```
+
 ## Local development
 
 ```bash
