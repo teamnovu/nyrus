@@ -31,7 +31,9 @@ function loadEnvFile() {
 		const match = /^\s*(CLICKUP_[A-Z_]+)\s*=\s*(.*?)\s*$/.exec(line);
 		if (!match) continue;
 		const [, key, raw] = match;
-		const value = raw.replace(/^(['"])(.*)\1$/, "$2");
+		// Quoted values are taken as is; unquoted ones lose a trailing # comment.
+		const quoted = /^(['"])(.*)\1$/.exec(raw);
+		const value = quoted ? quoted[2] : raw.replace(/\s+#.*$/, "");
 		if (!process.env[key]?.trim()) process.env[key] = value;
 	}
 }
@@ -43,7 +45,7 @@ export function saveEnv(key, value) {
 	const lines = existsSync(ENV_FILE)
 		? readFileSync(ENV_FILE, "utf8")
 				.split("\n")
-				.filter((line) => !line.startsWith(`${key}=`))
+				.filter((line) => !new RegExp(`^\\s*${key}\\s*=`).test(line))
 		: [];
 	while (lines.length && lines[lines.length - 1] === "") lines.pop();
 	writeFileSync(ENV_FILE, `${[...lines, `${key}=${value}`].join("\n")}\n`);
@@ -97,11 +99,18 @@ export async function clickup(method, path, body) {
 	return { status: response.status, body: parsed };
 }
 
-/** Save a JSON result to OUT_DIR/<group>/<name>.json and return the path. */
+/**
+ * Save a JSON result to OUT_DIR/<group>/<name>.json and return the path. The
+ * name may come from a webhook, so anything but letters, digits, `-` and `_`
+ * is replaced: it can't leave the directory.
+ */
 export function save(group, name, data) {
 	const dir = join(OUT_DIR, group);
 	mkdirSync(dir, { recursive: true });
-	const file = join(dir, `${name}.json`);
+	const file = join(
+		dir,
+		`${String(name).replace(/[^A-Za-z0-9_-]/g, "_")}.json`,
+	);
 	writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
 	return file;
 }

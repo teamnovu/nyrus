@@ -77,8 +77,19 @@ switch (command) {
 	}
 
 	case "reactivate": {
-		// ClickUp suspends a webhook after repeated failed deliveries.
+		// ClickUp suspends a webhook after repeated failed deliveries. The
+		// update must repeat the webhook's events: without them ClickUp
+		// subscribes it to all events.
+		const listed = await clickup("GET", `/team/${teamId}/webhook`);
+		if (listed.status !== 200) fail(listed);
+		const hook = listed.body.webhooks?.find((h) => h.id === id);
+		if (!hook) {
+			console.error(`Webhook ${id} not found`);
+			process.exit(1);
+		}
 		const result = await clickup("PUT", `/webhook/${id}`, {
+			endpoint: hook.endpoint,
+			events: hook.events,
 			status: "active",
 		});
 		if (result.status !== 200) fail(result);
