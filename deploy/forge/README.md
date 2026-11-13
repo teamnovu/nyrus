@@ -54,15 +54,9 @@ Webhooks from ClickUp and Jira then go to `https://nyrus.on-forge.com/…`. No C
 
 ## 3. Configuration
 
-nyrus reads its settings from `~/.cyrus/` of the `forge` user (or the directory in `CYRUS_HOME`):
+nyrus keeps its data (repositories, worktrees, state, `config.json`) in `~/.cyrus/` of the `forge` user. Its **variables live in the site's `.env`**, which you edit in **Forge → site → Environment** (the file `/home/forge/nyrus.on-forge.com/.env`). The daemon starts nyrus with `--env-file` pointing at that file (section 5), and nyrus's config API (used by the dashboard) writes to the same file.
 
-- `~/.cyrus/.env`: start from [`env.example`](env.example), which lists every variable we need and the ones not to set:
-
-  ```bash
-  mkdir -p ~/.cyrus
-  cp deploy/forge/env.example ~/.cyrus/.env
-  chmod 600 ~/.cyrus/.env
-  ```
+- **Forge → site → Environment:** replace the content with [`env.example`](env.example), which lists every variable we need and the ones not to set, and fill in the values:
 
   | Variable | Needed | What for |
   |---|---|---|
@@ -75,7 +69,7 @@ nyrus reads its settings from `~/.cyrus/` of the `forge` user (or the directory 
 
   Don't set `CYRUS_HOST_EXTERNAL` (binds to `0.0.0.0` and enables webhook IP allowlists, not needed behind Nginx), `CYRUS_TEAM_ID` / `CYRUS_APP_URL` (hosted Cyrus cloud only; together with `CYRUS_API_KEY` they mirror session transcripts there), `LINEAR_*` or `CLOUDFLARE_TOKEN`.
 
-  nyrus starts without Linear and without repositories: with only `CYRUS_BASE_URL` and `CYRUS_SERVER_PORT` it runs, listens on `127.0.0.1` and `::1`, and answers `/status` and `/version` (checked locally with v0.2.78). It watches `.env` for changes; to apply them safely, restart with `NYRUS_SKIP_BUILD=1 bash deploy/forge/deploy.sh`.
+  nyrus starts without Linear and without repositories: with only `CYRUS_BASE_URL` and `CYRUS_SERVER_PORT` it runs, listens on `127.0.0.1` and `::1`, and answers `/status` and `/version` (checked locally with v0.2.78). It watches the env file and reloads it when Forge saves it (also when the file is replaced instead of rewritten). Values read only at startup, such as the port, need a restart: `NYRUS_SKIP_BUILD=1 bash deploy/forge/deploy.sh`.
 
 - `~/.cyrus/config.json`: repositories and routing (which project goes to which repository), see `docs/CONFIG_FILE.md`. Without it nyrus starts with no repositories and does nothing until some are added.
 
@@ -117,13 +111,13 @@ Forge → server → Daemons:
 
 | Field | Value |
 |---|---|
-| Command | `node /home/forge/nyrus.on-forge.com/apps/cli/dist/src/app.js` |
+| Command | `node /home/forge/nyrus.on-forge.com/apps/cli/dist/src/app.js --env-file /home/forge/nyrus.on-forge.com/.env` |
 | User | `forge` |
 | Directory | `/home/forge/nyrus.on-forge.com` |
 | Processes | `1` |
 | Stop seconds | `30` |
 
-Use the **absolute path** of the entry file: the deploy script finds the process by it. The script stops the process with `SIGTERM` (nyrus shuts down gracefully), and Supervisor starts it again with the new build.
+Use the **absolute path** of the entry file: the deploy script finds the process by it. `--env-file` makes nyrus use the variables from Forge's Environment page instead of `~/.cyrus/.env`. The script stops the process with `SIGTERM` (nyrus shuts down gracefully), and Supervisor starts it again with the new build.
 
 ## Checks
 

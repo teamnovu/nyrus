@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getDefaultReposDir, getDefaultWorktreesDir } from "cyrus-core";
 import type { ApiResponse } from "../types.js";
+import { resolveEnvFilePath } from "./envPath.js";
 import { handleRepository, handleRepositoryDelete } from "./repository.js";
 
 /**
@@ -254,7 +255,7 @@ export async function handleDashboardEnv(
 	cyrusHome: string,
 ): Promise<ApiResponse> {
 	try {
-		const envPath = join(cyrusHome, ".env");
+		const envPath = resolveEnvFilePath(cyrusHome);
 		if (!existsSync(envPath)) {
 			return {
 				success: true,

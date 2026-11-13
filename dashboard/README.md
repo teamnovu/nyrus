@@ -19,7 +19,7 @@ The `/api/dashboard/*` endpoints live in `packages/config-updater` of this repo.
 
 ### 1. nyrus
 
-In nyrus's `~/.cyrus/.env` set a strong shared secret and restart nyrus:
+In Forge → nyrus site → Environment set a strong shared secret (the daemon runs nyrus with `--env-file` on this file, see `deploy/forge/README.md`):
 
 ```bash
 CYRUS_API_KEY=<openssl rand -hex 32>
@@ -27,9 +27,7 @@ CYRUS_API_KEY=<openssl rand -hex 32>
 SLACK_DIRECT_WEBHOOKS=true
 ```
 
-```bash
-cd /home/forge/nyrus.on-forge.com && NYRUS_SKIP_BUILD=1 bash deploy/forge/deploy.sh
-```
+Then deploy nyrus so it has the `/api/dashboard/*` endpoints and picks up the key.
 
 The nyrus Nginx config must block `/api/` and `/mcp/` from outside (see `deploy/forge/README.md`); the dashboard reaches them on `127.0.0.1`.
 
