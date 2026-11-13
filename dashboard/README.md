@@ -42,7 +42,7 @@ Google Cloud console → APIs & Services:
 
 Forge → same server → new site, e.g. `nyrus-dashboard.on-forge.com`:
 
-- Repository `teamnovu/nyrus`, branch `main`
+- Repository `teamnovu/nyrus`, branch `main`; turn off "Install Composer dependencies" (the repo root has no `composer.json`, the deploy script installs in `dashboard/`)
 - Web directory: `/dashboard/public`
 - PHP 8.3 or newer, Let's Encrypt
 
@@ -53,6 +53,8 @@ cd /home/forge/nyrus-dashboard.on-forge.com
 git pull origin $FORGE_SITE_BRANCH
 
 cd dashboard
+# Forge keeps the site's Environment in the site root; Laravel reads dashboard/.env
+ln -sfn ../.env .env
 $FORGE_COMPOSER install --no-dev --no-interaction --prefer-dist --optimize-autoloader
 npm ci && npm run build
 touch database/database.sqlite
@@ -60,7 +62,7 @@ $FORGE_PHP artisan migrate --force
 $FORGE_PHP artisan optimize
 ```
 
-Environment (Forge → site → Environment; the file is `dashboard/.env`), starting from `.env.example`:
+Environment (Forge → site → Environment; Forge stores it as `/home/forge/<site>/.env`, the deploy script links `dashboard/.env` to it), starting from `dashboard/.env.example`:
 
 ```bash
 APP_ENV=production
