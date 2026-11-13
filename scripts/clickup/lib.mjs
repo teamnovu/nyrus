@@ -11,10 +11,6 @@ import { join } from "node:path";
 
 export const API = "https://api.clickup.com/api/v2";
 
-/** Where spike output goes. Outside the repository: it contains real ticket data. */
-export const OUT_DIR =
-	process.env.CLICKUP_SPIKE_OUT ?? join(homedir(), ".cyrus", "clickup-spike");
-
 /**
  * nyrus's env file, `<cyrus-home>/.env` (CYRUS_HOME, default ~/.cyrus). The
  * scripts read CLICKUP_* settings from it when they are not in the
@@ -38,6 +34,13 @@ function loadEnvFile() {
 	}
 }
 loadEnvFile();
+
+/**
+ * Where spike output goes. Outside the repository: it contains real ticket
+ * data. Defined after the env file is read, so CLICKUP_SPIKE_OUT there counts.
+ */
+export const OUT_DIR =
+	process.env.CLICKUP_SPIKE_OUT ?? join(homedir(), ".cyrus", "clickup-spike");
 
 /** Set KEY=value in the env file (replacing an earlier value) and in this process. */
 export function saveEnv(key, value) {
