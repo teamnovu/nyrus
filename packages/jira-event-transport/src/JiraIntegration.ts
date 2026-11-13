@@ -231,7 +231,7 @@ export function createJiraIntegrationFactory(
 						),
 					(error) =>
 						logger.error(
-							"Jira API token check failed (JIRA_EMAIL / JIRA_API_TOKEN)",
+							"Jira API token check failed (JIRA_EMAIL / JIRA_API_TOKEN). For an Atlassian service account, JIRA_EMAIL is its …@serviceaccount.atlassian.com address, not a mailbox.",
 							error,
 						),
 				);

@@ -296,9 +296,14 @@ export class JiraApiClient {
 			headers: { Accept: "application/json" },
 		});
 		const text = await response.text();
-		const cloudId = response.ok
-			? (JSON.parse(text) as { cloudId?: string }).cloudId
-			: undefined;
+		let cloudId: string | undefined;
+		try {
+			cloudId = response.ok
+				? (JSON.parse(text) as { cloudId?: string }).cloudId
+				: undefined;
+		} catch {
+			cloudId = undefined;
+		}
 		if (!cloudId) {
 			throw new JiraApiError(
 				`Jira site lookup (cloud id for the service account) failed: ${response.status}`,
