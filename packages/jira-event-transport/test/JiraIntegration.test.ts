@@ -194,6 +194,13 @@ describe("Jira on cyrus-comment-sessions", () => {
 		});
 	});
 
+	it("passes a comment on once, even if Jira delivers it twice", async () => {
+		const { coordinator, dispatched } = setup(labelled, ["jira-10001"]);
+		await coordinator.handle(commentEvent("Also fix the footer", "c-7"));
+		await coordinator.handle(commentEvent("Also fix the footer", "c-7"));
+		expect(dispatched).toHaveLength(1);
+	});
+
 	it("ignores unmentioned comments once the issue is no longer handed over", async () => {
 		const { coordinator, dispatched } = setup(jiraIssue(), ["jira-10001"]);
 		await coordinator.handle(commentEvent("Looks good, thanks"));

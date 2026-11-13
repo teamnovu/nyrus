@@ -89,6 +89,14 @@ describe("markdownToWiki", () => {
 		);
 	});
 
+	it("keeps table data rows that start with dashes", () => {
+		expect(
+			markdownToWiki(
+				"| Step | State |\n| --- | --- |\n| build | done |\n| --- | pending |",
+			),
+		).toBe("||Step||State||\n|build|done|\n|---|pending|");
+	});
+
 	it("escapes braces and brackets that would become macros or links", () => {
 		expect(markdownToWiki("Status [WIP]: config {debug: true}")).toBe(
 			"Status \\[WIP\\]: config \\{debug: true\\}",
@@ -112,6 +120,12 @@ describe("wikiToMarkdown", () => {
 		).toBe(
 			"```php\n$a = 1;\n```\nSee [the docs](https://x.y/docs) and https://a.b, @Simon",
 		);
+	});
+
+	it("reads monospace with escaped braces back as inline code", () => {
+		for (const code of ["a}", "{b}", "x{y}z", "plain"]) {
+			expect(wikiToMarkdown(markdownToWiki(`\`${code}\``))).toBe(`\`${code}\``);
+		}
 	});
 
 	it("reads pasted smart links", () => {

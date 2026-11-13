@@ -105,8 +105,10 @@ export function wikiToMarkdown(
 			.map((line) => `> ${line}`)
 			.join("\n"),
 	);
-	text = text.replace(/\{\{([^\n]+?)\}\}/g, (_m, code: string) =>
-		keep(`\`${code}\``),
+	// Monospace: an escaped brace (as markdownToWiki writes "}") is content,
+	// not the end of the span.
+	text = text.replace(/\{\{((?:\\[{}]|[^\n])+?)\}\}/g, (_m, code: string) =>
+		keep(`\`${code.replace(/\\([{}])/g, "$1")}\``),
 	);
 	text = text.replace(
 		/\[~accountid:([^\]]+)\]/g,
@@ -288,13 +290,12 @@ export function markdownToWiki(markdown: string): string {
 		const line = lines[i]!.replace(/\t/g, "  ");
 		const next = lines[i + 1];
 
-		if (/^\s*\|.*\|\s*$/.test(line)) {
-			const cells = line
-				.trim()
-				.replace(/^\||\|$/g, "")
-				.split("|")
-				.map((cell) => cell.trim());
-			if (next !== undefined && /^\s*\|?\s*:?-{3,}/.test(next)) {
+		if (isTableRow(line)) {
+			const cells = tableCells(line);
+			// Only a table's first row can be a header, and only if every cell
+			// of the next row is a separator: "| --- | pending |" is data.
+			const firstRow = i === 0 || !isTableRow(lines[i - 1]!);
+			if (firstRow && next !== undefined && isSeparatorRow(next)) {
 				out.push(`${keep("||")}${cells.join(keep("||"))}${keep("||")}`);
 				i++; // the separator row
 			} else {
@@ -353,4 +354,24 @@ export function markdownToWiki(markdown: string): string {
 	text = escapeWiki(text).replace(/\uE001/g, "*");
 
 	return restore(text, kept).trim();
+}
+
+function isTableRow(line: string): boolean {
+	return /^\s*\|.*\|\s*$/.test(line);
+}
+
+function tableCells(line: string): string[] {
+	return line
+		.trim()
+		.replace(/^\||\|$/g, "")
+		.split("|")
+		.map((cell) => cell.trim());
+}
+
+/** A Markdown table's header separator: every cell like "---", ":--" or "--:". */
+function isSeparatorRow(line: string): boolean {
+	return (
+		isTableRow(line) &&
+		tableCells(line).every((cell) => /^:?-{3,}:?$/.test(cell))
+	);
 }
