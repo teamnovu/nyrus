@@ -135,10 +135,19 @@ describe("wikiToMarkdown", () => {
 		}
 	});
 
-	it("reads an unclosed monospace span full of escaped braces in linear time", () => {
-		const input = `{{${"\\}".repeat(5000)} never closed`;
+	it("keeps monospace spans apart when the first ends in a backslash", () => {
+		expect(wikiToMarkdown("{{C:\\}} and {{b}}")).toBe("`C:\\` and `b`");
+		expect(wikiToMarkdown("{{a\\}}} and {{b}}")).toBe("`a}` and `b`");
+		expect(wikiToMarkdown("{{}} then {{b}}")).toBe("{{}} then `b`");
+		expect(wikiToMarkdown("{{open and {{b}}")).toBe("`open and {{b`");
+	});
+
+	it("reads unclosed monospace spans in linear time", () => {
 		const started = Date.now();
-		expect(wikiToMarkdown(input)).toContain("never closed");
+		expect(wikiToMarkdown(`{{${"\\}".repeat(5000)} never closed`)).toContain(
+			"never closed",
+		);
+		expect(wikiToMarkdown("{{a".repeat(10000))).toContain("{{a{{a");
 		expect(Date.now() - started).toBeLessThan(200);
 	});
 
