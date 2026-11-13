@@ -60,6 +60,34 @@ describe("ConfigManager", () => {
 		}
 	});
 
+	it("loads config.json when it is created after the watcher started", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "cyrus-config-create-"));
+		const path = join(dir, "config.json");
+		const manager = new ConfigManager(
+			{ repositories: [] },
+			logger,
+			path,
+			new Map(),
+		);
+		const changed = vi.fn();
+		manager.on("configChanged", changed);
+		try {
+			manager.startConfigWatcher();
+			// let the watcher settle on the missing file
+			await new Promise((resolve) => setTimeout(resolve, 300));
+			await writeFile(path, JSON.stringify({ repositories: [repo] }));
+			await vi.waitFor(() => expect(changed).toHaveBeenCalled(), {
+				timeout: 5000,
+			});
+			expect(changed.mock.calls[0][0].added.map((r: any) => r.id)).toEqual([
+				repo.id,
+			]);
+		} finally {
+			await manager.stop();
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
 	it("reloads top-level OpenCode config and emits it as a global config change", async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "cyrus-config-manager-"));
 		const configPath = join(tempDir, "config.json");

@@ -4,6 +4,16 @@ import { handleCheckGlab } from "./handlers/checkGlab.js";
 import { handleConfigureMcp } from "./handlers/configureMcp.js";
 import { handleCyrusConfig } from "./handlers/cyrusConfig.js";
 import { handleCyrusEnv } from "./handlers/cyrusEnv.js";
+import {
+	type DashboardRepositoryPayload,
+	handleDashboardAddRepository,
+	handleDashboardConfig,
+	handleDashboardEnv,
+	handleDashboardRemoveRepository,
+	handleDashboardRepositoryRouting,
+	handleDashboardSession,
+	handleDashboardSessions,
+} from "./handlers/dashboard.js";
 import { handleGitHubTokens } from "./handlers/githubTokens.js";
 import {
 	handleRepository,
@@ -80,6 +90,36 @@ export class ConfigUpdater {
 		this.registerRoute("/api/update/skill", this.handleUpdateSkillRoute);
 		this.registerDeleteRoute("/api/update/skill", this.handleDeleteSkillRoute);
 		this.registerGetRoute("/api/skills", this.handleListSkillsRoute);
+
+		// nyrus dashboard (deploy/forge, dashboard/): reads state and config,
+		// manages the repository list. Same Bearer auth as above.
+		this.registerGetRoute("/api/dashboard/sessions", () =>
+			handleDashboardSessions(this.cyrusHome),
+		);
+		this.registerGetRoute("/api/dashboard/session", (query: { id?: string }) =>
+			handleDashboardSession(query, this.cyrusHome),
+		);
+		this.registerGetRoute("/api/dashboard/config", () =>
+			handleDashboardConfig(this.cyrusHome),
+		);
+		this.registerGetRoute("/api/dashboard/env", () =>
+			handleDashboardEnv(this.cyrusHome),
+		);
+		this.registerRoute(
+			"/api/dashboard/repository",
+			(payload: DashboardRepositoryPayload) =>
+				handleDashboardAddRepository(payload, this.cyrusHome),
+		);
+		this.registerRoute(
+			"/api/dashboard/repository/routing",
+			(payload: DashboardRepositoryPayload) =>
+				handleDashboardRepositoryRouting(payload, this.cyrusHome),
+		);
+		this.registerDeleteRoute(
+			"/api/dashboard/repository",
+			(payload: { name?: string; deleteFiles?: boolean }) =>
+				handleDashboardRemoveRepository(payload, this.cyrusHome),
+		);
 	}
 
 	/**

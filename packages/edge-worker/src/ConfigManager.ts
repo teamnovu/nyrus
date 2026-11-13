@@ -195,6 +195,14 @@ export class ConfigManager extends EventEmitter {
 			await this.handleConfigChange();
 		});
 
+		// A fresh install may start without config.json; the first write
+		// (e.g. from the dashboard's config API) creates it, which chokidar
+		// reports as "add", not "change".
+		this.configWatcher.on("add", async () => {
+			this.logger.info("🔄 Config file created, loading...");
+			await this.handleConfigChange();
+		});
+
 		this.configWatcher.on("error", (error: unknown) => {
 			this.logger.error("❌ Config watcher error:", error);
 		});
