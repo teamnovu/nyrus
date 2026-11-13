@@ -63,6 +63,11 @@ $FORGE_COMPOSER install --no-dev --no-interaction --prefer-dist --optimize-autol
 npm ci && npm run build
 $FORGE_PHP artisan migrate --force
 $FORGE_PHP artisan optimize
+
+# Reload PHP-FPM so OPcache drops old compiled files (e.g. a cached config
+# without APP_KEY); Forge's standard line, runs without a password prompt.
+( flock -w 10 9 || exit 1
+    echo 'Restarting FPM...'; sudo -S service $FORGE_PHP_FPM reload ) 9>/tmp/fpmlock
 ```
 
 Environment (Forge → site → Environment), starting from `dashboard/.env.example`. Forge stores it in the site's root directory: with Root `/dashboard` that is `dashboard/.env` directly; otherwise `/home/forge/<site>/.env`, which the deploy script links to `dashboard/.env`:
