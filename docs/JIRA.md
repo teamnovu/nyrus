@@ -15,6 +15,8 @@ Use a dedicated Jira user (e.g. "Nyrus") if you can: its comments and changes th
 
 Create an API token for that account at <https://id.atlassian.com/manage-profile/security/api-tokens>. The account needs to browse, comment on and transition issues in the projects Nyrus works in.
 
+**Atlassian service account** (admin.atlassian.com → Directory → Service accounts): set `JIRA_EMAIL` to the service account's email (`…@serviceaccount.atlassian.com`) and `JIRA_API_TOKEN` to its API token, with the scopes `read:jira-work`, `write:jira-work` and `read:jira-user`. Keep `JIRA_BASE_URL` on your site (`https://<site>.atlassian.net`): service account tokens only work through Atlassian's API gateway, so Nyrus sends its API calls to `api.atlassian.com/ex/jira/<cloudId>` (looked up from the site) and keeps issue links on the site. Give the service account access to the Jira projects (spaces) like a user.
+
 > With a personal account, keep `JIRA_TRIGGER_ON_ASSIGN=false`: otherwise every issue assigned to you in the webhook's projects starts Nyrus.
 
 ## 2. Configure Nyrus

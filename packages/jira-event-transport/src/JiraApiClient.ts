@@ -30,6 +30,9 @@ const ISSUE_FIELDS = [
 /** Stop paging a list after this many pages. */
 const MAX_PAGES = 100;
 
+/** Atlassian service accounts have emails in this domain. */
+const SERVICE_ACCOUNT_DOMAIN = "@serviceaccount.atlassian.com";
+
 export class JiraApiError extends Error {
 	constructor(
 		message: string,
@@ -52,6 +55,7 @@ type FetchLike = typeof fetch;
 export class JiraApiClient {
 	private readonly logger: ILogger;
 	private readonly fetchImpl: FetchLike;
+	private apiRootPromise: Promise<string> | null = null;
 
 	constructor(
 		private readonly credentials: JiraCredentials,
@@ -217,7 +221,7 @@ export class JiraApiClient {
 
 	/** Download an attachment's `content` URL, authenticated. */
 	async download(url: string): Promise<Buffer> {
-		const response = await this.fetchImpl(url, {
+		const response = await this.fetchImpl(await this.toApiUrl(url), {
 			headers: { Authorization: this.authorization() },
 		});
 		if (!response.ok) {
@@ -267,6 +271,52 @@ export class JiraApiClient {
 		return items;
 	}
 
+	/**
+	 * Where REST calls go. API tokens of Atlassian service accounts
+	 * (`…@serviceaccount.atlassian.com`) are rejected on the site URL and only
+	 * work through Atlassian's API gateway, `api.atlassian.com/ex/jira/<cloudId>`;
+	 * the site's cloud id is looked up once. Links to issues stay on the site.
+	 */
+	private apiRoot(): Promise<string> {
+		if (!this.apiRootPromise) {
+			this.apiRootPromise = this.resolveApiRoot().catch((error: unknown) => {
+				this.apiRootPromise = null;
+				throw error;
+			});
+		}
+		return this.apiRootPromise;
+	}
+
+	private async resolveApiRoot(): Promise<string> {
+		const { baseUrl, email } = this.credentials;
+		if (!email.toLowerCase().endsWith(SERVICE_ACCOUNT_DOMAIN)) {
+			return baseUrl;
+		}
+		const response = await this.fetchImpl(`${baseUrl}/_edge/tenant_info`, {
+			headers: { Accept: "application/json" },
+		});
+		const text = await response.text();
+		const cloudId = response.ok
+			? (JSON.parse(text) as { cloudId?: string }).cloudId
+			: undefined;
+		if (!cloudId) {
+			throw new JiraApiError(
+				`Jira site lookup (cloud id for the service account) failed: ${response.status}`,
+				response.status,
+				text.slice(0, 500),
+			);
+		}
+		return `https://api.atlassian.com/ex/jira/${cloudId}`;
+	}
+
+	/** A site URL Jira handed out (e.g. an attachment's `content`), routed like REST calls. */
+	private async toApiUrl(url: string): Promise<string> {
+		const { baseUrl } = this.credentials;
+		return url.startsWith(`${baseUrl}/`)
+			? `${await this.apiRoot()}${url.slice(baseUrl.length)}`
+			: url;
+	}
+
 	private authorization(): string {
 		const { email, apiToken } = this.credentials;
 		return `Basic ${Buffer.from(`${email}:${apiToken}`).toString("base64")}`;
@@ -278,7 +328,7 @@ export class JiraApiClient {
 		body?: unknown,
 		query?: Record<string, string>,
 	): Promise<T> {
-		const url = new URL(`${this.credentials.baseUrl}/rest/api/2${path}`);
+		const url = new URL(`${await this.apiRoot()}/rest/api/2${path}`);
 		for (const [key, value] of Object.entries(query ?? {})) {
 			url.searchParams.set(key, value);
 		}
