@@ -4,7 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- nyrus dashboard (`dashboard/`, Laravel): status and sessions, repositories and routing, `.env` variables (write-only), logs and an audit log, with Google sign-in limited to one domain. It uses new `/api/dashboard/*` endpoints behind `CYRUS_API_KEY`.
+- `SLACK_DIRECT_WEBHOOKS=true` verifies Slack events by signature even when `CYRUS_API_KEY` is set, so a self-hosted instance can use its own API key and Slack together.
+
 ### Fixed
+- A `config.json` created while Cyrus is running (e.g. the first repository added through the config API on a fresh install) is now loaded right away instead of only after a restart.
 - Self-hosted Cyrus behind a reverse proxy (no `CYRUS_HOST_EXTERNAL`, no `CYRUS_API_KEY`) now accepts Slack events verified with `SLACK_SIGNING_SECRET`, instead of rejecting them. Slack webhooks are always rejected when no verification secret is configured. ([#4](https://github.com/teamnovu/nyrus/pull/4))
 
 ## [0.2.78] - 2026-11-12

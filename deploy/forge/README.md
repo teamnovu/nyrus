@@ -68,7 +68,7 @@ nyrus reads its settings from `~/.cyrus/` of the `forge` user (or the directory 
   |---|---|---|
   | `CYRUS_BASE_URL` | yes | Public URL for webhooks: `https://nyrus.on-forge.com` |
   | `CYRUS_SERVER_PORT` | yes | Local port, `3456` (matches the Nginx proxy) |
-  | `CYRUS_API_KEY` | for the dashboard | Secret for nyrus's own APIs (`openssl rand -hex 32`); unlocks the config API `/api/update/*` and makes `/mcp/cyrus-tools` check auth. **Currently conflicts with Slack:** with it set, Slack signature verification is skipped and Slack requests are rejected, so leave it empty while using Slack (see `env.example`) |
+  | `CYRUS_API_KEY` | yes | Shared secret for nyrus's own APIs (`openssl rand -hex 32`); the dashboard uses it as `NYRUS_API_KEY`, and `/mcp/cyrus-tools` only checks auth when it is set. With Slack also set `SLACK_DIRECT_WEBHOOKS=true` |
   | `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` | for agent sessions | Claude access; the token comes from `claude setup-token` (subscription) |
   | `GITHUB_TOKEN` | for pull requests | Token of the GitHub bot account; also `gh auth login` as that account |
   | ClickUp / Jira tokens and webhook secrets | once AP3 / AP4 land | Names are defined by the integrations; placeholders in `env.example` |
@@ -80,6 +80,10 @@ nyrus reads its settings from `~/.cyrus/` of the `forge` user (or the directory 
 - `~/.cyrus/config.json`: repositories and routing (which project goes to which repository), see `docs/CONFIG_FILE.md`. Without it nyrus starts with no repositories and does nothing until some are added.
 
 Secrets live only on the server, never in the repository.
+
+## Dashboard
+
+The Laravel dashboard in [`dashboard/`](../../dashboard) runs as a second Forge site on the same server and talks to nyrus on `127.0.0.1`. Setup: [`dashboard/README.md`](../../dashboard/README.md).
 
 ## 4. Deploy script
 

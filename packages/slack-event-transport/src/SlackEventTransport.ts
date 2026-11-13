@@ -19,9 +19,12 @@ import type {
  * proxy.
  *
  * Direct verification needs a signing secret, and applies when the host is
- * marked external (`CYRUS_HOST_EXTERNAL=true`) or when there is no hosted
- * proxy at all (`CYRUS_API_KEY` unset) — e.g. self-hosting behind Nginx,
- * where Slack necessarily sends events straight to us.
+ * marked external (`CYRUS_HOST_EXTERNAL=true`), when it is requested
+ * explicitly (`SLACK_DIRECT_WEBHOOKS=true`, like `LINEAR_DIRECT_WEBHOOKS`), or
+ * when there is no hosted proxy at all (`CYRUS_API_KEY` unset) — e.g.
+ * self-hosting behind Nginx, where Slack necessarily sends events straight to
+ * us. The explicit switch lets a self-hosted instance set `CYRUS_API_KEY`
+ * (for its own config API) without falling back to proxy verification.
  */
 export function shouldUseDirectSlackVerification(
 	env: Record<string, string | undefined>,
@@ -32,8 +35,10 @@ export function shouldUseDirectSlackVerification(
 	}
 	const isExternalHost =
 		env.CYRUS_HOST_EXTERNAL?.toLowerCase().trim() === "true";
+	const directRequested =
+		env.SLACK_DIRECT_WEBHOOKS?.toLowerCase().trim() === "true";
 	const hasHostedProxy = Boolean(env.CYRUS_API_KEY?.trim());
-	return isExternalHost || !hasHostedProxy;
+	return isExternalHost || directRequested || !hasHostedProxy;
 }
 
 export declare interface SlackEventTransport {

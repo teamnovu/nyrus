@@ -735,6 +735,34 @@ describe("SlackEventTransport", () => {
 			delete process.env.SLACK_SIGNING_SECRET;
 			delete process.env.CYRUS_HOST_EXTERNAL;
 			delete process.env.CYRUS_API_KEY;
+			delete process.env.SLACK_DIRECT_WEBHOOKS;
+		});
+
+		it("switches to direct verification when SLACK_DIRECT_WEBHOOKS=true even with CYRUS_API_KEY set", async () => {
+			const eventListener = vi.fn();
+			transport.on("event", eventListener);
+
+			// Self-hosted with its own API key (e.g. for a dashboard): explicit opt-in
+			process.env.SLACK_SIGNING_SECRET = runtimeSigningSecret;
+			process.env.CYRUS_API_KEY = testSecret;
+			process.env.SLACK_DIRECT_WEBHOOKS = "true";
+			delete process.env.CYRUS_HOST_EXTERNAL;
+
+			const request = createMockRequest(testEventEnvelope);
+			const { timestamp, signature } = signSlackRequest(
+				request.rawBody,
+				runtimeSigningSecret,
+			);
+			request.headers["x-slack-request-timestamp"] = timestamp;
+			request.headers["x-slack-signature"] = signature;
+
+			const reply = createMockReply();
+			await mockFastify.routes["/slack-webhook"]!(request, reply);
+
+			expect(reply.code).toHaveBeenCalledWith(200);
+			expect(eventListener).toHaveBeenCalledWith(
+				expect.objectContaining({ eventType: "app_mention" }),
+			);
 		});
 
 		it("switches to direct verification when SLACK_SIGNING_SECRET and CYRUS_HOST_EXTERNAL are set at request time", async () => {
