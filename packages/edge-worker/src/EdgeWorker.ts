@@ -5107,6 +5107,38 @@ ${taskSection}`;
 	 * @param webhook The agent session created webhook
 	 * @param repos All available repositories for routing
 	 */
+	/**
+	 * No repository takes work from the webhook's workspace (e.g. a Jira
+	 * project no repository or group is linked to): say so in the log and,
+	 * for Jira, ClickUp and GitHub issues, once on the ticket, instead of
+	 * doing nothing.
+	 */
+	private async reportNoRepository(
+		webhook: AgentSessionCreatedWebhook,
+	): Promise<void> {
+		const workspace = webhook.organizationId;
+		const issue = webhook.agentSession?.issue;
+		const project = issue?.team?.key;
+		this.logger.warn(
+			`No repository takes work from workspace ${workspace}${project ? ` (project ${project})` : ""}: ${issue?.identifier ?? "ticket"} ignored. Link the project to a repository or group in the dashboard (Projekte), or configure a repository with linearWorkspaceId "${workspace}"${project ? ` and teamKeys ["${project}"]` : ""}.`,
+		);
+		const commentTracker = this.trackerIntegrations.some(
+			(integration) => integration.workspaceKey === workspace,
+		);
+		const tracker = workspace ? this.issueTrackers.get(workspace) : undefined;
+		if (!commentTracker || !tracker || !issue?.id) return;
+		try {
+			await tracker.createComment(issue.id, {
+				body: `Für ${project ? `das Projekt ${project}` : "dieses Ticket"} ist kein Repository eingerichtet, deshalb kann ich nicht starten. Verknüpfe ${project ? `${project}` : "das Projekt"} im nyrus-Dashboard unter «Projekte» mit einem Repository oder einer Gruppe und übergib das Ticket dann noch einmal.`,
+			});
+		} catch (error) {
+			this.logger.warn(
+				`Could not tell ${issue.identifier ?? issue.id} that no repository takes it`,
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		}
+	}
+
 	private async handleAgentSessionCreatedWebhook(
 		webhook: AgentSessionCreatedWebhook,
 		repos: RepositoryConfig[],
@@ -5137,11 +5169,7 @@ ${taskSection}`;
 				);
 
 			if (routingResult.type === "none") {
-				if (process.env.CYRUS_WEBHOOK_DEBUG === "true") {
-					this.logger.info(
-						`No repository configured for webhook from workspace ${webhook.organizationId}`,
-					);
-				}
+				await this.reportNoRepository(webhook);
 				return;
 			}
 
