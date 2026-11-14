@@ -194,7 +194,66 @@ function setupLogView() {
     toBottom();
 }
 
+/**
+ * Dialogs: [data-dialog-open="id"] links open the <dialog> as a modal (without
+ * JavaScript they load the page with the dialog shown). A dialog rendered with
+ * [data-dialog-autoopen] (e.g. after a validation error) opens as a modal on load.
+ * Clicking the backdrop or a [data-dialog-close] button closes it.
+ */
+function setupDialogs() {
+    document.querySelectorAll('[data-dialog-open]').forEach((trigger) => {
+        const dialog = document.getElementById(trigger.dataset.dialogOpen);
+        if (!dialog) return;
+        trigger.addEventListener('click', (event) => {
+            event.preventDefault();
+            if (!dialog.open) dialog.showModal();
+        });
+    });
+
+    document.querySelectorAll('dialog').forEach((dialog) => {
+        dialog.addEventListener('click', (event) => {
+            if (event.target === dialog) dialog.close();
+        });
+        dialog.querySelectorAll('[data-dialog-close]').forEach((button) => {
+            button.addEventListener('click', () => dialog.close());
+        });
+        if (dialog.hasAttribute('data-dialog-autoopen')) {
+            dialog.close();
+            dialog.showModal();
+            const invalid = dialog.querySelector('.text-danger')?.closest('label')?.querySelector('input');
+            invalid?.focus();
+        }
+    });
+}
+
+/**
+ * Long lists ([data-filter-scope]) with a search field ([data-filter-input]):
+ * hides [data-filter-item] entries that don't contain the typed text.
+ */
+function setupFilterLists() {
+    document.querySelectorAll('[data-filter-scope]').forEach((scope) => {
+        const input = scope.querySelector('[data-filter-input]');
+        if (!input) return;
+        const items = [...scope.querySelectorAll('[data-filter-item]')];
+        const empty = scope.querySelector('[data-filter-empty]');
+        input.addEventListener('input', () => {
+            const term = input.value.trim().toLowerCase();
+            let visible = 0;
+            items.forEach((item) => {
+                item.hidden = term !== '' && !item.textContent.toLowerCase().includes(term);
+                if (!item.hidden) visible++;
+            });
+            empty?.classList.toggle('hidden', visible > 0);
+        });
+        input.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') event.preventDefault();
+        });
+    });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+    setupDialogs();
+    setupFilterLists();
     setupLiveRegions();
     setupBusyForms();
     setupLogView();

@@ -23,6 +23,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/sessions/{id}', [DashboardController::class, 'session'])->name('sessions.show');
 
     Route::get('/repositories', [RepositoryController::class, 'index'])->name('repositories.index');
+    Route::get('/projects', [RepositoryController::class, 'index'])->name('projects.index');
     Route::post('/repositories', [RepositoryController::class, 'store'])->name('repositories.store');
     Route::post('/repositories/inbudget-sync', [RepositoryController::class, 'syncInbudget'])->name('repositories.inbudget-sync');
     Route::put('/repositories/{name}', [RepositoryController::class, 'update'])->name('repositories.update');

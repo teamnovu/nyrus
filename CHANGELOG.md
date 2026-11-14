@@ -19,6 +19,9 @@ All notable changes to this project will be documented in this file.
 - `SLACK_DIRECT_WEBHOOKS=true` verifies Slack events by signature even when `CYRUS_API_KEY` is set, so a self-hosted instance can use its own API key and Slack together.
 - Self-hosted with a GitHub App (`GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID` and `~/.cyrus/github-app.pem`): agent sessions now get a fresh installation token as `GH_TOKEN`, so they open pull requests as the App (`<app>[bot]`) instead of needing a GitHub user account. A private key added after the first failed attempt is now picked up without a restart. ([#7](https://github.com/teamnovu/nyrus/pull/7))
 
+### Changed
+- Dashboard: the repositories page is now "Projekte" and handles 1000+ entries, with search, filters (inBudget or manual, Jira/ClickUp, active), sorting and pagination. Adding a repository opens a dialog. The inBudget card keeps long warning lists compact and searchable.
+
 ### Fixed
 - inBudget: the sync found no repositories, because inBudget answers the project info list without a project filter with an empty list; nyrus now asks for them by project. The dashboard shows how many infos and links it read, and warns about git links that aren't on GitHub.
 - A run in a GitHub pull request session (e.g. after `@<bot>` in a PR comment) no longer tries to log time on a Jira issue of the same repository; only Jira's own sessions log their time. ([#17](https://github.com/teamnovu/nyrus/pull/17))

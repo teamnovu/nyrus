@@ -23,12 +23,12 @@
                 <nav class="order-last -mx-4 flex w-[calc(100%+2rem)] min-w-0 gap-1 overflow-x-auto px-3 pb-2 text-sm [scrollbar-width:none] sm:order-none sm:mx-0 sm:w-auto sm:flex-1 sm:px-0 sm:pb-0">
                     @foreach ([
                         'dashboard' => 'Übersicht',
-                        'repositories.index' => 'Repositories',
+                        'repositories.index' => 'Projekte',
                         'settings.index' => 'Einstellungen',
                         'logs.index' => 'Logs',
                         'audit.index' => 'Audit-Log',
                     ] as $route => $label)
-                        @php($active = request()->routeIs($route) || ($route === 'dashboard' && request()->routeIs('sessions.*')))
+                        @php($active = request()->routeIs($route) || ($route === 'dashboard' && request()->routeIs('sessions.*')) || ($route === 'repositories.index' && request()->routeIs('projects.index')))
                         <a href="{{ route($route) }}"
                            @if ($active) aria-current="page" @endif
                            @class([
