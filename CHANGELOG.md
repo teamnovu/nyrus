@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Before/after screenshots: when a change is visible in the browser, a session can render the page from the base branch and from its branch, post both images as one comment in the Jira ticket and link the ticket from the PR (skill `before-after-screenshots`). It skips backend-only changes and sites it can't render, and says why. Needs the screenshot tool on the server (Forge recipe in `deploy/forge/README.md`, "Screenshots").
+- New default skills reach existing installations: on start, nyrus adds bundled skills that are missing from `~/.cyrus/cyrus-skills-plugin/skills/` and leaves existing (customized) skills alone. A deleted default skill comes back on the next start.
 - GitHub issues work through the webhook nyrus already has on `/github-webhook`: add the **Issues** event to it, and an issue assigned to nyrus's account is worked; `GITHUB_WEBHOOK_SECRET` is enough to turn it on (`GITHUB_ISSUES_ENABLED=false` turns it off). nyrus finds its GitHub login from its token (e.g. `novu-nyrus`), so `GITHUB_BOT_USERNAME` is only needed for an App token.
 - Jira and ClickUp can be set on a repository group in the dashboard: every repository of the group inherits it, together with the keys its members have. The repository page shows what it inherits from its group.
 - The dashboard home lists every session nyrus runs, whatever started it: Linear, Jira, ClickUp, GitHub issues and pull requests, GitLab, Plane, CLI, and Slack and Zulip chats, with source, runner and model, repositories and status. Sessions stay listed after their ticket is closed and after a restart (the last 500, up to 30 days); the list can be filtered by source and status.

@@ -165,6 +165,36 @@ With the sandbox on, the agent's shell commands run under bubblewrap: they read 
 
    The log shows `Policy: deny-all with … allowed domain(s)`; a session's `claude_query_options` show `"cqo.hasSandbox":true` and no "Linux sandbox requirements are not met" warning. Checked on lychee: commit, push (App token) and `gh` work; `~/.ssh`, `.env` files, other sites, `.git/hooks` and unlisted domains are blocked.
 
+### Screenshots (before/after)
+
+The bundled skill `before-after-screenshots` lets a session post a "before" (base branch) and "after" (its branch) screenshot of a changed page in the Jira ticket. It renders the site in the sandbox with [`screenshots/nyrus-screenshot.mjs`](screenshots/nyrus-screenshot.mjs) (playwright-core + headless Chromium). Sessions can't read anything under `~`, so it lives in `/opt/nyrus-screenshots`. Run this as a Forge recipe with user `root`, **after** this repository version is deployed (it copies the helper from the checkout; run it again when the helper changes):
+
+```bash
+set -euo pipefail
+# Libraries headless Chromium needs on Ubuntu 24.04, and fonts
+apt-get update
+apt-get install -y --no-install-recommends \
+  libatk1.0-0t64 libatk-bridge2.0-0t64 libatspi2.0-0t64 libxcomposite1 libxdamage1 \
+  libxfixes3 libxrandr2 libxi6 libgbm1 libasound2t64 fonts-liberation fonts-noto-color-emoji
+# playwright-core, Chromium (headless shell) and the helper, outside ~
+D=/opt/nyrus-screenshots
+install -d -m 0755 "$D"
+cd "$D"
+[ -f package.json ] || echo '{"private":true}' > package.json
+npm install --no-audit --no-fund playwright-core@1.64.1
+PLAYWRIGHT_BROWSERS_PATH="$D/browsers" npx --no-install playwright-core install --only-shell chromium
+install -m 0755 /home/forge/nyrus.on-forge.com/deploy/forge/screenshots/nyrus-screenshot.mjs "$D/nyrus-screenshot.mjs"
+ln -sf "$D/nyrus-screenshot.mjs" /usr/local/bin/nyrus-screenshot
+chmod -R a+rX "$D"
+# Check as forge
+sudo -u forge node "$D/nyrus-screenshot.mjs" --url 'data:text/html,<h1>ok</h1>' --out /tmp/nyrus-screenshot-check.png
+rm -f /tmp/nyrus-screenshot-check.png
+```
+
+How it works in the sandbox (checked on this server with nyrus's sandbox settings through the Agent SDK): Chromium runs under bubblewrap and seccomp with `--no-sandbox --disable-dev-shm-usage`; `/tmp` is read-only there, so the helper works in `$TMPDIR`. A process started in the background is gone when its Bash call ends, so the helper starts the site itself (`--serve <dir>` for static files, `--server "<command>"` for a dev server), takes the screenshot and stops it, all in one call. Pages on other hosts go through the egress proxy: only allowed domains load (add a staging host to `networkPolicy.allow` if sessions should screenshot it). Sites that need a database, Docker or credentials can't be rendered; the skill then skips and says why.
+
+The skill uploads with `mcp__jira__upload_attachments` and comments with `mcp__jira__add_comment`. Images are never put into the GitHub PR; the PR gets one line linking to the ticket.
+
 ## Dashboard
 
 The Laravel dashboard in [`dashboard/`](../../dashboard) runs as a second Forge site on the same server and talks to nyrus on `127.0.0.1`. Setup: [`dashboard/README.md`](../../dashboard/README.md).

@@ -198,15 +198,17 @@ export class SkillsPluginResolver {
 
 	/**
 	 * Read the immediate subdirectory (and symlink) names of a `skills/`
-	 * directory. Returns an empty array when the directory is missing or
-	 * unreadable, so callers can treat "no skills dir" as a no-op.
+	 * directory, sorted (readdir order differs between filesystems). Returns
+	 * an empty array when the directory is missing or unreadable, so callers
+	 * can treat "no skills dir" as a no-op.
 	 */
 	private async readSkillDirEntries(skillsDir: string): Promise<string[]> {
 		try {
 			const entries = await readdir(skillsDir, { withFileTypes: true });
 			return entries
 				.filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
-				.map((entry) => entry.name);
+				.map((entry) => entry.name)
+				.sort();
 		} catch {
 			// Directory doesn't exist or isn't readable — skip
 			return [];

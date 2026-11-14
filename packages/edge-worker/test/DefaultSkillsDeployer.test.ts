@@ -1,4 +1,11 @@
-import { access, mkdir, readdir, readFile, rm } from "node:fs/promises";
+import {
+	access,
+	mkdir,
+	readdir,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -81,21 +88,40 @@ describe("DefaultSkillsDeployer", () => {
 		expect(skillNames).toContain("verify-and-ship");
 	});
 
-	it("should not overwrite existing plugin directory", async () => {
-		// Deploy once
+	it("should not overwrite customized skills in an existing plugin directory", async () => {
 		await deployer.ensureDeployed();
 
-		const pluginPath = join(testHome, "cyrus-skills-plugin");
-		const skillsPath = join(pluginPath, "skills");
+		const skillMd = join(
+			testHome,
+			"cyrus-skills-plugin",
+			"skills",
+			"implementation",
+			"SKILL.md",
+		);
+		await writeFile(skillMd, "customized");
 
-		// Remove a skill to simulate user customization
-		const implPath = join(skillsPath, "implementation");
-		await rm(implPath, { recursive: true, force: true });
-
-		// Deploy again — should NOT recreate the removed skill
 		await deployer.ensureDeployed();
 
-		expect(await exists(implPath)).toBe(false);
+		expect(await readFile(skillMd, "utf-8")).toBe("customized");
+	});
+
+	it("should add bundled skills that are missing from an existing plugin directory", async () => {
+		// An older version deployed only some skills (the plugin dir exists)
+		const skillsPath = join(testHome, "cyrus-skills-plugin", "skills");
+		await mkdir(join(skillsPath, "debug"), { recursive: true });
+		await writeFile(join(skillsPath, "debug", "SKILL.md"), "customized");
+
+		await deployer.ensureDeployed();
+
+		expect(
+			await exists(join(skillsPath, "before-after-screenshots", "SKILL.md")),
+		).toBe(true);
+		expect(await exists(join(skillsPath, "implementation", "SKILL.md"))).toBe(
+			true,
+		);
+		expect(await readFile(join(skillsPath, "debug", "SKILL.md"), "utf-8")).toBe(
+			"customized",
+		);
 	});
 
 	it("should create SKILL.md files in each deployed skill directory", async () => {

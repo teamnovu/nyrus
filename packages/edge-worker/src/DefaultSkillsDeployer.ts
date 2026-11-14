@@ -8,11 +8,11 @@ import type { ILogger } from "cyrus-core";
  *
  * On first startup, copies all bundled skill directories from the package
  * into `~/.cyrus/cyrus-skills-plugin/skills/` so that users can inspect
- * and customize them. Subsequent startups skip the copy if the plugin
- * directory already exists.
+ * and customize them. Later startups only add bundled skills that are not
+ * there yet; existing (possibly customized) skills are never overwritten.
  *
- * Single Responsibility: this class only handles the one-time deployment
- * of default skills from the package to the user's home directory.
+ * Single Responsibility: this class only handles the deployment of default
+ * skills from the package to the user's home directory.
  */
 export class DefaultSkillsDeployer {
 	private readonly bundledSkillsPath: string;
@@ -45,14 +45,14 @@ export class DefaultSkillsDeployer {
 	 * Ensure default skills are deployed to cyrusHome.
 	 *
 	 * If `~/.cyrus/cyrus-skills-plugin/` does not exist, creates it and
-	 * copies all bundled skills into it. If it already exists, does nothing
-	 * — the user may have customized the skills.
+	 * copies all bundled skills into it. If it already exists, only adds
+	 * bundled skills that are missing there (e.g. a skill shipped in a newer
+	 * version) and never touches existing ones — the user may have customized
+	 * them.
 	 */
 	async ensureDeployed(): Promise<void> {
 		if (await this.exists(this.deployedPluginPath)) {
-			this.logger.debug(
-				`Default skills plugin already exists at ${this.deployedPluginPath}`,
-			);
+			await this.addMissingSkills();
 			return;
 		}
 
@@ -98,6 +98,45 @@ export class DefaultSkillsDeployer {
 		this.logger.info(
 			`Deployed default skills to ${this.deployedPluginPath} (${deployedCount} skills)`,
 		);
+	}
+
+	/**
+	 * Copy bundled skills whose directory doesn't exist in the deployed plugin
+	 * yet. Existing skill directories are left as they are.
+	 */
+	private async addMissingSkills(): Promise<void> {
+		if (!(await this.exists(this.bundledSkillsPath))) {
+			this.logger.debug(
+				`Default skills plugin exists at ${this.deployedPluginPath}; no bundled skills to add`,
+			);
+			return;
+		}
+
+		await mkdir(this.deployedSkillsPath, { recursive: true });
+		const entries = await readdir(this.bundledSkillsPath, {
+			withFileTypes: true,
+		});
+		const added: string[] = [];
+		for (const entry of entries) {
+			if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+			const dest = join(this.deployedSkillsPath, entry.name);
+			if (await this.exists(dest)) continue;
+			await cp(join(this.bundledSkillsPath, entry.name), dest, {
+				recursive: true,
+				dereference: true,
+			});
+			added.push(entry.name);
+		}
+
+		if (added.length > 0) {
+			this.logger.info(
+				`Added new default skills to ${this.deployedPluginPath}: ${added.join(", ")}`,
+			);
+		} else {
+			this.logger.debug(
+				`Default skills plugin already up to date at ${this.deployedPluginPath}`,
+			);
+		}
 	}
 
 	private async exists(path: string): Promise<boolean> {
