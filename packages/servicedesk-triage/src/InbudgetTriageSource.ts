@@ -51,6 +51,12 @@ interface RawUser {
 	familyName?: string;
 }
 
+interface RawEmployment {
+	user?: Ref;
+	activeFrom?: string | null;
+	activeUntil?: string | null;
+}
+
 interface RawInsights {
 	users?: { id?: number | string; name?: string; hours?: number }[];
 }
@@ -129,24 +135,36 @@ export class InbudgetTriageSource implements TriageSource {
 			}));
 	}
 
+	/**
+	 * Enabled users who still work here: users whose employments in inBudget
+	 * have all ended (`activeUntil` in the past) are left out. Users without
+	 * employments are kept. If the token can't read employments, only
+	 * disabled users are left out.
+	 */
 	activeUsers(): Promise<Map<string, { email?: string; name: string }>> {
 		if (!this.users || this.now() - this.users.at > CACHE_MS) {
-			const value = this.client
-				.listAll<RawUser>("/api/users", "enabled=true")
-				.then((raw) => {
-					const users = new Map<string, { email?: string; name: string }>();
-					for (const user of raw) {
-						const id = idOf(user);
-						if (!id || user.enabled === false) continue;
-						users.set(id, {
-							email: user.email?.trim() || undefined,
-							name:
-								user.fullName ??
-								[user.givenName, user.familyName].filter(Boolean).join(" "),
-						});
-					}
-					return users;
-				});
+			const value = Promise.all([
+				this.client.listAll<RawUser>("/api/users", "enabled=true"),
+				this.client
+					.listAll<RawEmployment>("/api/employments")
+					.catch(() => undefined),
+			]).then(([raw, employments]) => {
+				const left = employments
+					? formerEmployees(employments, day(new Date(this.now())))
+					: new Set<string>();
+				const users = new Map<string, { email?: string; name: string }>();
+				for (const user of raw) {
+					const id = idOf(user);
+					if (!id || user.enabled === false || left.has(id)) continue;
+					users.set(id, {
+						email: user.email?.trim() || undefined,
+						name:
+							user.fullName ??
+							[user.givenName, user.familyName].filter(Boolean).join(" "),
+					});
+				}
+				return users;
+			});
 			value.catch(() => {
 				this.users = undefined;
 			});
@@ -193,6 +211,28 @@ function toProject(raw: RawProject): TriageProject | undefined {
 		client: { id: clientId, name: clientName },
 		lastWorkHourAt: raw.lastWorkHourAt ?? undefined,
 	};
+}
+
+/**
+ * Users whose every employment ended before `today` (YYYY-MM-DD). A user
+ * with one open employment (no end, or an end today or later) still works
+ * here. Exported for tests.
+ */
+export function formerEmployees(
+	employments: RawEmployment[],
+	today: string,
+): Set<string> {
+	const current = new Set<string>();
+	const ended = new Set<string>();
+	for (const employment of employments) {
+		const id = refId(employment.user);
+		if (!id) continue;
+		const until = employment.activeUntil?.slice(0, 10);
+		if (!until || until >= today) current.add(id);
+		else ended.add(id);
+	}
+	for (const id of current) ended.delete(id);
+	return ended;
 }
 
 function resourceHosts(resource: RawResource): string[] {

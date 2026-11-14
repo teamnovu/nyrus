@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	type Classifier,
 	customerLabel,
+	formerEmployees,
 	InbudgetTriageSource,
 	newIssueKey,
 	type PersonHours,
@@ -501,5 +502,61 @@ describe("InbudgetTriageSource", () => {
 		expect(calls).toContain(
 			"/api/projects/10/work_hour_insights?startDate=2025-11-14&endDate=2026-11-14",
 		);
+	});
+
+	it("leaves out disabled users and users whose employments all ended", async () => {
+		const { source } = inbudget({
+			"/api/users": {
+				member: [
+					{ id: 1, fullName: "Anna Muster", email: "anna@novu.ch" },
+					{ id: 2, fullName: "Left Last Year", email: "left@novu.ch" },
+					{ id: 3, fullName: "Rejoined", email: "back@novu.ch" },
+					{ id: 4, fullName: "Disabled", enabled: false },
+				],
+			},
+			"/api/employments": {
+				member: [
+					{ user: "/api/users/1", activeFrom: "2020-01-01", activeUntil: null },
+					{
+						user: "/api/users/2",
+						activeFrom: "2019-01-01",
+						activeUntil: "2025-12-31",
+					},
+					{
+						user: "/api/users/3",
+						activeFrom: "2018-01-01",
+						activeUntil: "2020-06-30",
+					},
+					{
+						user: { id: 3 },
+						activeFrom: "2024-01-01",
+						activeUntil: "2027-03-31",
+					},
+				],
+			},
+		});
+		expect([...(await source.activeUsers()).keys()]).toEqual(["1", "3"]);
+	});
+
+	it("keeps everyone enabled when employments can't be read", async () => {
+		const { source } = inbudget({
+			"/api/users": { member: [{ id: 2, fullName: "Left Last Year" }] },
+			"/api/employments": "not json-ld",
+		});
+		expect([...(await source.activeUsers()).keys()]).toEqual(["2"]);
+	});
+});
+
+describe("formerEmployees", () => {
+	it("counts an employment ending today as current", () => {
+		expect(
+			formerEmployees(
+				[
+					{ user: "/api/users/5", activeUntil: "2026-11-14" },
+					{ user: "/api/users/6", activeUntil: "2026-11-13T23:00:00+01:00" },
+				],
+				"2026-11-14",
+			),
+		).toEqual(new Set(["6"]));
 	});
 });

@@ -9,7 +9,7 @@ Kunde: Zoo Zürich (erkannt über Absender-Domain zoo.ch)
 Projekt: P-10 Website (von 2 aktiven Projekten, gewählt nach Ticket-Text)
 Vorschlag Bearbeitung: Anna Muster (142 h)
 Weitere: Marco Rossi (60 h), Lea Meier (12 h)
-Gebuchte Stunden auf dem Projekt in den letzten 12 Monaten, aus inBudget.
+Gebuchte Stunden auf dem Projekt insgesamt, aus inBudget.
 ```
 
 No agent session runs and no code is touched. Triage only reads Jira and inBudget, plus one short Claude question when the customer or project isn't clear.
@@ -22,7 +22,7 @@ No agent session runs and no code is touched. Triage only reads Jira and inBudge
    - the sender's **domain** is a domain of one of a customer's **resources** (websites, including aliases and subdomains). Free-mail domains (gmail.com, bluewin.ch, …) and `TRIAGE_OWN_DOMAINS` (novu.ch) never count;
    - otherwise **Claude reads the ticket** and picks the customer from the list of customers with active projects, or says it can't tell.
 3. **The project:** if the customer has one active, non-internal project, that one. If it has several, Claude picks one from the ticket text. If Claude can't tell, the comment lists them, and the hours count over all of them.
-4. **The people:** hours per person on the project from inBudget's work-hour insights, over the last `TRIAGE_HOURS_MONTHS` months (all time if nobody booked in that window). People disabled in inBudget are left out. The top three are listed.
+4. **The people:** hours per person on the project from inBudget's work-hour insights, all time by default (with `TRIAGE_HOURS_MONTHS`, only the last N months, or all time if nobody booked in that window). People who no longer work here are left out: users disabled in inBudget, and users whose employments in inBudget have all ended. The top three are listed.
 5. **Assigning** (only with `TRIAGE_ASSIGN=true`): the first person is found in Jira by their inBudget email and assigned. If that fails, the comment says why.
 
 The ticket text goes to Claude as untrusted data. Claude has no tools and can only answer with one of the listed ids, so a ticket can at worst make it pick the wrong customer.
@@ -34,7 +34,7 @@ Triage needs Jira (see [JIRA.md](JIRA.md)) and inBudget (see [INBUDGET.md](INBUD
 ### 1. Accounts
 
 - **Jira:** the account in `JIRA_EMAIL` posts the comment. In a service project, internal comments need an **agent**, so add that account (or service account) to the service project as an agent. It must be allowed to browse the project and, with `TRIAGE_ASSIGN`, to assign issues.
-- **inBudget:** the `INBUDGET_TOKEN` user must see the customers' contacts and resources, all projects, all users, and **work hours of other people** (project insights). A user with the project manager role usually does. If it only sees its own hours, the suggestions are wrong.
+- **inBudget:** the `INBUDGET_TOKEN` user must see the customers' contacts and resources, all projects, all users, their employments, and **work hours of other people** (project insights). A user with the project manager role usually does. If it only sees its own hours, the suggestions are wrong.
 
 ### 2. nyrus
 
@@ -43,7 +43,7 @@ In `<cyrus-home>/.env` (Forge: site → Environment):
 ```bash
 TRIAGE_JIRA_PROJECTS=NOV          # turns triage on; comma-separated Jira project keys
 # TRIAGE_ASSIGN=false             # true: also assign the ticket to the first person
-# TRIAGE_HOURS_MONTHS=12          # hours of the last N months; 0 for all time
+# TRIAGE_HOURS_MONTHS=0           # 0: all hours; N: only the last N months
 # TRIAGE_OWN_DOMAINS=novu.ch      # domains that never identify a customer
 # TRIAGE_IGNORE_SENDERS=          # more senders to skip (parts of the email), comma-separated
 # TRIAGE_CLAUDE=true              # false: no Claude, only email and domain matching
