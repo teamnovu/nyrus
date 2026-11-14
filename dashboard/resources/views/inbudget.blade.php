@@ -39,6 +39,12 @@
             @endif
             @if ($inbudget['lastSuccessAt'] ?? null)
                 <span class="muted">Zuletzt: {{ \Illuminate\Support\Carbon::parse($inbudget['lastSuccessAt'])->timezone(config('app.timezone'))->format('d.m.Y H:i') }}</span>
+                @if ($inbudget['lastFullSyncAt'] ?? null)
+                    <span class="muted">Vollständig: {{ \Illuminate\Support\Carbon::parse($inbudget['lastFullSyncAt'])->timezone(config('app.timezone'))->format('d.m.Y H:i') }}</span>
+                @endif
+                @if (isset($inbudget['lastFetch']['requests']))
+                    <span class="muted">Letzter Abruf: {{ ['full' => 'vollständig', 'changes' => 'nur Änderungen', 'none' => 'lokal'][$inbudget['lastFetch']['mode']] ?? '' }}, {{ $inbudget['lastFetch']['requests'] }} Anfragen</span>
+                @endif
                 <span class="muted">{{ $inbudget['projectCount'] ?? 0 }} aktive Projekte</span>
                 <span class="muted">{{ count($inbudget['repos'] ?? $inbudget['repositories'] ?? []) }} Repositories</span>
             @elseif (! ($inbudget['running'] ?? false) && ! ($inbudget['error'] ?? null))

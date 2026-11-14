@@ -11,6 +11,12 @@ import {
 	readRepositories,
 	sameGitHubRepo,
 } from "./ConfigSync.js";
+import {
+	type InbudgetCache,
+	mergeById,
+	readCache,
+	writeCache,
+} from "./cache.js";
 import type { InbudgetClient } from "./InbudgetClient.js";
 import {
 	type ManualPlatform,
@@ -32,8 +38,23 @@ import {
 const execFileAsync = promisify(execFile);
 
 /** What the last sync did, for the dashboard. */
+/**
+ * - `full`: read everything from inBudget again (daily, and "Jetzt abgleichen").
+ * - `changes`: read only what changed (project list, resources changed since
+ *   the last read, infos of new projects); the rest comes from the cache.
+ * - `local`: no inBudget request; apply the cache with the dashboard's
+ *   changes (manual routing, groups, repositories set up on demand).
+ */
+export type SyncMode = "full" | "changes" | "local";
+
 export interface SyncStatus {
 	running: boolean;
+	/** Last full read from inBudget. */
+	lastFullSyncAt?: string;
+	/** Last read of changes from inBudget. */
+	lastChangesSyncAt?: string;
+	/** What the last run read from inBudget, and how many requests it took. */
+	lastFetch?: { mode: "full" | "changes" | "none"; requests: number };
 	lastRunAt?: string;
 	lastSuccessAt?: string;
 	durationMs?: number;
@@ -89,12 +110,14 @@ export interface InbudgetSyncOptions {
 	) => Promise<{ path: string; defaultBranch?: string }>;
 	instructions?: (repo: DesiredRepository) => string | undefined;
 	logger?: ILogger;
+	/** A `changes` sync reads everything again when the last full one is older (default 24 h). */
+	fullSyncHours?: number;
 }
 
 /** Repositories and routing from inBudget, one sync at a time. */
 export class InbudgetSync {
 	private status: SyncStatus = { running: false };
-	private current?: Promise<SyncStatus>;
+	private tail?: Promise<SyncStatus>;
 	private readonly logger: ILogger;
 
 	constructor(private readonly options: InbudgetSyncOptions) {
@@ -114,8 +137,7 @@ export class InbudgetSync {
 	async provideGitHub(repo: string): Promise<boolean> {
 		const { context, cyrusHome } = this.options;
 		if (!context.github) return false;
-		await this.current;
-		if (!this.status.repos) await this.sync();
+		if (!this.status.repos) await this.sync("local");
 		const key = repo.toLowerCase();
 		if (!this.status.repos?.some((r) => r.repo.toLowerCase() === key)) {
 			return false;
@@ -131,8 +153,7 @@ export class InbudgetSync {
 		if (next.length !== requested.length) {
 			writeGitHubRequested(cyrusHome, next);
 		}
-		await this.current;
-		const status = await this.sync();
+		const status = await this.sync("local");
 		return Boolean(
 			status.repos?.find((r) => r.repo.toLowerCase() === key)?.platforms.github
 				?.entryId,
@@ -140,18 +161,22 @@ export class InbudgetSync {
 	}
 
 	/**
-	 * Put a repository into a group (a name, "" alone, null its customer's)
-	 * and sync, after the sync running now.
+	 * Put repositories into a group (a name, "" alone, null their
+	 * customer's) and apply it, without asking inBudget.
 	 */
-	async setGroup(repo: string, group: string | null): Promise<SyncStatus> {
-		writeGroup(this.options.cyrusHome, repo, group);
-		await this.current;
-		return this.sync();
+	async setGroup(
+		repos: string | string[],
+		group: string | null,
+	): Promise<SyncStatus> {
+		for (const repo of Array.isArray(repos) ? repos : [repos]) {
+			writeGroup(this.options.cyrusHome, repo, group);
+		}
+		return this.sync("local");
 	}
 
 	/**
 	 * Save a repository's manual routing for one tracker (empty keys clear
-	 * it) and sync, after the sync running now, so it takes effect.
+	 * it) and apply it, without asking inBudget.
 	 */
 	async setManual(
 		repo: string,
@@ -160,32 +185,111 @@ export class InbudgetSync {
 		detached?: boolean,
 	): Promise<SyncStatus> {
 		writeManual(this.options.cyrusHome, repo, platform, keys, detached);
-		await this.current;
-		return this.sync();
+		return this.sync("local");
 	}
 
-	/** Run a sync, or join the one running. Never throws: errors end up in the status. */
-	sync(): Promise<SyncStatus> {
-		this.current ??= this.run().finally(() => {
-			this.current = undefined;
+	/**
+	 * Run a sync after the ones queued (runs never overlap). Never throws:
+	 * errors end up in the status.
+	 */
+	sync(mode: SyncMode = "changes"): Promise<SyncStatus> {
+		const run = (this.tail ?? Promise.resolve(this.status)).then(() =>
+			this.run(mode),
+		);
+		const tail = run.finally(() => {
+			if (this.tail === tail) this.tail = undefined;
 		});
-		return this.current;
+		this.tail = tail;
+		return run;
 	}
 
-	private async run(): Promise<SyncStatus> {
+	/** Read everything from inBudget. */
+	private async fetchAll(): Promise<InbudgetCache> {
+		const { client } = this.options;
+		const at = new Date().toISOString();
+		const [projects, resources] = await Promise.all([
+			client.listProjects(),
+			client.listClientResources().catch((error: unknown) => {
+				this.logger.warn(
+					`inBudget sync: could not read client resources: ${error instanceof Error ? error.message : String(error)}`,
+				);
+				return undefined;
+			}),
+		]);
+		const infos = await client.listProjectInfos(projects);
+		return {
+			projects,
+			infos,
+			resources: resources ?? [],
+			fetchedAt: {
+				full: at,
+				projects: at,
+				...(resources && { resources: at }),
+			},
+		};
+	}
+
+	/**
+	 * Read only what changed: the project list (archived and new projects),
+	 * resources changed since the last read (with 5 minutes overlap), and
+	 * the infos of new projects.
+	 */
+	private async fetchChanges(cache: InbudgetCache): Promise<InbudgetCache> {
+		const { client } = this.options;
+		const at = new Date().toISOString();
+		const since = cache.fetchedAt.resources
+			? new Date(
+					Date.parse(cache.fetchedAt.resources) - 5 * 60_000,
+				).toISOString()
+			: undefined;
+		const [projects, changed] = await Promise.all([
+			client.listProjects(),
+			client.listClientResources(since).catch((error: unknown) => {
+				this.logger.warn(
+					`inBudget sync: could not read changed client resources: ${error instanceof Error ? error.message : String(error)}`,
+				);
+				return undefined;
+			}),
+		]);
+		const known = new Set(cache.projects.map((p) => p.id));
+		const fresh = projects.filter((p) => !known.has(p.id));
+		const newInfos = fresh.length ? await client.listProjectInfos(fresh) : [];
+		return {
+			projects,
+			infos: mergeById(cache.infos, newInfos),
+			resources: changed
+				? mergeById(cache.resources, changed)
+				: cache.resources,
+			fetchedAt: {
+				...cache.fetchedAt,
+				projects: at,
+				...(changed && { resources: at }),
+			},
+		};
+	}
+
+	private async run(mode: SyncMode): Promise<SyncStatus> {
 		const started = Date.now();
 		this.status = { ...this.status, running: true };
+		const counter = this.options.client as { requests?: number };
+		const requestsBefore = counter.requests ?? 0;
 		try {
-			const [projects, resources] = await Promise.all([
-				this.options.client.listProjects(),
-				this.options.client.listClientResources().catch((error: unknown) => {
-					this.logger.warn(
-						`inBudget sync: could not read client resources: ${error instanceof Error ? error.message : String(error)}`,
-					);
-					return [];
-				}),
-			]);
-			const infos = await this.options.client.listProjectInfos(projects);
+			const { cyrusHome } = this.options;
+			let cache = readCache(cyrusHome);
+			const fullDue =
+				!cache?.fetchedAt.full ||
+				Date.now() - Date.parse(cache.fetchedAt.full) >
+					(this.options.fullSyncHours ?? 24) * 3_600_000;
+			let fetched: "full" | "changes" | "none" = "none";
+			if (!cache || mode === "full" || (mode === "changes" && fullDue)) {
+				cache = await this.fetchAll();
+				fetched = "full";
+			} else if (mode === "changes") {
+				cache = await this.fetchChanges(cache);
+				fetched = "changes";
+			}
+			if (fetched !== "none") writeCache(cyrusHome, cache);
+			const { projects, infos, resources } = cache;
 			const plan = await planRepositories(
 				projects,
 				infos,
@@ -243,7 +347,16 @@ export class InbudgetSync {
 			this.status = {
 				running: false,
 				lastRunAt: new Date(started).toISOString(),
-				lastSuccessAt: new Date().toISOString(),
+				lastSuccessAt:
+					fetched === "none"
+						? (this.status.lastSuccessAt ?? cache.fetchedAt.projects)
+						: new Date().toISOString(),
+				lastFullSyncAt: cache.fetchedAt.full,
+				lastChangesSyncAt: cache.fetchedAt.projects,
+				lastFetch: {
+					mode: fetched,
+					requests: (counter.requests ?? 0) - requestsBefore,
+				},
 				durationMs: Date.now() - started,
 				projectCount: plan.projectCount,
 				trackers: {
@@ -276,7 +389,7 @@ export class InbudgetSync {
 				result.deactivated.length && `${result.deactivated.length} turned off`,
 			].filter(Boolean);
 			this.logger.info(
-				`inBudget sync: ${desired.length} repositories from ${plan.projectCount} projects (${plan.infoCount} infos, ${plan.linkCount} links, ${plan.resourceRepoCount} repositories from client resources)${changes.length ? ` (${changes.join(", ")})` : ", no changes"}${plan.warnings.length ? `, ${plan.warnings.length} warnings` : ""}`,
+				`inBudget sync (${fetched === "none" ? "local" : `${fetched}, ${(counter.requests ?? 0) - requestsBefore} requests`}): ${desired.length} repositories from ${plan.projectCount} projects (${plan.infoCount} infos, ${plan.linkCount} links, ${plan.resourceRepoCount} repositories from client resources)${changes.length ? ` (${changes.join(", ")})` : ", no changes"}${plan.warnings.length ? `, ${plan.warnings.length} warnings` : ""}`,
 			);
 			for (const error of result.errors) {
 				this.logger.warn(

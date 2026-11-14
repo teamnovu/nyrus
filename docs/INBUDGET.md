@@ -30,7 +30,11 @@ In nyrus, each such repository is an entry `inbudget-<repository>-jira` (or `-cl
 - **A repository you configure by hand** in the dashboard for the same tracker wins: nyrus doesn't add its own entry for it.
 - **When a project is archived or its link removed**, the entry is turned off, not deleted, and turned on again if the link comes back. An entry you turn off yourself stays off.
 
-nyrus syncs at startup, every 30 minutes, and when you click **Jetzt abgleichen** on the dashboard's repositories page. The page also shows the last sync, what changed, repositories that couldn't be cloned, and the warnings.
+nyrus keeps what it read from inBudget in `<cyrus-home>/inbudget-cache.json` and asks inBudget as little as possible:
+
+- **At startup and every 30 minutes** it reads only changes: the project list (to see archived and new projects), the client resources changed since the last read (`updatedAt[after]`), and the infos of new projects.
+- **Once a day** (`INBUDGET_FULL_SYNC_HOURS`, default 24) and when you click **Jetzt abgleichen**, it reads everything again; only that notices deleted resources and changed project infos.
+- **Changes in the dashboard** (Jira/ClickUp, groups, unlinking) and repositories set up on demand are applied from the cache, without asking inBudget. The page also shows the last sync, what changed, repositories that couldn't be cloned, and the warnings.
 
 ## Setup
 
@@ -47,7 +51,8 @@ In `<cyrus-home>/.env` (Forge: site → Environment):
 ```bash
 INBUDGET_URL=https://api.inbudget.ch        # the API, not the web app; without /api
 INBUDGET_TOKEN=...                          # the access token
-# INBUDGET_SYNC_INTERVAL_MINUTES=30         # 0: only at startup and on demand
+# INBUDGET_SYNC_INTERVAL_MINUTES=30         # changes only; 0: only at startup and on demand
+# INBUDGET_FULL_SYNC_HOURS=24               # read everything again after this long
 ```
 
 Jira and ClickUp have to be set up in nyrus (see [JIRA.md](JIRA.md), [CLICKUP.md](CLICKUP.md)); their links are matched against `JIRA_BASE_URL` and `CLICKUP_TEAM_ID`. ClickUp List links need `CLICKUP_API_TOKEN` to read the List's name.

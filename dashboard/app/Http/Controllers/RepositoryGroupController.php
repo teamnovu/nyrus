@@ -86,13 +86,38 @@ class RepositoryGroupController extends Controller
         }
 
         $errors = [];
+        // inBudget repositories: one request per group value (nyrus applies it
+        // locally, without asking inBudget); hand-added ones per config entry.
+        $batches = [];
         foreach ($plan as [$member, $value]) {
+            if ($member['statusRepo'] !== null) {
+                $batches[json_encode($value)][] = $member;
+
+                continue;
+            }
             try {
                 $this->assign($nyrus, $member, $value);
                 AuditLog::record('repository.group', $member['key'], ['group' => $value, 'action' => $data['action']]);
             } catch (NyrusException $e) {
                 $errors[] = $member['key'].': '.$e->getMessage();
                 AuditLog::record('repository.group', $member['key'], ['group' => $value, 'action' => $data['action'], 'error' => $e->getMessage()], success: false);
+            }
+        }
+        foreach ($batches as $encoded => $members) {
+            $value = json_decode($encoded, true);
+            try {
+                $status = $nyrus->setInbudgetManual(['repos' => array_column($members, 'statusRepo'), 'group' => $value]);
+                if (filled($status['error'] ?? null)) {
+                    throw new NyrusException('inBudget-Abgleich fehlgeschlagen: '.$status['error']);
+                }
+                foreach ($members as $member) {
+                    AuditLog::record('repository.group', $member['key'], ['group' => $value, 'action' => $data['action']]);
+                }
+            } catch (NyrusException $e) {
+                foreach ($members as $member) {
+                    $errors[] = $member['key'].': '.$e->getMessage();
+                    AuditLog::record('repository.group', $member['key'], ['group' => $value, 'action' => $data['action'], 'error' => $e->getMessage()], success: false);
+                }
             }
         }
 

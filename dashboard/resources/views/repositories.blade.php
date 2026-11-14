@@ -33,6 +33,9 @@
                     @endif
                     @if ($inbudget['lastSuccessAt'] ?? null)
                         <span class="muted">Zuletzt {{ \Illuminate\Support\Carbon::parse($inbudget['lastSuccessAt'])->timezone(config('app.timezone'))->format('d.m.Y H:i') }}</span>
+                        @if ($inbudget['lastFullSyncAt'] ?? null)
+                            <span class="muted" title="Änderungen werden alle 30 Minuten geholt, alles einmal täglich und mit «Jetzt abgleichen».">vollständig {{ \Illuminate\Support\Carbon::parse($inbudget['lastFullSyncAt'])->timezone(config('app.timezone'))->format('d.m.Y H:i') }}</span>
+                        @endif
                         <span class="muted">{{ $inbudget['projectCount'] ?? 0 }} aktive Projekte</span>
                         <span class="muted">{{ count($inbudget['repos'] ?? $inbudget['repositories'] ?? []) }} Repositories</span>
                     @elseif (! ($inbudget['running'] ?? false) && ! ($inbudget['error'] ?? null))

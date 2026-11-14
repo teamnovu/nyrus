@@ -627,6 +627,135 @@ describe("repository groups", () => {
 	});
 });
 
+describe("syncing only changes", () => {
+	function fakeClient() {
+		const calls: string[] = [];
+		const state = {
+			projects: [
+				{
+					id: 1,
+					nr: "1",
+					name: "Website",
+					client: { "@id": "/api/clients/7", name: "Zuriga" },
+				},
+			] as Array<{
+				id: number;
+				nr: string;
+				name: string;
+				client: { "@id": string; name: string };
+			}>,
+			resources: [
+				{
+					id: 10,
+					environment: "production",
+					client: "/api/clients/7",
+					repositoryUrl: "https://github.com/teamnovu/zuriga-web",
+				},
+			] as Array<Record<string, unknown> & { id: number }>,
+		};
+		return {
+			calls,
+			state,
+			client: {
+				listProjects: vi.fn(async () => {
+					calls.push("projects");
+					return state.projects;
+				}),
+				listClientResources: vi.fn(async (since?: string) => {
+					calls.push(since ? "resources-changed" : "resources");
+					return (
+						since ? state.resources.filter((r) => r.changed) : state.resources
+					) as never;
+				}),
+				listProjectInfos: vi.fn(async (projects: Array<{ id: number }>) => {
+					calls.push(`infos:${projects.map((p) => p.id).join(",")}`);
+					return [];
+				}),
+			},
+		};
+	}
+	const quiet = { info() {}, warn() {}, error() {}, debug() {} } as never;
+
+	it("reads everything once, then only changes, and applies dashboard changes without asking inBudget", async () => {
+		const { dir } = home();
+		const { client, calls, state } = fakeClient();
+		const sync = new InbudgetSync({
+			client,
+			cyrusHome: dir,
+			context,
+			clone: async (_r, name) => ({ path: `/repos/${name}` }),
+			logger: quiet,
+		});
+
+		const first = await sync.sync("changes"); // no cache yet: full
+		expect(calls).toEqual(["projects", "resources", "infos:1"]);
+		expect(first.lastFetch).toMatchObject({ mode: "full" });
+
+		calls.length = 0;
+		state.projects.push({
+			id: 2,
+			nr: "2",
+			name: "CMS",
+			client: { "@id": "/api/clients/7", name: "Zuriga" },
+		});
+		state.resources.push({
+			id: 11,
+			changed: true,
+			environment: "production",
+			client: "/api/clients/7",
+			repositoryUrl: "https://github.com/teamnovu/zuriga-cms",
+		});
+		const second = await sync.sync("changes");
+		expect(calls).toEqual(["projects", "resources-changed", "infos:2"]);
+		expect(second.lastFetch).toMatchObject({ mode: "changes" });
+		expect(second.groups?.find((g) => g.key === "client:7")?.repos).toEqual([
+			"teamnovu/zuriga-cms",
+			"teamnovu/zuriga-web",
+		]);
+
+		calls.length = 0;
+		await sync.setManual("teamnovu/zuriga-web", "jira", {
+			teamKeys: ["ZUR"],
+			projectKeys: [],
+		});
+		const grouped = await sync.setGroup(
+			["teamnovu/zuriga-web", "teamnovu/zuriga-cms"],
+			"Zuriga Plattform",
+		);
+		expect(calls).toEqual([]);
+		expect(grouped.lastFetch).toEqual({ mode: "none", requests: 0 });
+		expect(
+			grouped.repositories?.map((r) => [r.repo, r.teamKeys, r.routingGroup]),
+		).toEqual([
+			["teamnovu/zuriga-cms", ["ZUR"], "Zuriga Plattform"],
+			["teamnovu/zuriga-web", ["ZUR"], "Zuriga Plattform"],
+		]);
+
+		// "Jetzt abgleichen": everything again.
+		calls.length = 0;
+		await sync.sync("full");
+		expect(calls).toEqual(["projects", "resources", "infos:1,2"]);
+	});
+
+	it("reads everything again when the last full read is older than fullSyncHours", async () => {
+		const { dir } = home();
+		const { client, calls } = fakeClient();
+		const sync = new InbudgetSync({
+			client,
+			cyrusHome: dir,
+			context,
+			clone: async (_r, name) => ({ path: `/repos/${name}` }),
+			logger: quiet,
+			fullSyncHours: 0,
+		});
+		await sync.sync("changes");
+		calls.length = 0;
+		await new Promise((r) => setTimeout(r, 5));
+		await sync.sync("changes");
+		expect(calls).toEqual(["projects", "resources", "infos:1"]);
+	});
+});
+
 function home(repositories: RepoEntry[] = []) {
 	const dir = mkdtempSync(join(tmpdir(), "inbudget-sync-"));
 	writeFileSync(
@@ -971,7 +1100,30 @@ describe("inBudget dashboard endpoint", () => {
 				},
 			});
 			expect(manual.statusCode).toBe(200);
-			expect(readManual(dir)).toEqual({
+			const bulk = await fastify.inject({
+				method: "POST",
+				url: "/api/dashboard/inbudget/manual",
+				headers: { authorization: "Bearer key" },
+				payload: {
+					repos: ["teamnovu/zuriga-web", "teamnovu/zuriga-cms"],
+					group: "Zuriga",
+				},
+			});
+			expect(bulk.statusCode).toBe(200);
+			expect(readManual(dir)["teamnovu/zuriga-cms"]).toEqual({
+				group: "Zuriga",
+			});
+			expect(
+				(
+					await fastify.inject({
+						method: "POST",
+						url: "/api/dashboard/inbudget/manual",
+						headers: { authorization: "Bearer key" },
+						payload: { repos: ["teamnovu/a"], platform: "jira" },
+					})
+				).statusCode,
+			).toBe(400);
+			expect(readManual(dir)).toMatchObject({
 				"teamnovu/sayflowers": { jira: { teamKeys: ["SAY"], projectKeys: [] } },
 			});
 		} finally {

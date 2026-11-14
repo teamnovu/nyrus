@@ -591,10 +591,22 @@ class ProjectsPageTest extends TestCase
         ];
     }
 
+    /** A group change for one repository may be part of a request for several (`repos`). */
     private function assertManualSent(array $payload): void
     {
-        Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/inbudget/manual')
-            && $this->sorted($request->data()) === $this->sorted($payload));
+        Http::assertSent(function (Request $request) use ($payload) {
+            if (! str_ends_with($request->url(), '/inbudget/manual')) {
+                return false;
+            }
+            $data = $request->data();
+            if (isset($data['repos'], $payload['repo']) && array_key_exists('group', $payload)) {
+                return in_array($payload['repo'], $data['repos'], true)
+                    && array_key_exists('group', $data) && $data['group'] === $payload['group']
+                    && count($data) === 2;
+            }
+
+            return $this->sorted($data) === $this->sorted($payload);
+        });
     }
 
     private function assertRoutingSent(array $payload): void
@@ -761,6 +773,9 @@ class ProjectsPageTest extends TestCase
             ->assertRedirect('/projects/groups/manual:zuriga');
         $this->assertManualSent(['repo' => 'teamnovu/zuriga-web', 'group' => 'Zuriga']);
         $this->assertManualSent(['repo' => 'teamnovu/zuriga-cms', 'group' => 'Zuriga']);
+        // one request for the whole group
+        Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/inbudget/manual')
+            && ($request->data()['repos'] ?? null) !== null && count($request->data()['repos']) === 2);
 
         // renaming a manual group: inBudget repos and hand-added entries
         $this->post('/projects/groups', ['action' => 'rename', 'group' => 'manual:shop', 'name' => 'Webshop']);
@@ -794,5 +809,14 @@ class ProjectsPageTest extends TestCase
             ->assertRedirect('/projects/teamnovu/intern')
             ->assertSessionHas('error', 'Gruppe nicht (ganz) gespeichert: teamnovu/intern: Unknown repository');
         $this->assertDatabaseHas('audit_logs', ['action' => 'repository.group', 'success' => false]);
+    }
+
+    public function test_shows_full_and_last_fetch_of_the_inbudget_sync(): void
+    {
+        $this->fakeNyrus([], ['running' => false, 'lastSuccessAt' => '2026-11-14T10:00:00Z', 'lastFullSyncAt' => '2026-11-14T03:00:00Z',
+            'lastFetch' => ['mode' => 'changes', 'requests' => 5], 'projectCount' => 1, 'repositories' => [], 'repos' => []]);
+        $this->get('/projects/inbudget')->assertOk()
+            ->assertSee('Vollständig:')
+            ->assertSee('Letzter Abruf: nur Änderungen, 5 Anfragen');
     }
 }

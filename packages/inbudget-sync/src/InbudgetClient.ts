@@ -64,6 +64,8 @@ export interface InbudgetClientOptions {
 /** inBudget's REST API (API Platform), read-only, with an access token. */
 export class InbudgetClient {
 	readonly baseUrl: string;
+	/** Requests made so far (to keep syncs small). */
+	requests = 0;
 	private readonly pageSize: number;
 
 	constructor(private readonly options: InbudgetClientOptions) {
@@ -82,9 +84,19 @@ export class InbudgetClient {
 		return this.allPages<InbudgetProject>("/api/projects");
 	}
 
-	/** All clients' resources (websites/apps with their repository). */
-	listClientResources(): Promise<InbudgetClientResource[]> {
-		return this.allPages<InbudgetClientResource>("/api/client_resources");
+	/**
+	 * Clients' resources (websites/apps with their repository); with
+	 * `updatedAfter` (ISO date) only those changed since.
+	 */
+	listClientResources(
+		updatedAfter?: string,
+	): Promise<InbudgetClientResource[]> {
+		return this.allPages<InbudgetClientResource>(
+			"/api/client_resources",
+			updatedAfter
+				? `updatedAt%5Bafter%5D=${encodeURIComponent(updatedAfter)}`
+				: "",
+		);
 	}
 
 	/**
@@ -155,6 +167,7 @@ export class InbudgetClient {
 	}
 
 	private async get<T>(path: string): Promise<T> {
+		this.requests++;
 		const response = await (this.options.fetch ?? fetch)(
 			`${this.baseUrl}${path}`,
 			{

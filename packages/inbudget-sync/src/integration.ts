@@ -45,6 +45,7 @@ export function createInbudgetIntegrationFactory(
 			context: planContextFromEnv(env, options.fetch),
 			instructions: (repo) => defaultInstructions(repo, githubIssues),
 			logger,
+			fullSyncHours: Number(env.INBUDGET_FULL_SYNC_HOURS ?? 24) || 24,
 		});
 		provisioning?.register((platform, repo) =>
 			platform === "github" ? sync.provideGitHub(repo) : Promise.resolve(false),
@@ -56,11 +57,16 @@ export function createInbudgetIntegrationFactory(
 			workspaceKey: "inbudget",
 			register(host) {
 				registerRoutes(host.fastify, sync, env, cyrusHome);
-				const first = setTimeout(() => void sync.sync(), 5_000);
+				// Changes only: the rest comes from the cache (a full read when
+				// there is none, or the last one is older than a day).
+				const first = setTimeout(() => void sync.sync("changes"), 5_000);
 				first.unref?.();
 				timers.push(first);
 				if (Number.isFinite(minutes) && minutes > 0) {
-					const every = setInterval(() => void sync.sync(), minutes * 60_000);
+					const every = setInterval(
+						() => void sync.sync("changes"),
+						minutes * 60_000,
+					);
 					every.unref?.();
 					timers.push(every);
 				}
@@ -178,26 +184,36 @@ function registerRoutes(
 	fastify.post(`${INBUDGET_STATUS_PATH}/manual`, async (request, reply) => {
 		if (!authorized(request, reply)) return;
 		const body = (request.body ?? {}) as Record<string, unknown>;
-		const repo = typeof body.repo === "string" ? body.repo.trim() : "";
+		const repoPattern = /^[\w.-]+\/[\w.-]+$/;
+		// A group can be set for several repositories at once.
+		const repos = Array.isArray(body.repos)
+			? body.repos
+					.filter((r): r is string => typeof r === "string")
+					.map((r) => r.trim())
+			: [];
+		const repo =
+			typeof body.repo === "string" ? body.repo.trim() : (repos[0] ?? "");
 		const platform = body.platform;
 		const hasGroup =
 			"group" in body &&
 			(body.group === null || typeof body.group === "string");
 		if (
-			!/^[\w.-]+\/[\w.-]+$/.test(repo) ||
+			!repoPattern.test(repo) ||
+			!repos.every((r) => repoPattern.test(r)) ||
+			(repos.length > 0 && (!hasGroup || platform !== undefined)) ||
 			(platform !== "jira" && platform !== "clickup" && !hasGroup) ||
 			(platform !== undefined && platform !== "jira" && platform !== "clickup")
 		) {
 			reply.code(400).send({
 				success: false,
 				error:
-					'repo (owner/name) and platform (jira or clickup) or group (name, "" or null) are required',
+					'repo (owner/name) and platform (jira or clickup) or group (name, "" or null) are required; repos (several) only with group',
 			});
 			return;
 		}
 		if (hasGroup && platform === undefined) {
 			const status = await Promise.race([
-				sync.setGroup(repo, body.group as string | null),
+				sync.setGroup(repos.length ? repos : repo, body.group as string | null),
 				new Promise<undefined>((resolve) => {
 					const timer = setTimeout(() => resolve(undefined), POST_WAIT_MS);
 					timer.unref?.();
@@ -233,7 +249,8 @@ function registerRoutes(
 	});
 	fastify.post(INBUDGET_STATUS_PATH, async (request, reply) => {
 		if (!authorized(request, reply)) return;
-		const running = sync.sync();
+		// "Jetzt abgleichen" in the dashboard: everything, fresh.
+		const running = sync.sync("full");
 		const status = await Promise.race([
 			running,
 			new Promise<undefined>((resolve) => {
