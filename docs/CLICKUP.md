@@ -70,7 +70,7 @@ Narrow it to the Spaces nyrus should see (`--space`, `--folder`, `--list`); with
 - While nyrus works, one comment shows what it is doing now and its last few steps. It is edited at most every 20 seconds and deleted when nyrus answers, asks a question or fails, so only the answer stays. ClickUp has no silent comments: watchers are notified of new comments.
 - Answers, questions (including repository selection) and errors are posted as comments, converted from Markdown to ClickUp rich text (bold, italic, code, links, lists, code blocks; headings become bold lines). Reply `2` (or an option's name) to pick an option.
 - Sessions get a `clickup` MCP server (`mcp__clickup__*`) with the same token: `get_task`, `add_comment` (Markdown, with mentions), `list_statuses`, `set_status` and `download_attachments`. Its tools are allowed by default.
-- The description reaches the agent as Markdown, with the names of attached files; the agent downloads them with `download_attachments`.
+- The description reaches the agent as Markdown, with the names of attached files and a request to look at screenshots first; the agent downloads them with `download_attachments` into the session's attachments folder (outside the repository, so never committed).
 - Branches are named `CU-<task id>-<title>`, the form ClickUp's GitHub integration links to the task.
 
 ## Behavior of the webhook

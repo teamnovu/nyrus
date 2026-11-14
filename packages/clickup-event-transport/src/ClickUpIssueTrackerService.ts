@@ -1,14 +1,17 @@
 import {
+	attachedFilesNote,
 	CommentAgentSessions,
 	type CommentTracker,
 	type DispatchTiming,
 	type GitHubIssueThreads,
 	type GitHubThreadedTracker,
 	type GitHubThreadSource,
+	isImageFile,
 	type PullRequestRef,
 	sessionIdFor,
 	issueIdFromSessionId as sessionIssueId,
 	type TicketComment,
+	type TrackerMcpSession,
 } from "cyrus-comment-sessions";
 import {
 	type AgentActivityCreateInput,
@@ -609,8 +612,10 @@ export class ClickUpIssueTrackerService
 	}
 
 	/** MCP server that gives sessions ClickUp tools, as the token's person. */
-	toolsMcpServerConfig(): ReturnType<typeof clickUpToolsMcpServerConfig> {
-		return clickUpToolsMcpServerConfig(this.api.getCredentials());
+	toolsMcpServerConfig(
+		session?: TrackerMcpSession,
+	): ReturnType<typeof clickUpToolsMcpServerConfig> {
+		return clickUpToolsMcpServerConfig(this.api.getCredentials(), session);
 	}
 
 	createEventTransport(
@@ -835,15 +840,18 @@ export function commentText(comment: {
 	);
 }
 
-/** The description as Markdown, plus a list of attached files. */
+/** The description as Markdown, plus a note on attached files. */
 function taskDescription(task: ClickUpTask): string {
 	const description =
 		task.markdown_description ?? task.description ?? task.text_content ?? "";
-	const files = (task.attachments ?? []).map((a) => a.title || a.id);
-	if (files.length === 0) {
-		return description;
-	}
-	return `${description}\n\n---\nAttached files (download them with the clickup tool download_attachments): ${files.join(", ")}`.trim();
+	const note = attachedFilesNote(
+		"clickup",
+		(task.attachments ?? []).map((a) => {
+			const name = a.title || a.id;
+			return { name, image: isImageFile(name, a.mimetype) };
+		}),
+	);
+	return note ? `${description}\n\n${note}`.trim() : description;
 }
 
 function sameStatus(a: string, b: string): boolean {

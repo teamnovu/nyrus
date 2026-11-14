@@ -151,6 +151,16 @@ describe("wikiToMarkdown", () => {
 		expect(Date.now() - started).toBeLessThan(200);
 	});
 
+	it("names pasted screenshots and attached files", () => {
+		expect(
+			wikiToMarkdown(
+				'Wrong colour:\n!image-20261114-101010.png|width=600,height=400,alt="menu"!\n!Screen Shot 1.PNG!\nSee [^brief.pdf] and !https://example.com/logo.svg!\nHello! Thanks! {{a!b.png!}}',
+			),
+		).toBe(
+			"Wrong colour:\n[attached image: image-20261114-101010.png]\n[attached image: Screen Shot 1.PNG]\nSee [attached file: brief.pdf] and ![image](https://example.com/logo.svg)\nHello! Thanks! `a!b.png!`",
+		);
+	});
+
 	it("reads pasted smart links", () => {
 		expect(
 			wikiToMarkdown("[https://github.com/x|https://github.com/x|smart-link]"),

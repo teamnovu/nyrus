@@ -1,7 +1,12 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { basename, isAbsolute, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+	readUploadImages,
+	saveAttachment,
+	type TrackerMcpSession,
+	uniqueFileName,
+} from "cyrus-comment-sessions";
 import { z } from "zod";
 import type { JiraApiClient } from "../JiraApiClient.js";
 import {
@@ -30,28 +35,21 @@ function fail(error: unknown): ToolResult {
 	return { content: [{ type: "text", text: message }], isError: true };
 }
 
-/** `name`, or `name (2).ext` etc. if a file of that name was already saved. */
-function uniqueName(name: string, used: Set<string>): string {
-	let candidate = name;
-	for (let n = 2; used.has(candidate); n++) {
-		const dot = name.lastIndexOf(".");
-		candidate =
-			dot > 0
-				? `${name.slice(0, dot)} (${n})${name.slice(dot)}`
-				: `${name} (${n})`;
-	}
-	used.add(candidate);
-	return candidate;
-}
-
 const keySchema = z.string().describe('The issue key, e.g. "SAY-12"');
 
 /**
  * MCP tools for an agent working on a Jira issue: read it, comment, attach
  * the pull request and move it through the workflow. Every call is made as
  * the agent account, so comments and changes show as Cyrus's.
+ *
+ * The server runs outside the session's sandbox, so file tools only use the
+ * session's folders: downloads go to `session.attachmentsDir`, uploads come
+ * from `session.workspacePath`. Without them, those tools refuse.
  */
-export function createJiraToolsServer(api: JiraApiClient): McpServer {
+export function createJiraToolsServer(
+	api: JiraApiClient,
+	session: Partial<TrackerMcpSession> = {},
+): McpServer {
 	const server = new McpServer({ name: "jira", version: "1.0.0" });
 
 	server.registerTool(
@@ -139,51 +137,75 @@ export function createJiraToolsServer(api: JiraApiClient): McpServer {
 		"download_attachments",
 		{
 			description:
-				"Download the files attached to a Jira issue (screenshots, spreadsheets, documents...) into a directory, e.g. your working directory, so you can open them. Returns each file's path.",
-			inputSchema: {
-				key: keySchema,
-				directory: z
-					.string()
-					.describe(
-						"Absolute path of the directory to save into; created if missing",
-					),
-			},
+				"Download the files attached to a Jira issue (screenshots, spreadsheets, documents...) so you can open them; look at images with your Read tool. They are saved in this session's attachments folder, outside the repository, so they never end up in a commit. Returns each file's path; `name` is the file name in Jira, as images in the description refer to it.",
+			inputSchema: { key: keySchema },
 		},
-		async ({ key, directory }) => {
+		async ({ key }) => {
 			try {
-				if (!isAbsolute(directory)) {
-					return fail("directory must be an absolute path");
+				if (!session.attachmentsDir) {
+					return fail(
+						"Attachments can't be downloaded in this session (it has no attachments folder).",
+					);
 				}
 				const issue = await api.getIssue(key);
-				await mkdir(directory, { recursive: true });
-				const used = new Set<string>();
+				const dir = join(session.attachmentsDir, issue.key);
 				const files = [];
 				for (const a of issue.fields.attachment ?? []) {
-					const original = basename(a.filename || a.id);
 					const data = await api.download(a.content);
-					let name = uniqueName(original, used);
-					let path = join(directory, name);
-					// Never overwrite: the directory may be the worktree itself.
-					for (;;) {
-						try {
-							await writeFile(path, data, { flag: "wx" });
-							break;
-						} catch (error) {
-							if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-								throw error;
-							}
-							name = uniqueName(original, used);
-							path = join(directory, name);
-						}
-					}
 					files.push({
-						name,
-						path,
+						name: a.filename,
+						path: await saveAttachment(dir, a.filename || a.id, data),
 						size: data.length,
 						type: a.mimeType ?? null,
 					});
 				}
 				return ok({ key: issue.key, files });
+			} catch (error) {
+				return fail(error);
+			}
+		},
+	);
+
+	server.registerTool(
+		"upload_attachments",
+		{
+			description:
+				"Attach images from your working directory to a Jira issue, e.g. before/after screenshots of your change. Then show them in a comment with add_comment, as Markdown images by the returned file name: ![Before](SAY-12-before.png). PNG, JPEG, GIF or WebP, at most 10 MB each. A name the issue already has gets a number (shot-2.png).",
+			inputSchema: {
+				key: keySchema,
+				files: z
+					.array(z.string())
+					.min(1)
+					.max(10)
+					.describe(
+						"Absolute paths of the images, inside your working directory",
+					),
+			},
+		},
+		async ({ key, files }) => {
+			try {
+				if (!session.workspacePath) {
+					return fail(
+						"Files can't be attached in this session (it has no working directory).",
+					);
+				}
+				const images = await readUploadImages(files, [session.workspacePath]);
+				const issue = await api.getIssue(key);
+				const taken = new Set(
+					(issue.fields.attachment ?? []).map((a) => a.filename),
+				);
+				const uploads = images.map((image) => ({
+					...image,
+					name: uniqueFileName(image.name, taken),
+				}));
+				const attachments = await api.addAttachments(issue.key, uploads);
+				return ok({
+					key: issue.key,
+					attachments: attachments.map((a) => ({
+						filename: a.filename,
+						size: a.size ?? null,
+					})),
+				});
 			} catch (error) {
 				return fail(error);
 			}
@@ -277,9 +299,13 @@ export function createJiraToolsServer(api: JiraApiClient): McpServer {
 
 /**
  * How Claude Code starts the Jira tools for a session: this package's stdio
- * entry point, run with the current Node, authenticated as the agent account.
+ * entry point, run with the current Node, authenticated as the agent account,
+ * with the session's folders for downloads and uploads.
  */
-export function jiraToolsMcpServerConfig(credentials: JiraCredentials): {
+export function jiraToolsMcpServerConfig(
+	credentials: JiraCredentials,
+	session?: TrackerMcpSession,
+): {
 	type: "stdio";
 	command: string;
 	args: string[];
@@ -293,6 +319,10 @@ export function jiraToolsMcpServerConfig(credentials: JiraCredentials): {
 			JIRA_BASE_URL: credentials.baseUrl,
 			JIRA_EMAIL: credentials.email,
 			JIRA_API_TOKEN: credentials.apiToken,
+			...(session && { JIRA_WORKSPACE_DIR: session.workspacePath }),
+			...(session?.attachmentsDir && {
+				JIRA_ATTACHMENTS_DIR: session.attachmentsDir,
+			}),
 		},
 	};
 }

@@ -16,7 +16,11 @@ export function fakeJira(routes: Record<string, unknown>) {
 		calls.push({
 			method,
 			url,
-			body: init.body ? JSON.parse(String(init.body)) : undefined,
+			// JSON requests are parsed; uploads keep their FormData.
+			body:
+				typeof init.body === "string"
+					? JSON.parse(init.body)
+					: (init.body ?? undefined),
 		});
 		const path = url.replace(API, "").split("?")[0];
 		const key = `${method} ${path}`;

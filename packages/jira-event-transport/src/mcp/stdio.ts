@@ -30,4 +30,8 @@ const api = new JiraApiClient({
 	apiToken: required("JIRA_API_TOKEN"),
 });
 
-await createJiraToolsServer(api).connect(new StdioServerTransport());
+// The session's folders (see jiraToolsMcpServerConfig); unset outside a session.
+await createJiraToolsServer(api, {
+	workspacePath: process.env.JIRA_WORKSPACE_DIR?.trim() || undefined,
+	attachmentsDir: process.env.JIRA_ATTACHMENTS_DIR?.trim() || undefined,
+}).connect(new StdioServerTransport());

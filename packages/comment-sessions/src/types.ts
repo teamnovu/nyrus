@@ -193,8 +193,13 @@ export interface TrackerIntegration {
 	 * run sessions; without it no work is routed to the workspace.
 	 */
 	readonly tracker?: IIssueTrackerService;
-	/** MCP servers for sessions in this workspace, keyed by server name. */
-	mcpServers?(): Record<string, StdioMcpServerConfig>;
+	/**
+	 * MCP servers for sessions in this workspace, keyed by server name. Gets
+	 * the session's folders when the server is started for a session.
+	 */
+	mcpServers?(
+		session?: TrackerMcpSession,
+	): Record<string, StdioMcpServerConfig>;
 	/** Register webhook routes; called once the shared server exists. */
 	register(host: TrackerIntegrationHost): void;
 	/**
@@ -266,4 +271,20 @@ export interface StdioMcpServerConfig {
 	command: string;
 	args: string[];
 	env: Record<string, string>;
+}
+
+/**
+ * Folders of the agent session a tracker's MCP server is started for. The
+ * MCP server runs outside the session's sandbox, so its tools only touch
+ * these folders, never a path the agent names.
+ */
+export interface TrackerMcpSession {
+	/** The session's worktree: files the agent may upload come from here. */
+	workspacePath: string;
+	/**
+	 * Where ticket attachments are saved: outside the repository (so never
+	 * committed), readable in the sandbox, not writable by the agent's
+	 * commands. Unset when the session can't read it.
+	 */
+	attachmentsDir?: string;
 }

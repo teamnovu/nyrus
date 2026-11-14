@@ -1,5 +1,6 @@
 import type { LinearClient } from "@linear/sdk";
 import type { McpServerConfig } from "cyrus-claude-runner";
+import type { TrackerMcpSession } from "cyrus-comment-sessions";
 import type { IIssueTrackerService, RepositoryConfig } from "cyrus-core";
 import {
 	type CyrusToolsOptions,
@@ -31,10 +32,12 @@ export interface McpConfigServiceDeps {
 	createCyrusToolsOptions: (parentSessionId?: string) => CyrusToolsOptions;
 	/**
 	 * MCP servers a non-Linear tracker gives its sessions (e.g. Plane tools),
-	 * keyed by server name; undefined when the workspace has none.
+	 * keyed by server name; undefined when the workspace has none. `session`
+	 * is the agent session's folders, when built for one.
 	 */
 	getTrackerMcpServers?: (
 		workspaceId: string,
+		session?: TrackerMcpSession,
 	) => Record<string, McpServerConfig> | undefined;
 }
 
@@ -70,11 +73,13 @@ export class McpConfigService {
 	 * @param repoId - Repository ID for MCP context scoping
 	 * @param linearWorkspaceId - Linear workspace ID (from webhook.organizationId or repo config)
 	 * @param parentSessionId - Parent session ID for cyrus-tools context
+	 * @param trackerSession - The session's folders, for a tracker's file tools
 	 */
 	buildMcpConfig(
 		repoId: string,
 		linearWorkspaceId: string,
 		parentSessionId?: string,
+		trackerSession?: TrackerMcpSession,
 	): Record<string, McpServerConfig> {
 		const contextId = this.buildContextId(repoId, parentSessionId);
 
@@ -88,7 +93,7 @@ export class McpConfigService {
 					type: "http",
 					url: "https://atcyrus.com/docs/mcp",
 				},
-				...this.deps.getTrackerMcpServers?.(linearWorkspaceId),
+				...this.deps.getTrackerMcpServers?.(linearWorkspaceId, trackerSession),
 			};
 			return mcpConfig;
 		}

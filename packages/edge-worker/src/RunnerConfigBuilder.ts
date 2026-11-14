@@ -10,6 +10,7 @@ import type {
 	SdkPluginConfig,
 	StopHookInput,
 } from "cyrus-claude-runner";
+import type { TrackerMcpSession } from "cyrus-comment-sessions";
 import type {
 	AgentRunnerConfig,
 	CyrusAgentSession,
@@ -34,6 +35,7 @@ export interface IMcpConfigProvider {
 		repoId: string,
 		linearWorkspaceId: string,
 		parentSessionId?: string,
+		trackerSession?: TrackerMcpSession,
 	): Record<string, McpServerConfig>;
 	buildMergedMcpConfigPath(
 		repositories: RepositoryConfig | RepositoryConfig[],
@@ -435,6 +437,7 @@ export class RunnerConfigBuilder {
 			input.repository.id,
 			resolvedWorkspaceId,
 			input.sessionId,
+			trackerMcpSession(input),
 		);
 		// Repo-override vs platform-default resolution for MCP config paths:
 		//   - If the routed repo has its own `allowedTools` override, it
@@ -884,10 +887,36 @@ export function inspectGitGuardrail(cwd: string, log: ILogger): string | null {
 }
 
 /**
+ * The session folders a tracker's MCP tools may use: the worktree, and the
+ * attachments folder the edge worker made for it
+ * (`<cyrusHome>/<worktree name>/attachments`) when the session can read it,
+ * i.e. when it is among the allowed directories (those are readable in the
+ * sandbox; the agent's commands can't write there).
+ */
+export function trackerMcpSession(
+	input: Pick<
+		IssueRunnerConfigInput,
+		"session" | "cyrusHome" | "allowedDirectories"
+	>,
+): TrackerMcpSession {
+	const workspacePath = input.session.workspace.path;
+	const attachmentsDir = join(
+		input.cyrusHome,
+		basename(workspacePath),
+		"attachments",
+	);
+	return input.allowedDirectories.includes(attachmentsDir)
+		? { workspacePath, attachmentsDir }
+		: { workspacePath };
+}
+
+/**
  * The repositories among a session's allowed directories: the parent of each
  * git common directory (`<repository>/.git`).
  */
-export function repositoryRoots(allowedDirectories: readonly string[]): string[] {
+export function repositoryRoots(
+	allowedDirectories: readonly string[],
+): string[] {
 	return [
 		...new Set(
 			allowedDirectories
