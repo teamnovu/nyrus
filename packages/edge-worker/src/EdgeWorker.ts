@@ -175,6 +175,7 @@ import { ChatSessionHandler } from "./ChatSessionHandler.js";
 import { ConfigManager, type RepositoryChanges } from "./ConfigManager.js";
 import { DefaultSkillsDeployer } from "./DefaultSkillsDeployer.js";
 import { EgressProxy } from "./EgressProxy.js";
+import { useGitHubHttpsGit } from "./githubHttpsGit.js";
 import { GitHubCiRouter } from "./GitHubCiRouter.js";
 import { GitService } from "./GitService.js";
 import { GlobalSessionRegistry } from "./GlobalSessionRegistry.js";
@@ -748,6 +749,14 @@ export class EdgeWorker extends EventEmitter {
 		// Claude's inference API, MCP servers, and built-in file tools bypass the proxy.
 		if (this.config.sandbox?.enabled) {
 			this.logger.info("🛡️  Sandbox egress proxy: starting...");
+			// Sessions in the sandbox can only push over HTTPS with a token; set
+			// that up for every repository, nyrus's own git calls included.
+			if (useGitHubHttpsGit(process.env)) {
+				this.logger.info(
+					"🛡️  Git talks to GitHub over HTTPS with GITHUB_TOKEN/GH_TOKEN (SSH remotes are rewritten)",
+				);
+			}
+
 			this.egressProxy = new EgressProxy(
 				this.config.sandbox,
 				this.cyrusHome,
@@ -3359,6 +3368,14 @@ ${taskSection}`;
 		} else if (!wasEnabled && isEnabled) {
 			// Start proxy for the first time
 			this.logger.info("🛡️  Sandbox egress proxy: starting (config change)...");
+			// Sessions in the sandbox can only push over HTTPS with a token; set
+			// that up for every repository, nyrus's own git calls included.
+			if (useGitHubHttpsGit(process.env)) {
+				this.logger.info(
+					"🛡️  Git talks to GitHub over HTTPS with GITHUB_TOKEN/GH_TOKEN (SSH remotes are rewritten)",
+				);
+			}
+
 			this.egressProxy = new EgressProxy(
 				newConfig.sandbox!,
 				this.cyrusHome,

@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type {
 	HookCallbackMatcher,
 	HookEvent,
@@ -668,10 +668,16 @@ export class RunnerConfigBuilder {
 						...(input.sandboxWritablePaths ?? []),
 					],
 					denyRead: ["~/"],
-					// Restrict subprocess writes to the session worktree plus any
-					// operator-whitelisted paths
+					// Restrict subprocess writes to the session worktree, the
+					// repositories it belongs to and operator-whitelisted paths.
+					// A worktree keeps its objects and refs in the repository's
+					// .git, and Claude Code keeps that .git's config and hooks
+					// read-only only when it can set that up in a writable
+					// repository directory (else every command fails with "Can't
+					// create file at …/.git/config.lock").
 					allowWrite: [
 						input.session.workspace.path,
+						...repositoryRoots(input.allowedDirectories),
 						...(input.sandboxWritablePaths ?? []),
 					],
 				},
@@ -875,4 +881,18 @@ export function inspectGitGuardrail(cwd: string, log: ILogger): string | null {
 		"3. Create or update a pull request that summarizes the change.\n\n" +
 		"If the work is genuinely complete and a PR is not appropriate (for example, a question or research task with no intended code changes), you may stop again — this guardrail only blocks once per session."
 	);
+}
+
+/**
+ * The repositories among a session's allowed directories: the parent of each
+ * git common directory (`<repository>/.git`).
+ */
+export function repositoryRoots(allowedDirectories: readonly string[]): string[] {
+	return [
+		...new Set(
+			allowedDirectories
+				.filter((dir) => basename(dir) === ".git")
+				.map((dir) => dirname(dir)),
+		),
+	];
 }
