@@ -96,6 +96,25 @@ To work Jira and ClickUp tickets in GitHub issues, the App also needs **Issues**
 
 Each agent session for a repository on GitHub then gets an installation token as `GH_TOKEN`, so `gh pr create` and other `gh` calls act as the App. The token is valid for at least 50 minutes when the session starts; a session that runs longer can lose `gh` access near its end, and the next run (e.g. after a follow-up comment) gets a fresh token. Pushing still uses the server's own git credentials (e.g. its SSH key); set the commit author per repository with `git config user.name` / `user.email`.
 
+### GitHub webhooks: PR comments and CI failures
+
+With GitHub's webhooks reaching nyrus at `/github-webhook`, the agent answers `@<app>` mentions in pull request comments and reviews (and pushes fixes), and failed CI checks on its branches go back to the session that made them (`ciFailureTrigger`).
+
+If the GitHub App's own webhook already points at `/github-issues-webhook` ([working tickets in GitHub issues](../../docs/GITHUB-ISSUES.md)), add a second webhook for this: on the repository (Settings → Webhooks) or the organization. Otherwise the App's webhook can point here.
+
+1. **Webhook:** URL `https://<nyrus host>/github-webhook`, content type `application/json`, secret = `GITHUB_WEBHOOK_SECRET` (`openssl rand -hex 32`). Events: **Issue comments**, **Pull request reviews**, **Pull request review comments**, **Check runs**, **Statuses**. (For the App's webhook: the App also needs **Checks: Read-only**.)
+2. **Environment** (Forge → site → Environment), then restart:
+
+   ```bash
+   GITHUB_WEBHOOK_SECRET=<same as on the webhook>
+   GITHUB_DIRECT_WEBHOOKS=true      # verify GitHub's signature behind Nginx (no CYRUS_HOST_EXTERNAL needed)
+   GITHUB_BOT_USERNAME=<app slug>   # only comments mentioning @<app slug> start the agent
+   GITHUB_APP_SLUG=<app slug>       # ignore the App's own comments and reviews
+   ```
+
+   **Set `GITHUB_BOT_USERNAME`.** Without it, every comment on every pull request of the repositories starts the agent.
+3. **CI failures:** `"ciFailureTrigger": true` in `~/.cyrus/config.json`.
+
 ### Sandbox (recommended)
 
 Agent sessions run code from the repositories and read ticket text written by others, so a prompt injected through a ticket could make the agent run commands. Without the sandbox those commands can read everything the `forge` user can: other sites' `.env` files, `~/.ssh`, `~/.cyrus/github-app.pem`, nyrus's own `.env`. nyrus never hands its own integration secrets (Jira, Slack, ClickUp tokens, webhook secrets, `CYRUS_API_KEY`) to sessions, but the files are another matter.

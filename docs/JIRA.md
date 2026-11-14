@@ -80,7 +80,7 @@ A request without `webhookEvent` counts as "this issue may have been handed to N
 ## What works
 
 - Hand-over by label or assignment starts a delegation (the whole issue); a mention starts a conversation on the mention comment. Handing an issue back later continues its session.
-- The issue moves to the first "In Progress"-category status when work begins, through the workflow transition that leads there.
+- The issue moves to the first "In Progress"-category status when work begins, through the workflow transition that leads there; `JIRA_STARTED_STATUS` names the status to use instead (e.g. `In Progress`, when the workflow lists `REVIEW` first).
 - While Nyrus works, one comment shows what it is doing now and its last few steps. It is edited at most every 20 seconds, without notifying watchers, and deleted when Nyrus answers, asks a question or fails, so only the answer stays.
 - Answers, questions (including repository selection) and errors are posted as comments, converted from Markdown to Jira wiki markup.
 - Sessions get a `jira` MCP server (`mcp__jira__*`) running as the agent account: `get_issue`, `add_comment` (Markdown, with mentions), `download_attachments`, `add_link` (attaches a pull request; the same URL again retitles it), `list_transitions` and `transition_issue`. Its tools are allowed by default.

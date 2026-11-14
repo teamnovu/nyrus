@@ -179,6 +179,7 @@ export function createJiraIntegrationFactory(
 				triggerLabel: env.JIRA_TRIGGER_LABEL?.trim() ?? "nyrus",
 				triggerOnAssign:
 					env.JIRA_TRIGGER_ON_ASSIGN?.trim().toLowerCase() !== "false",
+				startedStatus: env.JIRA_STARTED_STATUS?.trim() || undefined,
 				dispatchTiming: options.dispatchTiming,
 				githubIssues,
 				reviewStatus: env.JIRA_REVIEW_STATUS?.trim(),

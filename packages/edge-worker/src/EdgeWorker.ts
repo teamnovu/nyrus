@@ -1087,7 +1087,14 @@ export class EdgeWorker extends EventEmitter {
 		const hasGithubWebhookSecret =
 			process.env.GITHUB_WEBHOOK_SECRET != null &&
 			process.env.GITHUB_WEBHOOK_SECRET !== "";
-		const useSignatureVerification = isExternalHost && hasGithubWebhookSecret;
+		// Self-hosted behind a reverse proxy (e.g. Laravel Forge): GitHub sends
+		// webhooks straight to us, signed with GITHUB_WEBHOOK_SECRET, without
+		// CYRUS_HOST_EXTERNAL (which would bind 0.0.0.0 and check source IPs
+		// that a proxy hides). Like SLACK_DIRECT_WEBHOOKS.
+		const directWebhooks =
+			process.env.GITHUB_DIRECT_WEBHOOKS?.toLowerCase().trim() === "true";
+		const useSignatureVerification =
+			(isExternalHost || directWebhooks) && hasGithubWebhookSecret;
 		const verificationMode = useSignatureVerification ? "signature" : "proxy";
 		const secret = useSignatureVerification
 			? process.env.GITHUB_WEBHOOK_SECRET!
@@ -1117,7 +1124,9 @@ export class EdgeWorker extends EventEmitter {
 			verificationMode,
 			secret,
 			ipAllowlist:
-				useSignatureVerification && this.webhookIpValidator.isEnabled()
+				useSignatureVerification &&
+				isExternalHost &&
+				this.webhookIpValidator.isEnabled()
 					? this.webhookIpValidator.getAllowlist("github")
 					: undefined,
 		});

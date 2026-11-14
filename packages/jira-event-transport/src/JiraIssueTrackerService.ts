@@ -95,6 +95,12 @@ export function issueIdFromSessionId(sessionId: string): string | undefined {
 }
 
 export interface JiraIssueTrackerOptions extends JiraTriggerOptions {
+	/**
+	 * Status (by name, case-insensitive) work starts in, e.g. "In Progress"
+	 * from JIRA_STARTED_STATUS. Default: the first status of the "In
+	 * Progress" category.
+	 */
+	startedStatus?: string;
 	logger?: ILogger;
 	/** Minimum time between edits of a progress comment (tests). */
 	progressMinUpdateMs?: number;
@@ -679,11 +685,13 @@ export class JiraIssueTrackerService
 				}
 			}
 			const order = ["new", "indeterminate", "done"];
-			return [...seen.values()].sort(
-				(a, b) =>
-					order.indexOf(a.statusCategory?.key ?? "") -
-					order.indexOf(b.statusCategory?.key ?? ""),
-			);
+			// The configured start status leads its category, so it is the
+			// "started" state work begins in.
+			const started = this.options.startedStatus?.trim().toLowerCase();
+			const rank = (status: JiraStatus) =>
+				order.indexOf(status.statusCategory?.key ?? "") * 2 +
+				(started && status.name.toLowerCase() === started ? 0 : 1);
+			return [...seen.values()].sort((a, b) => rank(a) - rank(b));
 		});
 	}
 
