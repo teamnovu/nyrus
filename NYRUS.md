@@ -17,6 +17,7 @@ Project brief (German): [ClickUp doc "novu cyrus"](https://app.clickup.com/14278
 | ClickUp setup guide | [docs/CLICKUP.md](docs/CLICKUP.md) |
 | Jira integration (AP4) setup guide (once released) | `docs/JIRA.md` |
 | Repositories and routing from inBudget projects | [docs/INBUDGET.md](docs/INBUDGET.md), code in [packages/inbudget-sync](packages/inbudget-sync) |
+| Service desk triage: customer, project and assignee for new tickets | [docs/SERVICEDESK-TRIAGE.md](docs/SERVICEDESK-TRIAGE.md), code in [packages/servicedesk-triage](packages/servicedesk-triage) |
 | Working Jira/ClickUp tickets in GitHub issues | [docs/GITHUB-ISSUES.md](docs/GITHUB-ISSUES.md), code in [packages/comment-sessions/src/github/](packages/comment-sessions/src/github) |
 | Plane, the integration ClickUp and Jira are modeled on | [docs/PLANE.md](docs/PLANE.md), [packages/plane-event-transport](packages/plane-event-transport) |
 
