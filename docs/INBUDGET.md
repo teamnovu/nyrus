@@ -34,7 +34,9 @@ nyrus keeps what it read from inBudget in `<cyrus-home>/inbudget-cache.json` and
 
 - **At startup and every 30 minutes** it reads only changes: the project list (to see archived and new projects), the client resources changed since the last read (`updatedAt[after]`), and the infos of new projects.
 - **Once a day** (`INBUDGET_FULL_SYNC_HOURS`, default 24) and when you click **Jetzt abgleichen**, it reads everything again; only that notices deleted resources and changed project infos.
-- **Changes in the dashboard** (Jira/ClickUp, groups, unlinking) and repositories set up on demand are applied from the cache, without asking inBudget. The page also shows the last sync, what changed, repositories that couldn't be cloned, and the warnings.
+- **Changes in the dashboard** (Jira/ClickUp, groups, unlinking) and repositories set up on demand are applied from the cache, without asking inBudget.
+
+**Several nyrus:** with `REDIS_URL` (e.g. `redis://127.0.0.1:6379`) the cache, the manual routing and groups, and the repositories set up on demand live in Redis (keys `nyrus:inbudget:*`, `INBUDGET_REDIS_PREFIX` to change), shared by every nyrus using the same Redis. Only one of them reads inBudget at a time (a lock), and changes another one read in the last interval are not read again. Each nyrus applies the result to its own `config.json` and clones. Without `REDIS_URL` it all stays in files next to `config.json`. Redis should persist its data (RDB or AOF, as Forge's Redis does by default); if it loses it, the next sync reads everything again and manual routing has to be set again. The page also shows the last sync, what changed, repositories that couldn't be cloned, and the warnings.
 
 ## Setup
 
@@ -53,6 +55,7 @@ INBUDGET_URL=https://api.inbudget.ch        # the API, not the web app; without 
 INBUDGET_TOKEN=...                          # the access token
 # INBUDGET_SYNC_INTERVAL_MINUTES=30         # changes only; 0: only at startup and on demand
 # INBUDGET_FULL_SYNC_HOURS=24               # read everything again after this long
+# REDIS_URL=redis://127.0.0.1:6379          # share cache, manual routing and groups between several nyrus
 ```
 
 Jira and ClickUp have to be set up in nyrus (see [JIRA.md](JIRA.md), [CLICKUP.md](CLICKUP.md)); their links are matched against `JIRA_BASE_URL` and `CLICKUP_TEAM_ID`. ClickUp List links need `CLICKUP_API_TOKEN` to read the List's name.

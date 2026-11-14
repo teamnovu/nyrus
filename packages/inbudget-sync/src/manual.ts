@@ -80,6 +80,61 @@ export function readManual(cyrusHome: string): ManualRouting {
 }
 
 /** Save (or, with no keys, clear) a repository's manual routing for one tracker. */
+/**
+ * A repository's manual entry with one tracker's keys changed (empty keys
+ * clear them, unless unlinked from inBudget); undefined when nothing is left.
+ */
+export function withManualKeys(
+	entry: ManualRepository | undefined,
+	platform: ManualPlatform,
+	keys: RoutingKeys,
+	detached?: boolean,
+): ManualRepository | undefined {
+	const next = { ...entry };
+	const isDetached = detached ?? entry?.[platform]?.detached ?? false;
+	const clean: ManualKeys = {
+		teamKeys: unique(keys.teamKeys),
+		projectKeys: unique(keys.projectKeys),
+		...(isDetached && { detached: true }),
+	};
+	if (clean.teamKeys.length || clean.projectKeys.length || isDetached) {
+		next[platform] = clean;
+	} else {
+		delete next[platform];
+	}
+	return Object.keys(next).length ? next : undefined;
+}
+
+/**
+ * A repository's manual entry in a group: a name, "" for its own group, or
+ * null for its inBudget customer's group; undefined when nothing is left.
+ */
+export function withGroup(
+	entry: ManualRepository | undefined,
+	group: string | null,
+): ManualRepository | undefined {
+	const next = { ...entry };
+	if (group === null) delete next.group;
+	else next.group = group.trim();
+	return Object.keys(next).length ? next : undefined;
+}
+
+/** Change one repository's entry in the manual file. */
+export function updateManualFile(
+	cyrusHome: string,
+	repo: string,
+	change: (entry: ManualRepository | undefined) => ManualRepository | undefined,
+): ManualRouting {
+	const manual = readManual(cyrusHome);
+	const key = repo.toLowerCase();
+	const next = change(manual[key]);
+	if (next) manual[key] = next;
+	else delete manual[key];
+	writeFileSync(manualPath(cyrusHome), `${JSON.stringify(manual, null, 2)}\n`);
+	return manual;
+}
+
+/** Save (or, with no keys, clear) a repository's manual routing for one tracker. */
 export function writeManual(
 	cyrusHome: string,
 	repo: string,
@@ -87,50 +142,18 @@ export function writeManual(
 	keys: RoutingKeys,
 	detached?: boolean,
 ): ManualRouting {
-	const manual = readManual(cyrusHome);
-	const key = repo.toLowerCase();
-	const entry = { ...manual[key] };
-	const isDetached = detached ?? entry[platform]?.detached ?? false;
-	const clean: ManualKeys = {
-		teamKeys: unique(keys.teamKeys),
-		projectKeys: unique(keys.projectKeys),
-		...(isDetached && { detached: true }),
-	};
-	if (clean.teamKeys.length || clean.projectKeys.length || isDetached) {
-		entry[platform] = clean;
-	} else {
-		delete entry[platform];
-	}
-	return save(cyrusHome, manual, key, entry);
+	return updateManualFile(cyrusHome, repo, (e) =>
+		withManualKeys(e, platform, keys, detached),
+	);
 }
 
-/**
- * Put a repository into a group: a name, "" for its own group, or null for
- * its inBudget customer's group.
- */
+/** Put a repository into a group (name, "" alone, null its customer's). */
 export function writeGroup(
 	cyrusHome: string,
 	repo: string,
 	group: string | null,
 ): ManualRouting {
-	const manual = readManual(cyrusHome);
-	const key = repo.toLowerCase();
-	const entry = { ...manual[key] };
-	if (group === null) delete entry.group;
-	else entry.group = group.trim();
-	return save(cyrusHome, manual, key, entry);
-}
-
-function save(
-	cyrusHome: string,
-	manual: ManualRouting,
-	key: string,
-	entry: ManualRepository,
-): ManualRouting {
-	if (Object.keys(entry).length) manual[key] = entry;
-	else delete manual[key];
-	writeFileSync(manualPath(cyrusHome), `${JSON.stringify(manual, null, 2)}\n`);
-	return manual;
+	return updateManualFile(cyrusHome, repo, (e) => withGroup(e, group));
 }
 
 /** A repository's group: set in the dashboard, else its inBudget customer's. */

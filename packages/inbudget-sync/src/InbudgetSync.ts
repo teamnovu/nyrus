@@ -1,6 +1,4 @@
 import { execFile } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { promisify } from "node:util";
 import { handleRepository } from "cyrus-config-updater";
 import { createLogger, type ILogger } from "cyrus-core";
@@ -11,12 +9,7 @@ import {
 	readRepositories,
 	sameGitHubRepo,
 } from "./ConfigSync.js";
-import {
-	type InbudgetCache,
-	mergeById,
-	readCache,
-	writeCache,
-} from "./cache.js";
+import { type InbudgetCache, mergeById } from "./cache.js";
 import type { InbudgetClient } from "./InbudgetClient.js";
 import {
 	type ManualPlatform,
@@ -24,9 +17,8 @@ import {
 	type RepoGroup,
 	type RepoOverview,
 	type RoutingKeys,
-	readManual,
-	writeGroup,
-	writeManual,
+	withGroup,
+	withManualKeys,
 } from "./manual.js";
 import {
 	type DesiredRepository,
@@ -34,6 +26,7 @@ import {
 	planRepositories,
 	type SyncPlan,
 } from "./plan.js";
+import { FileInbudgetStore, type InbudgetStore } from "./store.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -112,6 +105,16 @@ export interface InbudgetSyncOptions {
 	logger?: ILogger;
 	/** A `changes` sync reads everything again when the last full one is older (default 24 h). */
 	fullSyncHours?: number;
+	/**
+	 * Where the cache, manual routing and requested repositories live
+	 * (default: files in cyrusHome; Redis to share them between nyrus).
+	 */
+	store?: InbudgetStore | Promise<InbudgetStore>;
+	/**
+	 * A `changes` sync doesn't ask inBudget when changes were read less than
+	 * this long ago (by any nyrus sharing the store). Default 0.
+	 */
+	minChangesIntervalMs?: number;
 }
 
 /** Repositories and routing from inBudget, one sync at a time. */
@@ -120,8 +123,17 @@ export class InbudgetSync {
 	private tail?: Promise<SyncStatus>;
 	private readonly logger: ILogger;
 
+	private readonly store: Promise<InbudgetStore>;
+
 	constructor(private readonly options: InbudgetSyncOptions) {
 		this.logger = options.logger ?? createLogger({ component: "InbudgetSync" });
+		this.store = Promise.resolve(
+			options.store ?? new FileInbudgetStore(options.cyrusHome),
+		);
+	}
+
+	async dispose(): Promise<void> {
+		await (await this.store).dispose?.();
 	}
 
 	getStatus(): SyncStatus {
@@ -135,7 +147,7 @@ export class InbudgetSync {
 	 * in config.json.
 	 */
 	async provideGitHub(repo: string): Promise<boolean> {
-		const { context, cyrusHome } = this.options;
+		const { context } = this.options;
 		if (!context.github) return false;
 		if (!this.status.repos) await this.sync("local");
 		const key = repo.toLowerCase();
@@ -148,11 +160,7 @@ export class InbudgetSync {
 		)?.group.key;
 		const group = this.status.groups?.find((g) => g.key === groupKey);
 		const wanted = (group?.repos ?? [repo]).map((r) => r.toLowerCase());
-		const requested = readGitHubRequested(cyrusHome);
-		const next = [...new Set([...requested, ...wanted])].sort();
-		if (next.length !== requested.length) {
-			writeGitHubRequested(cyrusHome, next);
-		}
+		await (await this.store).addRequested(wanted);
 		const status = await this.sync("local");
 		return Boolean(
 			status.repos?.find((r) => r.repo.toLowerCase() === key)?.platforms.github
@@ -168,8 +176,9 @@ export class InbudgetSync {
 		repos: string | string[],
 		group: string | null,
 	): Promise<SyncStatus> {
+		const store = await this.store;
 		for (const repo of Array.isArray(repos) ? repos : [repos]) {
-			writeGroup(this.options.cyrusHome, repo, group);
+			await store.updateManual(repo, (e) => withGroup(e, group));
 		}
 		return this.sync("local");
 	}
@@ -184,7 +193,9 @@ export class InbudgetSync {
 		keys: RoutingKeys,
 		detached?: boolean,
 	): Promise<SyncStatus> {
-		writeManual(this.options.cyrusHome, repo, platform, keys, detached);
+		await (await this.store).updateManual(repo, (e) =>
+			withManualKeys(e, platform, keys, detached),
+		);
 		return this.sync("local");
 	}
 
@@ -268,27 +279,80 @@ export class InbudgetSync {
 		};
 	}
 
+	/**
+	 * The cache, read from inBudget as far as the mode asks: one nyrus at a
+	 * time (lock); if another one is reading, its result is used.
+	 */
+	private async fetch(
+		store: InbudgetStore,
+		mode: SyncMode,
+	): Promise<{ cache: InbudgetCache; fetched: "full" | "changes" | "none" }> {
+		const decide = (cache: InbudgetCache | undefined) => {
+			if (!cache) return "full" as const;
+			const age = (at: string | undefined) =>
+				at ? Date.now() - Date.parse(at) : Number.POSITIVE_INFINITY;
+			if (mode === "full") return "full" as const;
+			if (mode === "local") return "none" as const;
+			if (
+				age(cache.fetchedAt.full) >
+				(this.options.fullSyncHours ?? 24) * 3_600_000
+			) {
+				return "full" as const;
+			}
+			if (
+				age(cache.fetchedAt.projects) < (this.options.minChangesIntervalMs ?? 0)
+			) {
+				return "none" as const;
+			}
+			return "changes" as const;
+		};
+		const cached = await store.readCache();
+		if (decide(cached) === "none") return { cache: cached!, fetched: "none" };
+
+		for (let attempt = 0; attempt < 150; attempt++) {
+			const result = await store.withLock("fetch", 10 * 60_000, async () => {
+				// Read again under the lock: another nyrus may just have fetched.
+				const current = await store.readCache();
+				const need = decide(current);
+				if (need === "none" && current) {
+					return { cache: current, fetched: "none" as const };
+				}
+				const cache =
+					need === "changes" && current
+						? await this.fetchChanges(current)
+						: await this.fetchAll();
+				await store.writeCache(cache);
+				return {
+					cache,
+					fetched:
+						need === "changes" ? ("changes" as const) : ("full" as const),
+				};
+			});
+			if (result) return result;
+			// Another nyrus is reading inBudget: use its result.
+			if (cached && mode !== "full") return { cache: cached, fetched: "none" };
+			await new Promise((resolve) => setTimeout(resolve, 2_000));
+			const after = await store.readCache();
+			if (
+				after &&
+				(mode !== "full" || after.fetchedAt.full !== cached?.fetchedAt.full)
+			) {
+				return { cache: after, fetched: "none" };
+			}
+		}
+		throw new Error("Another nyrus has been reading inBudget for too long");
+	}
+
 	private async run(mode: SyncMode): Promise<SyncStatus> {
 		const started = Date.now();
 		this.status = { ...this.status, running: true };
 		const counter = this.options.client as { requests?: number };
 		const requestsBefore = counter.requests ?? 0;
 		try {
-			const { cyrusHome } = this.options;
-			let cache = readCache(cyrusHome);
-			const fullDue =
-				!cache?.fetchedAt.full ||
-				Date.now() - Date.parse(cache.fetchedAt.full) >
-					(this.options.fullSyncHours ?? 24) * 3_600_000;
-			let fetched: "full" | "changes" | "none" = "none";
-			if (!cache || mode === "full" || (mode === "changes" && fullDue)) {
-				cache = await this.fetchAll();
-				fetched = "full";
-			} else if (mode === "changes") {
-				cache = await this.fetchChanges(cache);
-				fetched = "changes";
-			}
-			if (fetched !== "none") writeCache(cyrusHome, cache);
+			const store = await this.store;
+			const fetchedCache = await this.fetch(store, mode);
+			const fetched = fetchedCache.fetched;
+			const cache = fetchedCache.cache;
 			const { projects, infos, resources } = cache;
 			const plan = await planRepositories(
 				projects,
@@ -299,12 +363,12 @@ export class InbudgetSync {
 			const { context } = this.options;
 			const { desired, repos, groups } = mergeManual(
 				plan,
-				readManual(this.options.cyrusHome),
+				await store.readManual(),
 				context,
 			);
 			// GitHub issues entries are cloned on demand: only for repositories
 			// already cloned (e.g. for Jira) or asked for by a first issue.
-			const requested = new Set(readGitHubRequested(this.options.cyrusHome));
+			const requested = new Set(await store.readRequested());
 			const configured = readRepositories(this.options.cyrusHome);
 			const cloned = (repo: string) =>
 				configured.some(
@@ -409,31 +473,6 @@ export class InbudgetSync {
 		}
 		return this.status;
 	}
-}
-
-function githubRequestedPath(cyrusHome: string): string {
-	return join(cyrusHome, "inbudget-github.json");
-}
-
-/** Repositories set up for GitHub issues on demand (`owner/name`, lowercase). */
-function readGitHubRequested(cyrusHome: string): string[] {
-	try {
-		const list = JSON.parse(
-			readFileSync(githubRequestedPath(cyrusHome), "utf8"),
-		);
-		return Array.isArray(list)
-			? list.filter((r): r is string => typeof r === "string")
-			: [];
-	} catch {
-		return [];
-	}
-}
-
-function writeGitHubRequested(cyrusHome: string, repos: string[]): void {
-	writeFileSync(
-		githubRequestedPath(cyrusHome),
-		`${JSON.stringify(repos, null, 2)}\n`,
-	);
 }
 
 /** The managed config entry of each repository and tracker, for the dashboard. */

@@ -6,8 +6,8 @@ import type {
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { InbudgetClient } from "./InbudgetClient.js";
 import { InbudgetSync } from "./InbudgetSync.js";
-import { writeGroup } from "./manual.js";
 import type { DesiredRepository, PlanContext } from "./plan.js";
+import { createInbudgetStore } from "./store.js";
 
 /** Dashboard endpoint: GET the sync status, POST to sync now. */
 export const INBUDGET_STATUS_PATH = "/api/dashboard/inbudget";
@@ -46,17 +46,21 @@ export function createInbudgetIntegrationFactory(
 			instructions: (repo) => defaultInstructions(repo, githubIssues),
 			logger,
 			fullSyncHours: Number(env.INBUDGET_FULL_SYNC_HOURS ?? 24) || 24,
+			// REDIS_URL: shared by several nyrus, one of them asks inBudget.
+			store: createInbudgetStore(env, cyrusHome),
+			// Changes read by another nyrus in this interval are not read again.
+			minChangesIntervalMs: minutesFrom(env) * 60_000 * 0.8,
 		});
 		provisioning?.register((platform, repo) =>
 			platform === "github" ? sync.provideGitHub(repo) : Promise.resolve(false),
 		);
-		const minutes = Number(env.INBUDGET_SYNC_INTERVAL_MINUTES ?? 30);
+		const minutes = minutesFrom(env);
 		const timers: NodeJS.Timeout[] = [];
 
 		return {
 			workspaceKey: "inbudget",
 			register(host) {
-				registerRoutes(host.fastify, sync, env, cyrusHome);
+				registerRoutes(host.fastify, sync, env);
 				// Changes only: the rest comes from the cache (a full read when
 				// there is none, or the last one is older than a day).
 				const first = setTimeout(() => void sync.sync("changes"), 5_000);
@@ -76,9 +80,16 @@ export function createInbudgetIntegrationFactory(
 			},
 			dispose() {
 				for (const timer of timers) clearTimeout(timer);
+				void sync.dispose();
 			},
 		};
 	};
+}
+
+/** Minutes between syncs of changes (INBUDGET_SYNC_INTERVAL_MINUTES, default 30). */
+function minutesFrom(env: NodeJS.ProcessEnv): number {
+	const minutes = Number(env.INBUDGET_SYNC_INTERVAL_MINUTES ?? 30);
+	return Number.isFinite(minutes) && minutes >= 0 ? minutes : 30;
 }
 
 /** The inBudget integration, for the edge worker's list. */
@@ -161,7 +172,6 @@ function registerRoutes(
 	fastify: Parameters<TrackerIntegration["register"]>[0]["fastify"],
 	sync: InbudgetSync,
 	env: NodeJS.ProcessEnv,
-	cyrusHome: string,
 ): void {
 	const authorized = (request: FastifyRequest, reply: FastifyReply) => {
 		const apiKey = env.CYRUS_API_KEY?.trim();
@@ -226,7 +236,7 @@ function registerRoutes(
 			return;
 		}
 		if (hasGroup) {
-			writeGroup(cyrusHome, repo, body.group as string | null);
+			await sync.setGroup(repo, body.group as string | null);
 		}
 		const list = (value: unknown) =>
 			Array.isArray(value)

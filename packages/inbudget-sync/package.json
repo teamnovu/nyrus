@@ -24,7 +24,8 @@
 		"cyrus-comment-sessions": "workspace:*",
 		"cyrus-config-updater": "workspace:*",
 		"cyrus-core": "workspace:*",
-		"fastify": "^5.12.7"
+		"fastify": "^5.12.7",
+		"ioredis": "^5.4.1"
 	},
 	"devDependencies": {
 		"@types/node": "^20.0.0",

@@ -5,6 +5,7 @@ export {
 	MANAGED_PREFIX,
 	type RepoEntry,
 } from "./ConfigSync.js";
+export { type InbudgetCache, readCache } from "./cache.js";
 export {
 	clientKeyOf,
 	InbudgetClient,
@@ -52,3 +53,10 @@ export {
 	projectLabel,
 	type SyncPlan,
 } from "./plan.js";
+export {
+	createInbudgetStore,
+	FileInbudgetStore,
+	type InbudgetStore,
+	RedisInbudgetStore,
+	type RedisLike,
+} from "./store.js";
