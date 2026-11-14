@@ -102,6 +102,63 @@ describe("JiraIssueTrackerService", () => {
 		);
 	});
 
+	it("moves an issue to review and done for its GitHub pull request", async () => {
+		const routes = {
+			"GET /issue/10001/transitions": {
+				transitions: [
+					{
+						id: "11",
+						name: "Start",
+						to: {
+							id: "3",
+							name: "In Progress",
+							statusCategory: { key: "indeterminate" },
+						},
+					},
+					{
+						id: "21",
+						name: "Review",
+						to: {
+							id: "5",
+							name: "In Review",
+							statusCategory: { key: "indeterminate" },
+						},
+					},
+					{
+						id: "31",
+						name: "Finish",
+						to: { id: "4", name: "Done", statusCategory: { key: "done" } },
+					},
+				],
+			},
+			"POST /issue/10001/transitions": undefined,
+		};
+		const posted = (
+			calls: Array<{ url: string; method: string; body?: unknown }>,
+		) =>
+			calls
+				.filter((c) => c.url.endsWith("/transitions") && c.method === "POST")
+				.map((c) => c.body);
+
+		const { tracker, calls } = setup(routes);
+		await tracker.moveToStage("10001", "review");
+		await tracker.moveToStage("10001", "done");
+		expect(posted(calls)).toEqual([
+			{ transition: { id: "21" } },
+			{ transition: { id: "31" } },
+		]);
+
+		// Named statuses win; an empty name turns the move off.
+		const named = setup(routes);
+		Object.assign(named.tracker.options, {
+			reviewStatus: "in progress",
+			doneStatus: "",
+		});
+		await named.tracker.moveToStage("10001", "review");
+		await named.tracker.moveToStage("10001", "done");
+		expect(posted(named.calls)).toEqual([{ transition: { id: "11" } }]);
+	});
+
 	it("moves an issue to a state through the workflow transition that leads there", async () => {
 		const { tracker, calls } = setup({
 			"GET /issue/10001/transitions": {

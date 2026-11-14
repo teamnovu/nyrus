@@ -1435,6 +1435,21 @@ export class EdgeWorker extends EventEmitter {
 					),
 				getSessionState: (sessionId) => this.commentSessionState(sessionId),
 				logger: this.logger,
+				repositoryForIssue: (issueId) => {
+					const repository = this.getCachedRepository(issueId);
+					return repository
+						? {
+								id: repository.id,
+								name: repository.name,
+								githubUrl: repository.githubUrl,
+							}
+						: undefined;
+				},
+				githubToken: (repositoryId) =>
+					this.resolveGitHubToken(
+						{} as GitHubWebhookEvent,
+						this.repositories.get(repositoryId),
+					),
 			});
 			this.logger.info(
 				`✅ Tracker integration registered (workspace key ${integration.workspaceKey})`,

@@ -2,8 +2,13 @@ import {
 	CommentAgentSessions,
 	type CommentTracker,
 	type DispatchTiming,
+	type GitHubIssueThreads,
+	type GitHubThreadedTracker,
+	type GitHubThreadSource,
+	type PullRequestRef,
 	sessionIdFor,
 	issueIdFromSessionId as sessionIssueId,
+	type TicketComment,
 } from "cyrus-comment-sessions";
 import {
 	type AgentActivityCreateInput,
@@ -98,6 +103,20 @@ export interface ClickUpIssueTrackerOptions extends ClickUpTriggerOptions {
 	progressMinUpdateMs?: number;
 	/** Hand-off timing of the session coordinator (tests). */
 	dispatchTiming?: Partial<DispatchTiming>;
+	/** Work tasks in GitHub issues (see cyrus-comment-sessions). */
+	githubIssues?: GitHubIssueThreads;
+	/**
+	 * Status a task moves to when a pull request for it is opened. Default:
+	 * the List's first status whose name contains "review"; empty to never
+	 * move it.
+	 */
+	reviewStatus?: string;
+	/**
+	 * Status a task moves to when its GitHub issue is closed. Default: the
+	 * List's first "done" status (else its first "closed" one); empty to never
+	 * move it.
+	 */
+	doneStatus?: string;
 }
 
 /**
@@ -115,9 +134,12 @@ export interface ClickUpIssueTrackerOptions extends ClickUpTriggerOptions {
  * "🤖 nyrus:". This service is the `CommentTracker` they use.
  */
 export class ClickUpIssueTrackerService
-	implements IIssueTrackerService, CommentTracker
+	implements IIssueTrackerService, CommentTracker, GitHubThreadSource
 {
 	readonly platform = PLATFORM;
+	readonly trackerName = "ClickUp";
+	/** Set when tasks are worked in GitHub issues. */
+	readonly githubThread?: GitHubThreadedTracker;
 	/** Session handling shared with the other comment trackers (Jira). */
 	readonly sessions: CommentAgentSessions;
 	private readonly logger: ILogger;
@@ -139,7 +161,8 @@ export class ClickUpIssueTrackerService
 		this.logger =
 			options.logger ??
 			createLogger({ component: "ClickUpIssueTrackerService" });
-		this.sessions = new CommentAgentSessions(this, {
+		this.githubThread = options.githubIssues?.attach(this);
+		this.sessions = new CommentAgentSessions(this.githubThread ?? this, {
 			minUpdateMs: options.progressMinUpdateMs,
 			timing: options.dispatchTiming,
 			logger: this.logger,
@@ -281,7 +304,57 @@ export class ClickUpIssueTrackerService
 	// ========================================================================
 
 	async fetchIssue(idOrIdentifier: string): Promise<Issue> {
-		return this.toIssue(await this.fetchTask(idOrIdentifier));
+		const issue = this.toIssue(await this.fetchTask(idOrIdentifier));
+		return this.githubThread ? this.githubThread.decorateIssue(issue) : issue;
+	}
+
+	// ========================================================================
+	// GITHUB ISSUES (for cyrus-comment-sessions' GitHubIssueThreads)
+	// ========================================================================
+
+	async ticketComments(issueId: string): Promise<TicketComment[]> {
+		const comments = await this.api.listComments(taskIdFrom(issueId));
+		return comments
+			.filter((c) => !isSigned(c.comment_text))
+			.map((c) => ({
+				author:
+					c.user?.username || c.user?.email || String(c.user?.id ?? "Someone"),
+				createdAt: c.date ? toDate(c.date) : undefined,
+				body: commentMarkdown(c),
+			}));
+	}
+
+	/** ClickUp has no links to other systems, so the pull request goes in a comment. */
+	async attachPullRequest(issueId: string, pr: PullRequestRef): Promise<void> {
+		await this.postComment(
+			issueId,
+			`🔗 Pull request: [${pr.repo}#${pr.number}${pr.title ? ` ${pr.title}` : ""}](${pr.url})`,
+		);
+	}
+
+	async moveToStage(issueId: string, stage: "review" | "done"): Promise<void> {
+		const wanted =
+			stage === "review" ? this.options.reviewStatus : this.options.doneStatus;
+		if (wanted === "") return; // turned off
+		const task = await this.fetchTask(issueId);
+		if (!task.list?.id) return;
+		const list = await this.cached(`list:${task.list.id}`, () =>
+			this.api.getList(task.list!.id),
+		);
+		const statuses = sortStatuses(list.statuses ?? []);
+		const status = wanted
+			? statuses.find((s) => sameStatus(s.status, wanted))
+			: stage === "review"
+				? statuses.find((s) => /review/i.test(s.status))
+				: (statuses.find((s) => s.type === "done") ??
+					statuses.find((s) => s.type === "closed"));
+		if (!status) {
+			this.logger.warn(
+				`ClickUp task ${task.id}: no ${wanted ? `status "${wanted}"` : `${stage} status`} in its List (possible: ${statuses.map((s) => s.status).join(", ") || "none"})`,
+			);
+			return;
+		}
+		await this.api.updateTask(task.id, { status: status.status });
 	}
 
 	async fetchIssueChildren(

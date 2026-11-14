@@ -1,5 +1,6 @@
 import type { IIssueTrackerService, ILogger, Issue, User } from "cyrus-core";
 import type { FastifyInstance } from "fastify";
+import type { GitHubIssueThreads } from "./github/GitHubIssueThreads.js";
 
 /**
  * Agent sessions for trackers that have none built in (ClickUp, Jira).
@@ -102,15 +103,27 @@ export interface CommentTracker {
 	postComment(
 		issueId: string,
 		markdown: string,
-		options?: { progress?: boolean },
+		options?: CommentPostOptions,
 	): Promise<{ id: string }>;
 	updateComment(
 		issueId: string,
 		commentId: string,
 		markdown: string,
-		options?: { progress?: boolean },
+		options?: CommentPostOptions,
 	): Promise<void>;
 	deleteComment(issueId: string, commentId: string): Promise<void>;
+}
+
+/** What a comment the agent posts is for. */
+export interface CommentPostOptions {
+	/** The "working on it" comment, edited often: don't notify watchers. */
+	progress?: boolean;
+	/**
+	 * The activity it shows: progress, the agent's answer (`response`), a
+	 * question, or an error. Trackers may route them differently (e.g. the
+	 * GitHub issue layer also reports responses on the ticket).
+	 */
+	kind?: "progress" | "response" | "question" | "error";
 }
 
 // ---------------------------------------------------------------------------
@@ -145,6 +158,20 @@ export interface TrackerIntegrationHost {
 	dispatch: (webhook: LinearShapedWebhook) => Promise<void>;
 	getSessionState: (sessionId: string) => SessionState;
 	logger: ILogger;
+	/**
+	 * The repository a ticket was routed to, once the edge worker has picked
+	 * one (undefined before that, or if it has none).
+	 */
+	repositoryForIssue?: (issueId: string) => HostRepository | undefined;
+	/** A GitHub token for API calls on a repository (App, stored or PAT). */
+	githubToken?: (repositoryId: string) => Promise<string | undefined>;
+}
+
+/** A configured repository, as far as tracker integrations need it. */
+export interface HostRepository {
+	id: string;
+	name: string;
+	githubUrl?: string;
 }
 
 /**
@@ -194,6 +221,11 @@ export type TrackerIntegrationFactory = (context: {
 	env: NodeJS.ProcessEnv;
 	cyrusHome: string;
 	logger: ILogger;
+	/**
+	 * Set when tickets are worked in GitHub issues
+	 * (GITHUB_ISSUES_WEBHOOK_SECRET): the tracker attaches itself to it.
+	 */
+	githubIssues?: GitHubIssueThreads;
 }) => TrackerIntegration | null;
 
 export interface StdioMcpServerConfig {

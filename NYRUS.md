@@ -16,6 +16,7 @@ Project brief (German): [ClickUp doc "novu cyrus"](https://app.clickup.com/14278
 | ClickUp integration (AP3): spike and findings | [docs/nyrus/clickup-spike.md](docs/nyrus/clickup-spike.md), tools in [scripts/clickup/](scripts/clickup) |
 | ClickUp setup guide | [docs/CLICKUP.md](docs/CLICKUP.md) |
 | Jira integration (AP4) setup guide (once released) | `docs/JIRA.md` |
+| Working Jira/ClickUp tickets in GitHub issues | [docs/GITHUB-ISSUES.md](docs/GITHUB-ISSUES.md), code in [packages/comment-sessions/src/github/](packages/comment-sessions/src/github) |
 | Plane, the integration ClickUp and Jira are modeled on | [docs/PLANE.md](docs/PLANE.md), [packages/plane-event-transport](packages/plane-event-transport) |
 
 Setup guides for users go in `docs/<TRACKER>.md`, like upstream's. Notes for developers (spikes, decisions, open questions) go in `docs/nyrus/`. Package contracts go in the package's README.
@@ -45,6 +46,8 @@ Keep this table current when a package changes state.
 | 2026-11-13 | ClickUp: no bot user. novu allows no non-personal ClickUp accounts, so nyrus has to act through the API in a person's name. Whose, and how it is started instead of assign/@mention, is open: see [docs/nyrus/clickup-spike.md](docs/nyrus/clickup-spike.md#identity-no-bot-account). |
 | 2026-11-13 | ClickUp routing: a Space (one per customer) is the team, a List is the project. |
 | 2026-11-13 | ClickUp sessions start on the tag `nyrus` (hand-over) and on comments starting with `/nyrus` (questions); assignment only with `CLICKUP_TRIGGER_ON_ASSIGN=true`. nyrus reads tasks and comments from the API instead of trusting webhook payloads, and only acts in `CLICKUP_SPACE_IDS`. Tasks are `CU-<id>` (branch `CU-<id>-<title>`) and a Space's id is its team key. No time entries, since they would land on the token person's timesheet. Whose token in production is still open. |
+
+| 2026-11-14 | Tickets from Jira and ClickUp are worked in a GitHub issue in their repository (on with `GITHUB_ISSUES_WEBHOOK_SECRET`): the issue gets all the ticket's details, questions and progress go there, and the agent clears up open questions before it starts. The pull request closes the issue. The ticket only gets the link, the PR, review/done status and the result; its comments are still passed on and copied to GitHub. Only repository members and collaborators steer nyrus on GitHub. |
 
 Open: Jira Cloud or Data Center, where nyrus runs in production, and which projects and repositories the pilot uses.
 

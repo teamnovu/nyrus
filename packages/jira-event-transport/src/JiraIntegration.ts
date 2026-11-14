@@ -158,7 +158,7 @@ function labelChange(
 export function createJiraIntegrationFactory(
 	options: { dispatchTiming?: Partial<DispatchTiming> } = {},
 ): TrackerIntegrationFactory {
-	return ({ env, logger }): TrackerIntegration | null => {
+	return ({ env, logger, githubIssues }): TrackerIntegration | null => {
 		const baseUrl = env.JIRA_BASE_URL?.trim().replace(/\/+$/, "");
 		const email = env.JIRA_EMAIL?.trim();
 		const apiToken = env.JIRA_API_TOKEN?.trim();
@@ -180,6 +180,9 @@ export function createJiraIntegrationFactory(
 				triggerOnAssign:
 					env.JIRA_TRIGGER_ON_ASSIGN?.trim().toLowerCase() !== "false",
 				dispatchTiming: options.dispatchTiming,
+				githubIssues,
+				reviewStatus: env.JIRA_REVIEW_STATUS?.trim(),
+				doneStatus: env.JIRA_DONE_STATUS?.trim(),
 				logger,
 			},
 		);
@@ -199,9 +202,12 @@ export function createJiraIntegrationFactory(
 					);
 					return;
 				}
+				const coordinator = tracker.sessions.createCoordinator(host);
 				const handle = jiraEventHandler(
 					tracker,
-					tracker.sessions.createCoordinator(host),
+					tracker.githubThread
+						? tracker.githubThread.wrapCoordinator(coordinator, host)
+						: coordinator,
 					logger,
 				);
 				transport = new JiraEventTransport({

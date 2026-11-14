@@ -2,8 +2,13 @@ import {
 	CommentAgentSessions,
 	type CommentTracker,
 	type DispatchTiming,
+	type GitHubIssueThreads,
+	type GitHubThreadedTracker,
+	type GitHubThreadSource,
+	type PullRequestRef,
 	sessionIdFor,
 	issueIdFromSessionId as sessionIssueId,
+	type TicketComment,
 } from "cyrus-comment-sessions";
 import {
 	type AgentActivityCreateInput,
@@ -95,6 +100,19 @@ export interface JiraIssueTrackerOptions extends JiraTriggerOptions {
 	progressMinUpdateMs?: number;
 	/** Hand-off timing of the session coordinator (tests). */
 	dispatchTiming?: Partial<DispatchTiming>;
+	/** Work tickets in GitHub issues (see cyrus-comment-sessions). */
+	githubIssues?: GitHubIssueThreads;
+	/**
+	 * Status (by name) an issue moves to when a pull request for it is opened.
+	 * Default: the first status reachable whose name contains "review"; empty
+	 * to never move it.
+	 */
+	reviewStatus?: string;
+	/**
+	 * Status (by name) an issue moves to when its GitHub issue is closed.
+	 * Default: the first "Done"-category status reachable; empty to never move it.
+	 */
+	doneStatus?: string;
 }
 
 /**
@@ -114,9 +132,12 @@ export interface JiraIssueTrackerOptions extends JiraTriggerOptions {
  * comments of their own. This service is the `CommentTracker` they use.
  */
 export class JiraIssueTrackerService
-	implements IIssueTrackerService, CommentTracker
+	implements IIssueTrackerService, CommentTracker, GitHubThreadSource
 {
 	readonly platform = PLATFORM;
+	readonly trackerName = "Jira";
+	/** Set when tickets are worked in GitHub issues. */
+	readonly githubThread?: GitHubThreadedTracker;
 	/** Session handling shared with the other comment trackers (ClickUp). */
 	readonly sessions: CommentAgentSessions;
 	private readonly logger: ILogger;
@@ -131,7 +152,8 @@ export class JiraIssueTrackerService
 	) {
 		this.logger =
 			options.logger ?? createLogger({ component: "JiraIssueTrackerService" });
-		this.sessions = new CommentAgentSessions(this, {
+		this.githubThread = options.githubIssues?.attach(this);
+		this.sessions = new CommentAgentSessions(this.githubThread ?? this, {
 			minUpdateMs: options.progressMinUpdateMs,
 			timing: options.dispatchTiming,
 			logger: this.logger,
@@ -219,6 +241,54 @@ export class JiraIssueTrackerService
 		await this.api.deleteComment(issueId, commentId);
 	}
 
+	// ========================================================================
+	// GITHUB ISSUES (for cyrus-comment-sessions' GitHubIssueThreads)
+	// ========================================================================
+
+	async ticketComments(issueId: string): Promise<TicketComment[]> {
+		const comments = await this.api.listComments(issueId);
+		return comments
+			.filter((c) => !isSigned(c.body))
+			.map((c) => ({
+				author:
+					c.author?.displayName ||
+					c.author?.emailAddress ||
+					c.author?.accountId ||
+					"Someone",
+				createdAt: c.created ? new Date(c.created) : undefined,
+				body: wikiToMarkdown(c.body ?? ""),
+			}));
+	}
+
+	async attachPullRequest(issueId: string, pr: PullRequestRef): Promise<void> {
+		await this.api.upsertRemoteLink(
+			issueId,
+			pr.url,
+			`Pull request ${pr.repo}#${pr.number}${pr.title ? `: ${pr.title}` : ""}`,
+		);
+	}
+
+	async moveToStage(issueId: string, stage: "review" | "done"): Promise<void> {
+		const wanted =
+			stage === "review" ? this.options.reviewStatus : this.options.doneStatus;
+		if (wanted === "") return; // turned off
+		const transitions = await this.api.listTransitions(issueId);
+		const transition = wanted
+			? transitions.find(
+					(t) => t.to.name.trim().toLowerCase() === wanted.trim().toLowerCase(),
+				)
+			: stage === "review"
+				? transitions.find((t) => /review/i.test(t.to.name))
+				: transitions.find((t) => t.to.statusCategory?.key === "done");
+		if (!transition) {
+			this.logger.warn(
+				`Jira issue ${issueId}: no transition to ${wanted ? `"${wanted}"` : `a ${stage} status`} (possible: ${transitions.map((t) => t.to.name).join(", ") || "none"})`,
+			);
+			return;
+		}
+		await this.api.transitionIssue(issueId, transition.id);
+	}
+
 	fetchJiraIssue(idOrKey: string): Promise<JiraIssue> {
 		return this.api.getIssue(idOrKey);
 	}
@@ -232,7 +302,8 @@ export class JiraIssueTrackerService
 	// ========================================================================
 
 	async fetchIssue(idOrIdentifier: string): Promise<Issue> {
-		return this.toIssue(await this.api.getIssue(idOrIdentifier));
+		const issue = this.toIssue(await this.api.getIssue(idOrIdentifier));
+		return this.githubThread ? this.githubThread.decorateIssue(issue) : issue;
 	}
 
 	async fetchIssueChildren(

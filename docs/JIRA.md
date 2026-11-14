@@ -9,6 +9,8 @@ Jira has no agent API like Linear's or Plane's, so Nyrus works as a normal Jira 
 - **While an issue is handed to Nyrus, every comment on it steers the session.** Afterwards, only comments that mention Nyrus or answer a question it asked do.
 - **Stop it** by removing the label, unassigning the agent account, or commenting just `stop`.
 
+> **GitHub issues:** with `GITHUB_ISSUES_WEBHOOK_SECRET` set, Nyrus works each issue in a GitHub issue in its repository: it clears up open questions there first, posts progress and its plan there, and the pull request closes it. Jira gets the link, the PR, the status (In Review, Done) and the result. See [GITHUB-ISSUES.md](GITHUB-ISSUES.md).
+
 ## 1. Agent account and API token
 
 Use a dedicated Jira user (e.g. "Nyrus") if you can: its comments and changes then show as Nyrus's. A personal account works too; Nyrus signs its comments (`🤖 Nyrus`) to tell them apart from yours.
@@ -50,6 +52,8 @@ Each repository that should take Jira work uses the workspace key (`jira-<site>`
   "appendInstruction": "Your name is Nyrus, novu's coding agent. Your work comes from Jira: use the mcp__jira__* tools (not Linear's) to read the issue, comment on it, attach your pull request and change its status."
 }
 ```
+
+With [GitHub issues](GITHUB-ISSUES.md) on, Nyrus reports to Jira itself, so leave commenting, linking and status changes out: `"appendInstruction": "Your name is Nyrus, novu's coding agent. Your work comes from Jira: use the mcp__jira__* tools (not Linear's) to read the issue and download its attachments."`
 
 ## 3. Send webhooks to Nyrus
 

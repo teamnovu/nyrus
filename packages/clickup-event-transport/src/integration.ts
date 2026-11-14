@@ -37,7 +37,12 @@ export function createClickUpIntegrationFactory(
 		fetch?: typeof fetch;
 	} = {},
 ): TrackerIntegrationFactory {
-	return ({ env, cyrusHome, logger }): TrackerIntegration | null => {
+	return ({
+		env,
+		cyrusHome,
+		logger,
+		githubIssues,
+	}): TrackerIntegration | null => {
 		const webhookSecret = env.CLICKUP_WEBHOOK_SECRET?.trim();
 		if (!webhookSecret) {
 			return null;
@@ -96,6 +101,9 @@ export function createClickUpIntegrationFactory(
 					.map((id) => id.trim())
 					.filter(Boolean),
 				dispatchTiming: options.dispatchTiming,
+				githubIssues,
+				reviewStatus: env.CLICKUP_REVIEW_STATUS?.trim(),
+				doneStatus: env.CLICKUP_DONE_STATUS?.trim(),
 				logger,
 			},
 		);
@@ -106,9 +114,12 @@ export function createClickUpIntegrationFactory(
 			// Named after the platform, so its tools are mcp__clickup__*.
 			mcpServers: () => ({ clickup: tracker.toolsMcpServerConfig() }),
 			register(host) {
+				const coordinator = tracker.sessions.createCoordinator(host);
 				const handler = new ClickUpEventHandler(
 					tracker,
-					tracker.sessions.createCoordinator(host),
+					tracker.githubThread
+						? tracker.githubThread.wrapCoordinator(coordinator, host)
+						: coordinator,
 					logger,
 				);
 				startTransport(host).on("webhook", (payload) => {

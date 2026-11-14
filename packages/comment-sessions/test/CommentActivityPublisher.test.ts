@@ -36,7 +36,10 @@ describe("CommentActivityPublisher", () => {
 
 		await publish({ type: "thought", body: "Reading the login code" });
 		expect(tracker.postComment).toHaveBeenCalledTimes(1);
-		expect(tracker.postComment.mock.calls[0]![2]).toEqual({ progress: true });
+		expect(tracker.postComment.mock.calls[0]![2]).toEqual({
+			progress: true,
+			kind: "progress",
+		});
 		const [noteId] = [...tracker.comments.keys()];
 		expect(store.isOwnComment(noteId!)).toBe(true);
 

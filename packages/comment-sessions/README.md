@@ -79,3 +79,23 @@ A tracker package (e.g. `packages/jira-event-transport`) provides:
    Then append it to `trackerIntegrationFactories` in `packages/edge-worker/src/TrackerIntegrations.ts`. That is the only EdgeWorker change a tracker needs.
 
 Repositories take the tracker's work by using its `workspaceKey` as their `linearWorkspaceId`, and are routed by the team (`issue.team.key`) and project your `IIssueTrackerService` reports, like Plane.
+
+## Working tickets in GitHub issues
+
+`src/github/` moves a ticket's conversation to a GitHub issue in its repository ([docs/GITHUB-ISSUES.md](../../docs/GITHUB-ISSUES.md)). `createTrackerIntegrations` builds one `GitHubIssueThreads` from the environment and passes it to every factory as `githubIssues`. A tracker opts in by implementing `GitHubThreadSource` (`trackerName`, `ticketComments`, and optionally `attachPullRequest` and `moveToStage`), then:
+
+```ts
+this.githubThread = options.githubIssues?.attach(this);
+this.sessions = new CommentAgentSessions(this.githubThread ?? this, /* ... */);
+
+async fetchIssue(id) {
+	const issue = this.toIssue(/* ... */);
+	return this.githubThread ? this.githubThread.decorateIssue(issue) : issue;
+}
+
+// in register(host):
+const coordinator = tracker.sessions.createCoordinator(host);
+const target = tracker.githubThread?.wrapCoordinator(coordinator, host) ?? coordinator;
+```
+
+`decorateIssue` opens the GitHub issue the first time the edge worker reads a ticket that got an event and has a repository on GitHub (`host.repositoryForIssue`), and adds the issue and the clarify-first instructions to the description the agent sees. From then on the session's comments go to GitHub (ids prefixed `gh:`), responses and errors also go to the ticket, and the wrapped coordinator copies the ticket's comments to GitHub. `/github-issues-webhook` turns replies there into comment events for the ticket's session, and pull requests / closed issues into `attachPullRequest` / `moveToStage`.

@@ -1,7 +1,8 @@
 import { createClickUpIntegration } from "cyrus-clickup-event-transport";
-import type {
-	TrackerIntegration,
-	TrackerIntegrationFactory,
+import {
+	createGitHubIssueThreadsFromEnv,
+	type TrackerIntegration,
+	type TrackerIntegrationFactory,
 } from "cyrus-comment-sessions";
 import type { ILogger } from "cyrus-core";
 import { createJiraIntegration } from "cyrus-jira-event-transport";
@@ -16,15 +17,30 @@ export const trackerIntegrationFactories: TrackerIntegrationFactory[] = [
 	createClickUpIntegration,
 ];
 
-/** Build every configured tracker integration; one failing doesn't stop the others. */
+/**
+ * Build every configured tracker integration; one failing doesn't stop the
+ * others. With GITHUB_ISSUES_WEBHOOK_SECRET set, their tickets are worked in
+ * GitHub issues (one shared GitHubIssueThreads for all of them).
+ */
 export function createTrackerIntegrations(
 	context: Parameters<TrackerIntegrationFactory>[0],
 	factories: TrackerIntegrationFactory[] = trackerIntegrationFactories,
 ): TrackerIntegration[] {
 	const integrations: TrackerIntegration[] = [];
+	let githubIssues = context.githubIssues;
+	if (!githubIssues) {
+		try {
+			githubIssues = createGitHubIssueThreadsFromEnv(context);
+		} catch (error) {
+			context.logger.error(
+				"Working tickets in GitHub issues is misconfigured and stays off",
+				error,
+			);
+		}
+	}
 	for (const factory of factories) {
 		try {
-			const integration = factory(context);
+			const integration = factory({ ...context, githubIssues });
 			if (integration) integrations.push(integration);
 		} catch (error) {
 			logFactoryError(context.logger, factory, error);

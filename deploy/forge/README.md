@@ -92,6 +92,8 @@ With a GitHub App, the agent opens pull requests as `<app>[bot]`, without a user
 4. Forge → site → Environment: `GITHUB_APP_ID=<App ID>` and `GITHUB_APP_INSTALLATION_ID=<installation ID>`. Leave `GH_TOKEN` unset: an operator's own `GH_TOKEN` wins over the App.
 5. Restart (the App is read at startup): `NYRUS_SKIP_BUILD=1 bash deploy/forge/deploy.sh`. The log shows `GitHub App token provider initialized (self-hosted mode)`.
 
+To work Jira and ClickUp tickets in GitHub issues, the App also needs **Issues** read and write and its webhook turned on: see [docs/GITHUB-ISSUES.md](../../docs/GITHUB-ISSUES.md).
+
 Each agent session for a repository on GitHub then gets an installation token as `GH_TOKEN`, so `gh pr create` and other `gh` calls act as the App. The token is valid for at least 50 minutes when the session starts; a session that runs longer can lose `gh` access near its end, and the next run (e.g. after a follow-up comment) gets a fresh token. Pushing still uses the server's own git credentials (e.g. its SSH key); set the commit author per repository with `git config user.name` / `user.email`.
 
 ### Sandbox (recommended)

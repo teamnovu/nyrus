@@ -96,7 +96,7 @@ export class CommentActivityPublisher {
 			case "response":
 				await this.finishProgress(sessionId);
 				this.store.setQuestion(sessionId, []); // an open question is moot now
-				return this.post(issueId, content.body ?? "");
+				return this.post(issueId, content.body ?? "", "response");
 			case "elicitation":
 				await this.finishProgress(sessionId);
 				return this.postQuestion(
@@ -111,6 +111,7 @@ export class CommentActivityPublisher {
 				return this.post(
 					issueId,
 					`⚠️ ${content.body || "Something went wrong."}`,
+					"error",
 				);
 			default:
 				return { id: "" }; // prompts are the user's side
@@ -128,8 +129,11 @@ export class CommentActivityPublisher {
 	private async post(
 		issueId: string,
 		markdown: string,
+		kind: "response" | "question" | "error",
 	): Promise<{ id: string }> {
-		const comment = await this.tracker.postComment(issueId, markdown);
+		const comment = await this.tracker.postComment(issueId, markdown, {
+			kind,
+		});
 		this.store.rememberOwnComment(comment.id);
 		return comment;
 	}
@@ -156,7 +160,7 @@ export class CommentActivityPublisher {
 			text += "\n\n_Reply with a comment._";
 		}
 		if (metadata?.url) text += `\n\n${metadata.url}`;
-		return this.post(issueId, text);
+		return this.post(issueId, text, "question");
 	}
 
 	/** Never throws: progress is a nicety, not worth failing the session for. */
@@ -211,6 +215,7 @@ export class CommentActivityPublisher {
 		const body = progressMarkdown(note);
 		const comment = await this.tracker.postComment(issueId, body, {
 			progress: true,
+			kind: "progress",
 		});
 		this.store.rememberOwnComment(comment.id);
 		note.commentId = comment.id;
@@ -232,7 +237,10 @@ export class CommentActivityPublisher {
 			if (body === note.shown) return;
 			note.lastUpdate = Date.now();
 			void this.tracker
-				.updateComment(note.issueId, note.commentId, body, { progress: true })
+				.updateComment(note.issueId, note.commentId, body, {
+					progress: true,
+					kind: "progress",
+				})
 				.then(() => {
 					// Only once the tracker has it, so a failed edit is retried by the next step.
 					note.shown = body;

@@ -47,6 +47,8 @@ Each repository that takes ClickUp work uses the workspace key as its `linearWor
 }
 ```
 
+With [GitHub issues](GITHUB-ISSUES.md) on (`GITHUB_ISSUES_WEBHOOK_SECRET`), nyrus works each task in a GitHub issue in its repository and reports to ClickUp itself (link, pull request, status "review" / done, result), so leave commenting and status changes out of `appendInstruction`: `"… use the mcp__clickup__* tools (not Linear's) to read the task and download its attachments."`
+
 `node scripts/clickup/probe.mjs --task <task id>` prints the Space id of a task.
 
 ## 3. Create the webhook
