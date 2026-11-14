@@ -8,8 +8,10 @@ export {
 	createServicedeskTriageIntegration,
 	createServicedeskTriageIntegrationFactory,
 	newIssueKey,
+	parseTriageCommand,
 	TRIAGE_API_PATH,
 	TRIAGE_WEBHOOK_PATH,
+	triageReply,
 } from "./integration.js";
 export {
 	type Classifier,

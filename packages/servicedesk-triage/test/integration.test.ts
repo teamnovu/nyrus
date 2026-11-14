@@ -6,6 +6,7 @@ import Fastify from "fastify";
 import { describe, expect, it, vi } from "vitest";
 import {
 	createServicedeskTriageIntegrationFactory,
+	parseTriageCommand,
 	TRIAGE_API_PATH,
 	TRIAGE_WEBHOOK_PATH,
 } from "../src/index.js";
@@ -165,5 +166,54 @@ describe("service desk triage integration", () => {
 		expect(outcome.status).toBe("triaged");
 		expect(outcome.result.project.name).toBe("Ombudsstelle");
 		expect(comments).toHaveLength(0);
+	});
+
+	it("triages from chat: dry run previews, the plain command posts", async () => {
+		const { integration, comments } = await server();
+		expect(integration?.chatCommand?.("what's up?")).toBeUndefined();
+		const preview = integration?.chatCommand?.("triage NOV-7 dry");
+		expect(preview?.name).toBe("triage NOV-7 (dry run)");
+		expect(await preview?.run()).toBe(
+			[
+				":mag: Triage preview for <https://site.atlassian.net/browse/NOV-7|NOV-7> (nothing posted):",
+				"> *Kunde:* SIBA (erkannt über Absender-Domain siba.ch)",
+				"> *Projekt:* Ombudsstelle",
+				"> *Vorschlag Bearbeitung:* Anna Muster (3 h)",
+				"> _Gebuchte Stunden auf dem Projekt insgesamt, aus inBudget._",
+			].join("\n"),
+		);
+		expect(comments).toHaveLength(0);
+		const reply = await integration?.chatCommand?.("triage NOV-7").run();
+		expect(reply?.split("\n")[0]).toBe(
+			":white_check_mark: Triage for <https://site.atlassian.net/browse/NOV-7|NOV-7>: internal comment posted.",
+		);
+		expect(comments).toHaveLength(1);
+		expect(await integration?.chatCommand?.("triage").run()).toContain(
+			"triage NOV-123",
+		);
+	});
+});
+
+describe("parseTriageCommand", () => {
+	it("reads the key from plain text and Slack links", () => {
+		expect(parseTriageCommand("triage NOV-6618")).toEqual({
+			issueKey: "NOV-6618",
+			dryRun: false,
+		});
+		expect(parseTriageCommand("  Triage nov-12 please, dry run")).toEqual({
+			issueKey: "NOV-12",
+			dryRun: true,
+		});
+		expect(
+			parseTriageCommand(
+				"triage <https://jkwebch.atlassian.net/browse/NOV-9030|NOV-9030>",
+			),
+		).toEqual({ issueKey: "NOV-9030", dryRun: false });
+		expect(parseTriageCommand("triage")).toEqual({
+			issueKey: undefined,
+			dryRun: false,
+		});
+		expect(parseTriageCommand("please triage NOV-1")).toBeUndefined();
+		expect(parseTriageCommand("triaged NOV-1")).toBeUndefined();
 	});
 });

@@ -20,7 +20,11 @@ import {
 } from "cyrus-claude-runner";
 import { getCyrusAppUrl } from "cyrus-cloudflare-tunnel-client";
 import { CodexRunner } from "cyrus-codex-runner";
-import type { SessionState, TrackerIntegration } from "cyrus-comment-sessions";
+import type {
+	ChatCommand,
+	SessionState,
+	TrackerIntegration,
+} from "cyrus-comment-sessions";
 import {
 	ConfigUpdater,
 	ensureGhTokenResolver,
@@ -156,8 +160,10 @@ import {
 } from "cyrus-plane-event-transport";
 import {
 	SlackEventTransport,
+	SlackMessageService,
 	type SlackWebhookEvent,
 	shouldUseDirectSlackVerification,
+	stripMention as stripSlackMention,
 } from "cyrus-slack-event-transport";
 import {
 	ZulipEventTransport,
@@ -1645,6 +1651,9 @@ export class EdgeWorker extends EventEmitter {
 		});
 
 		this.slackEventTransport.on("event", (event: SlackWebhookEvent) => {
+			// nyrus: commands like "@nyrus triage NOV-123" go to the tracker
+			// integration that knows them instead of a chat session.
+			if (this.runSlackChatCommand(event, slackAdapter)) return;
 			this.chatSessionHandler!.handleEvent(event).catch((error) => {
 				this.logger.error(
 					"Failed to handle Slack webhook",
@@ -1664,6 +1673,63 @@ export class EdgeWorker extends EventEmitter {
 		this.logger.info(
 			`Slack event transport registered (${slackVerificationMode} mode)`,
 		);
+	}
+
+	/**
+	 * nyrus: run a chat command a tracker integration recognizes (e.g.
+	 * "triage NOV-123") for an allowed user's @mention. Returns false when the
+	 * event is not such a command, so it goes to a chat session as usual
+	 * (which also tells blocked users they are blocked).
+	 */
+	private runSlackChatCommand(
+		event: SlackWebhookEvent,
+		slackAdapter: SlackChatAdapter,
+	): boolean {
+		if (event.eventType !== "app_mention") return false;
+		const text = stripSlackMention(event.payload.text || "");
+		let command: ChatCommand | undefined;
+		for (const integration of this.trackerIntegrations) {
+			command = integration.chatCommand?.(text);
+			if (command) break;
+		}
+		if (!command || !slackAdapter.checkAccess(event).allowed) return false;
+
+		const found = command;
+		const token = event.slackBotToken ?? process.env.SLACK_BOT_TOKEN;
+		const threadTs = event.payload.thread_ts || event.payload.ts;
+		this.logger.info(
+			`Slack command "${found.name}" from ${event.payload.user ?? "unknown"}`,
+		);
+		void (async () => {
+			await slackAdapter.acknowledgeReceipt(event).catch(() => undefined);
+			let reply: string;
+			try {
+				reply = await found.run();
+			} catch (error) {
+				this.logger.error(
+					`Slack command "${found.name}" failed`,
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				reply = `:warning: ${found.name} failed: ${error instanceof Error ? error.message : String(error)}`;
+			}
+			if (token) {
+				await new SlackMessageService()
+					.postMessage({
+						token,
+						channel: event.payload.channel,
+						text: reply,
+						thread_ts: threadTs,
+					})
+					.catch((error: unknown) =>
+						this.logger.error(
+							`Could not post the reply to "${found.name}"`,
+							error instanceof Error ? error : new Error(String(error)),
+						),
+					);
+			}
+			await slackAdapter.acknowledgeProcessed(event).catch(() => undefined);
+		})();
+		return true;
 	}
 
 	/**
