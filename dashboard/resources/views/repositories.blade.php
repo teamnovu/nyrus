@@ -313,6 +313,18 @@
                 <label class="label">Basis-Branch
                     <input name="baseBranch" value="{{ old('_form') === 'add' ? old('baseBranch', 'main') : 'main' }}" class="field font-mono">
                 </label>
+                <label class="label sm:col-span-2">Tracker-Workspace (woher die Tickets kommen)
+                    <input name="linearWorkspaceId" list="tracker-workspaces" value="{{ old('_form') === 'add' ? old('linearWorkspaceId') : ($workspaces[0] ?? '') }}" placeholder="z.B. jira-novu" class="field font-mono">
+                    <datalist id="tracker-workspaces">
+                        @foreach ($workspaces as $workspace)
+                            <option value="{{ $workspace }}"></option>
+                        @endforeach
+                    </datalist>
+                    <span class="muted mt-1 block text-xs">Ohne Workspace bekommt das Repository keine Tickets.</span>
+                    @if (old('_form') === 'add')
+                        @error('linearWorkspaceId') <span class="mt-1 block text-danger">{{ $message }}</span> @enderror
+                    @endif
+                </label>
                 <label class="label">Projekte (kommagetrennt)
                     <input name="projectKeys" value="{{ old('_form') === 'add' ? old('projectKeys') : '' }}" class="field">
                 </label>

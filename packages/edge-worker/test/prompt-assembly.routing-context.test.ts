@@ -477,4 +477,27 @@ Check workspace isolation
 		expect(context).toContain("`[repo=org/ws1-app]`");
 		expect(context).toContain("`[repo=org/ws2-service]`");
 	});
+
+	it("generateRoutingContextForAllWorkspaces skips repositories without a workspace instead of throwing", () => {
+		const repo = (id: string, linearWorkspaceId?: string) => ({
+			id,
+			name: id,
+			repositoryPath: `/test/${id}`,
+			workspaceBaseDir: "/test/workspace",
+			...(linearWorkspaceId && { linearWorkspaceId }),
+			baseBranch: "main",
+			githubUrl: `https://github.com/org/${id}`,
+		});
+		const worker = createTestWorker([
+			repo("app", "workspace-1"),
+			repo("api", "workspace-1"),
+			repo("nyrus"),
+		]);
+		const promptBuilder = (worker as any).promptBuilder as {
+			generateRoutingContextForAllWorkspaces: () => string;
+		};
+		const context = promptBuilder.generateRoutingContextForAllWorkspaces();
+		expect(context.match(/<repository_routing_context>/g)?.length || 0).toBe(1);
+		expect(context).not.toContain("org/nyrus");
+	});
 });

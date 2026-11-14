@@ -62,7 +62,26 @@ class RepositoryController extends Controller
             'listQuery' => $request->only(self::LIST_PARAMS),
             'error' => $error,
             'inbudget' => $inbudget,
+            'workspaces' => $this->workspaces($repositories, $inbudget),
         ]);
+    }
+
+    /**
+     * Tracker workspaces a repository can be routed from (e.g. `jira-novu`,
+     * `clickup-14278081`): the ones configured repositories and inBudget use.
+     *
+     * @return list<string>
+     */
+    private function workspaces(array $repositories, ?array $inbudget): array
+    {
+        $keys = array_merge(
+            array_map(fn (array $repo) => (string) ($repo['linearWorkspaceId'] ?? ''), $repositories),
+            array_map(fn (array $entry) => (string) ($entry['workspaceKey'] ?? ''), $inbudget['repositories'] ?? []),
+        );
+        $keys = array_values(array_unique(array_filter($keys)));
+        sort($keys);
+
+        return $keys;
     }
 
     /**
@@ -263,12 +282,14 @@ class RepositoryController extends Controller
             'projectKeys' => ['nullable', 'string', 'max:1000'],
             'teamKeys' => ['nullable', 'string', 'max:1000'],
             'routingLabels' => ['nullable', 'string', 'max:1000'],
+            'linearWorkspaceId' => ['nullable', 'string', 'max:100', 'regex:/^[\w.:-]+$/'],
         ]);
 
         $payload = array_filter([
             'repository_url' => trim($data['repository_url']),
             'name' => $data['name'] ?? null,
             'baseBranch' => $data['baseBranch'] ?? null,
+            'linearWorkspaceId' => isset($data['linearWorkspaceId']) ? trim($data['linearWorkspaceId']) : null,
         ]) + $this->lists($data);
 
         return $this->run(

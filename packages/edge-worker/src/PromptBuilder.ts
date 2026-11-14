@@ -536,8 +536,12 @@ export class PromptBuilder {
 				continue;
 			}
 
-			// Keep a stable per-workspace bucket as we scan configured repositories.
-			const workspaceId = requireLinearWorkspaceId(repository);
+			// A repository without a workspace (e.g. added by hand without a
+			// tracker) has nothing to route to; it must not break startup.
+			const workspaceId = repository.linearWorkspaceId;
+			if (!workspaceId) {
+				continue;
+			}
 			const repositories = activeRepositoriesByWorkspace.get(workspaceId) ?? [];
 			repositories.push(repository);
 			activeRepositoriesByWorkspace.set(workspaceId, repositories);

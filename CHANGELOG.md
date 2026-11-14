@@ -24,6 +24,7 @@ All notable changes to this project will be documented in this file.
 - Dashboard: the repositories page is now "Projekte" and handles 1000+ entries, with search, filters (inBudget or manual, Jira/ClickUp, active), sorting and pagination. Adding a repository opens a dialog. The inBudget card keeps long warning lists compact and searchable.
 
 ### Fixed
+- nyrus no longer fails to start ("Repository … is not linked to a Linear workspace") when a repository without a tracker workspace is configured, e.g. one added by hand in the dashboard. The dashboard's add dialog now asks for the tracker workspace (e.g. `jira-novu`), so such a repository receives tickets.
 - inBudget: the sync found no repositories, because inBudget answers the project info list without a project filter with an empty list; nyrus now asks for them by project. Projects without a git link now take the repository of their client's resources in inBudget, and a Jira or ClickUp link among a resource's other URLs routes them. The dashboard shows how many infos, links and resource repositories it read, and warns about git links that aren't on GitHub.
 - A run in a GitHub pull request session (e.g. after `@<bot>` in a PR comment) no longer tries to log time on a Jira issue of the same repository; only Jira's own sessions log their time. ([#17](https://github.com/teamnovu/nyrus/pull/17))
 - Forge docs: the sandbox needs the whole repository directory in `writablePaths` (not just `.git`) and `systemWideCert: true`; otherwise every shell command or `git push` / `gh` fails inside the sandbox.

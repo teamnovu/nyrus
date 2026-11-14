@@ -98,23 +98,26 @@ class DashboardPagesTest extends TestCase
     {
         Http::fake([
             'nyrus.test/api/dashboard/config' => Http::response(['success' => true, 'data' => ['repositories' => [
-                ['id' => 'web', 'name' => 'web', 'baseBranch' => 'main', 'projectKeys' => ['Web App'], 'repositoryPath' => '/r/web'],
+                ['id' => 'web', 'name' => 'web', 'baseBranch' => 'main', 'projectKeys' => ['Web App'], 'repositoryPath' => '/r/web', 'linearWorkspaceId' => 'jira-novu'],
             ], 'settingKeys' => []]]),
             'nyrus.test/api/dashboard/repository' => Http::response(['success' => true, 'message' => 'ok', 'data' => []]),
         ]);
 
-        $this->get('/repositories')->assertOk()->assertSee('web')->assertSee('Web App');
+        $this->get('/repositories')->assertOk()->assertSee('web')->assertSee('Web App')
+            ->assertSee('<option value="jira-novu">', false);
 
         $this->post('/repositories', [
             'repository_url' => 'https://github.com/teamnovu/api.git',
             'baseBranch' => 'develop',
             'projectKeys' => 'API, Backend ,',
             'routingLabels' => '',
+            'linearWorkspaceId' => 'jira-novu',
         ])->assertRedirect('/repositories');
 
         Http::assertSent(fn (Request $request) => $request->url() === 'http://nyrus.test/api/dashboard/repository'
             && $request->method() === 'POST'
             && $request['repository_url'] === 'https://github.com/teamnovu/api.git'
+            && $request['linearWorkspaceId'] === 'jira-novu'
             && $request['baseBranch'] === 'develop'
             && $request['projectKeys'] === ['API', 'Backend']
             && $request['routingLabels'] === []);
