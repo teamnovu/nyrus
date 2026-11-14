@@ -135,11 +135,16 @@ With the sandbox on, the agent's shell commands run under bubblewrap: they read 
    "sandbox": {
      "enabled": true,
      "networkPolicy": { "preset": "trusted" },
-     "writablePaths": ["~/.cyrus/repos/<repo>/.git"]
+     "writablePaths": ["~/.cyrus/repos/<repo>"],
+     "systemWideCert": true
    }
    ```
 
-   `preset: "trusted"` allows the package registries, GitHub and other common developer domains (the default list of Claude Code on the web); add more under `networkPolicy.allow`. `writablePaths` lets the agent commit: a worktree keeps its objects and refs in the repository's `.git`. The log shows `Sandbox egress proxy: enabled` and no "Linux sandbox requirements are not met" warning.
+   - `preset: "trusted"` allows the package registries, GitHub and other common developer domains (the default list of Claude Code on the web); add more under `networkPolicy.allow`. Everything else is blocked.
+   - `writablePaths` must be the **whole repository directory**, not just its `.git`: a worktree keeps its objects and refs in the repository's `.git`, and Claude Code's sandbox keeps that repository's `.git/config` and `.git/hooks` read-only even inside writable paths, which it can only set up when the repository directory is writable. With only `.git` listed, every shell command fails with `bwrap: Can't create file at …/.git/config.lock: Read-only file system`. One entry per repository.
+   - `systemWideCert: true` keeps sessions on the system CA store. Without header transforms the proxy doesn't intercept TLS, so its own CA isn't needed; without the flag, sessions get `SSL_CERT_FILE` / `GIT_SSL_CAINFO` pointing into `~/.cyrus/certs`, which the sandbox can't read, and `git push` and `gh` fail TLS verification. The startup warning that the CA "is not trusted" doesn't matter as long as no transforms are configured.
+
+   The log shows `Policy: deny-all with … allowed domain(s)`; a session's `claude_query_options` show `"cqo.hasSandbox":true` and no "Linux sandbox requirements are not met" warning. Checked on lychee: commit, push (App token) and `gh` work; `~/.ssh`, `.env` files, other sites, `.git/hooks` and unlisted domains are blocked.
 
 ## Dashboard
 
