@@ -106,6 +106,21 @@ export function wikiToMarkdown(
 			.join("\n"),
 	);
 	text = replaceMonospace(text, (code) => keep(`\`${code}\``));
+	// Images: !shot.png! or !shot.png|width=600,alt="…"!. Pasted screenshots are
+	// files attached to the issue, which the agent downloads to look at them.
+	text = text.replace(
+		/!([^!\s|][^!|\n]*?\.(?:png|jpe?g|gif|webp|bmp|svg|heic|tiff?))(?:\|[^!\n]*)?!/gi,
+		(_m, target: string) =>
+			keep(
+				/^https?:\/\//i.test(target)
+					? `![image](${target})`
+					: `[attached image: ${target.trim()}]`,
+			),
+	);
+	// [^report.pdf] links to an attached file.
+	text = text.replace(/\[\^([^\]\n]+)\]/g, (_m, name: string) =>
+		keep(`[attached file: ${name.trim()}]`),
+	);
 	text = text.replace(
 		/\[~accountid:([^\]]+)\]/g,
 		(_m, id: string) => `@${mentionName?.(id) ?? "user"}`,

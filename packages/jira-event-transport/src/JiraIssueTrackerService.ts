@@ -1,14 +1,17 @@
 import {
+	attachedFilesNote,
 	CommentAgentSessions,
 	type CommentTracker,
 	type DispatchTiming,
 	type GitHubIssueThreads,
 	type GitHubThreadedTracker,
 	type GitHubThreadSource,
+	isImageFile,
 	type PullRequestRef,
 	sessionIdFor,
 	issueIdFromSessionId as sessionIssueId,
 	type TicketComment,
+	type TrackerMcpSession,
 } from "cyrus-comment-sessions";
 import {
 	type AgentActivityCreateInput,
@@ -526,8 +529,10 @@ export class JiraIssueTrackerService
 	}
 
 	/** MCP server that gives sessions Jira tools, as the agent account. */
-	toolsMcpServerConfig(): ReturnType<typeof jiraToolsMcpServerConfig> {
-		return jiraToolsMcpServerConfig(this.api.getCredentials());
+	toolsMcpServerConfig(
+		session?: TrackerMcpSession,
+	): ReturnType<typeof jiraToolsMcpServerConfig> {
+		return jiraToolsMcpServerConfig(this.api.getCredentials(), session);
 	}
 
 	createEventTransport(
@@ -706,14 +711,17 @@ export class JiraIssueTrackerService
 	}
 }
 
-/** The description as Markdown, plus a list of attached files. */
+/** The description as Markdown, plus a note on attached files. */
 function issueDescription(issue: JiraIssue): string {
 	const description = wikiToMarkdown(issue.fields.description ?? "");
-	const files = (issue.fields.attachment ?? []).map((a) => a.filename);
-	if (files.length === 0) {
-		return description;
-	}
-	return `${description}\n\n---\nAttached files (download them with the jira tool download_attachments): ${files.join(", ")}`.trim();
+	const note = attachedFilesNote(
+		"jira",
+		(issue.fields.attachment ?? []).map((a) => ({
+			name: a.filename,
+			image: isImageFile(a.filename, a.mimeType),
+		})),
+	);
+	return note ? `${description}\n\n${note}`.trim() : description;
 }
 
 function toWorkflowState(status: JiraStatus, position: number): WorkflowState {
