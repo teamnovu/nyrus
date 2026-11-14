@@ -504,6 +504,42 @@ describe("SlackEventTransport", () => {
 			);
 		});
 
+		it("marks a message twin that @mentions the bot user, but not plain replies", async () => {
+			const eventListener = vi.fn();
+			transport.on("event", eventListener);
+			const handler = mockFastify.routes["/slack-webhook"]!;
+			const send = (text: string, ts: string) =>
+				handler(
+					createMockRequest(
+						{
+							...testThreadedMessageEnvelope,
+							authorizations: [
+								{ user_id: "UHUMAN", is_bot: false },
+								{ user_id: "UBOT", is_bot: true },
+							],
+							event: { ...testThreadedMessageEnvelope.event, text, ts },
+						},
+						{ authorization: `Bearer ${testSecret}` },
+					),
+					createMockReply(),
+				);
+
+			await send("<@UBOT> triage NOV-1", "1704110700.000100");
+			await send("<@UHUMAN> triage NOV-1", "1704110700.000200");
+			await send("triage NOV-1", "1704110700.000300");
+
+			expect(
+				eventListener.mock.calls.map(([event]) => [
+					event.eventType,
+					event.mentionsBot,
+				]),
+			).toEqual([
+				["message", true],
+				["message", false],
+				["message", false],
+			]);
+		});
+
 		it("de-duplicates app_mention + message delivery for the same message", async () => {
 			const eventListener = vi.fn();
 			transport.on("event", eventListener);

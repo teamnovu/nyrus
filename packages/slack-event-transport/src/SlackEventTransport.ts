@@ -392,6 +392,8 @@ export class SlackEventTransport extends EventEmitter {
 			slackBotToken,
 			teamId: envelope.team_id,
 			upstreamGated,
+			mentionsBot:
+				event.type === "app_mention" || mentionsBotUser(envelope, event.text),
 		};
 
 		this.logger.info(
@@ -470,4 +472,18 @@ export class SlackEventTransport extends EventEmitter {
 			this.logger.debug(`Message translation skipped: ${result.reason}`);
 		}
 	}
+}
+
+/** Whether `text` @mentions one of the envelope's bot users. */
+function mentionsBotUser(
+	envelope: SlackEventEnvelope,
+	text: string | undefined,
+): boolean {
+	if (!text) return false;
+	return (envelope.authorizations ?? []).some(
+		(auth) =>
+			auth.is_bot === true &&
+			Boolean(auth.user_id) &&
+			text.includes(`<@${auth.user_id}>`),
+	);
 }

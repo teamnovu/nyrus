@@ -1651,15 +1651,7 @@ export class EdgeWorker extends EventEmitter {
 		});
 
 		this.slackEventTransport.on("event", (event: SlackWebhookEvent) => {
-			// nyrus: commands like "@nyrus triage NOV-123" go to the tracker
-			// integration that knows them instead of a chat session.
-			if (this.runSlackChatCommand(event, slackAdapter)) return;
-			this.chatSessionHandler!.handleEvent(event).catch((error) => {
-				this.logger.error(
-					"Failed to handle Slack webhook",
-					error instanceof Error ? error : new Error(String(error)),
-				);
-			});
+			this.dispatchSlackEvent(event, slackAdapter);
 		});
 		this.slackEventTransport.on("message", (message: InternalMessage) => {
 			this.handleMessage(message);
@@ -1676,60 +1668,138 @@ export class EdgeWorker extends EventEmitter {
 	}
 
 	/**
-	 * nyrus: run a chat command a tracker integration recognizes (e.g.
-	 * "triage NOV-123") for an allowed user's @mention. Returns false when the
-	 * event is not such a command, so it goes to a chat session as usual
-	 * (which also tells blocked users they are blocked).
+	 * nyrus: commands like "@nyrus triage NOV-123" go to the tracker
+	 * integration that knows them; everything else goes to a chat session,
+	 * synchronously as before.
 	 */
-	private runSlackChatCommand(
+	private dispatchSlackEvent(
 		event: SlackWebhookEvent,
 		slackAdapter: SlackChatAdapter,
-	): boolean {
-		if (event.eventType !== "app_mention") return false;
-		const text = stripSlackMention(event.payload.text || "");
-		let command: ChatCommand | undefined;
-		for (const integration of this.trackerIntegrations) {
-			command = integration.chatCommand?.(text);
-			if (command) break;
+	): void {
+		const command = this.slackChatCommandCandidate(event);
+		if (command) {
+			void this.routeSlackChatCommand(event, slackAdapter, command);
+			return;
 		}
-		if (!command || !slackAdapter.checkAccess(event).allowed) return false;
+		this.handleSlackChatEvent(event);
+	}
 
-		const found = command;
+	/** Hand a Slack event to the chat session handler. */
+	private handleSlackChatEvent(event: SlackWebhookEvent): void {
+		this.chatSessionHandler!.handleEvent(event).catch((error) => {
+			this.logger.error(
+				"Failed to handle Slack webhook",
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		});
+	}
+
+	/**
+	 * nyrus: the chat command a tracker integration recognizes in a message
+	 * that starts with an @mention (e.g. "@nyrus triage NOV-123"), before
+	 * checking that the mention is the bot's and the user may use it.
+	 */
+	private slackChatCommandCandidate(
+		event: SlackWebhookEvent,
+	): ChatCommand | undefined {
+		const raw = event.payload.text || "";
+		if (event.eventType !== "app_mention" && !/^\s*<@[A-Z0-9]+>/.test(raw)) {
+			return undefined;
+		}
+		const text = stripSlackMention(raw);
+		for (const integration of this.trackerIntegrations) {
+			const command = integration.chatCommand?.(text);
+			if (command) return command;
+		}
+		return undefined;
+	}
+
+	/**
+	 * Run a command candidate if it comes from an allowed user's explicit
+	 * @mention of the bot; otherwise the event goes to a chat session as usual
+	 * (which also tells blocked users they are blocked). A mention in a
+	 * followed thread can arrive as its `message` twin (the transport keeps
+	 * only the first of the two), so a `message` counts when it mentions the
+	 * bot user: flagged by the transport, or checked against the bot's own
+	 * user id. Plain replies never run commands.
+	 */
+	private async routeSlackChatCommand(
+		event: SlackWebhookEvent,
+		slackAdapter: SlackChatAdapter,
+		command: ChatCommand,
+	): Promise<void> {
+		let explicit =
+			event.eventType === "app_mention" || event.mentionsBot === true;
+		if (!explicit) {
+			const leading = /^\s*<@([A-Z0-9]+)>/.exec(event.payload.text || "")?.[1];
+			const token = event.slackBotToken ?? process.env.SLACK_BOT_TOKEN;
+			const botUserId = token ? await this.slackBotUserId(token) : undefined;
+			explicit = Boolean(botUserId) && botUserId === leading;
+		}
+		if (!explicit || !slackAdapter.checkAccess(event).allowed) {
+			this.handleSlackChatEvent(event);
+			return;
+		}
+		await this.runSlackChatCommand(event, slackAdapter, command);
+	}
+
+	/** The Slack bot's own user id (auth.test), looked up once. */
+	private slackBotUserIdLookup?: Promise<string | undefined>;
+	private slackBotUserId(token: string): Promise<string | undefined> {
+		if (!this.slackBotUserIdLookup) {
+			this.slackBotUserIdLookup = new SlackMessageService()
+				.getIdentity(token)
+				.then((identity) => identity.user_id || undefined)
+				.catch((error: unknown) => {
+					this.slackBotUserIdLookup = undefined;
+					this.logger.warn(
+						"Could not look up the Slack bot's user id",
+						error instanceof Error ? error : new Error(String(error)),
+					);
+					return undefined;
+				});
+		}
+		return this.slackBotUserIdLookup;
+	}
+
+	/** Run a Slack chat command and reply with its result in the thread. */
+	private async runSlackChatCommand(
+		event: SlackWebhookEvent,
+		slackAdapter: SlackChatAdapter,
+		command: ChatCommand,
+	): Promise<void> {
 		const token = event.slackBotToken ?? process.env.SLACK_BOT_TOKEN;
 		const threadTs = event.payload.thread_ts || event.payload.ts;
 		this.logger.info(
-			`Slack command "${found.name}" from ${event.payload.user ?? "unknown"}`,
+			`Slack command "${command.name}" from ${event.payload.user ?? "unknown"}`,
 		);
-		void (async () => {
-			await slackAdapter.acknowledgeReceipt(event).catch(() => undefined);
-			let reply: string;
-			try {
-				reply = await found.run();
-			} catch (error) {
-				this.logger.error(
-					`Slack command "${found.name}" failed`,
-					error instanceof Error ? error : new Error(String(error)),
+		await slackAdapter.acknowledgeReceipt(event).catch(() => undefined);
+		let reply: string;
+		try {
+			reply = await command.run();
+		} catch (error) {
+			this.logger.error(
+				`Slack command "${command.name}" failed`,
+				error instanceof Error ? error : new Error(String(error)),
+			);
+			reply = `:warning: ${command.name} failed: ${error instanceof Error ? error.message : String(error)}`;
+		}
+		if (token) {
+			await new SlackMessageService()
+				.postMessage({
+					token,
+					channel: event.payload.channel,
+					text: reply,
+					thread_ts: threadTs,
+				})
+				.catch((error: unknown) =>
+					this.logger.error(
+						`Could not post the reply to "${command.name}"`,
+						error instanceof Error ? error : new Error(String(error)),
+					),
 				);
-				reply = `:warning: ${found.name} failed: ${error instanceof Error ? error.message : String(error)}`;
-			}
-			if (token) {
-				await new SlackMessageService()
-					.postMessage({
-						token,
-						channel: event.payload.channel,
-						text: reply,
-						thread_ts: threadTs,
-					})
-					.catch((error: unknown) =>
-						this.logger.error(
-							`Could not post the reply to "${found.name}"`,
-							error instanceof Error ? error : new Error(String(error)),
-						),
-					);
-			}
-			await slackAdapter.acknowledgeProcessed(event).catch(() => undefined);
-		})();
-		return true;
+		}
+		await slackAdapter.acknowledgeProcessed(event).catch(() => undefined);
 	}
 
 	/**

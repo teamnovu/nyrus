@@ -68,6 +68,14 @@ export interface SlackWebhookEvent {
 	 * self-gate on its in-memory thread bindings.
 	 */
 	upstreamGated?: boolean;
+	/**
+	 * The message explicitly @mentions this app's bot user. Always true for
+	 * `app_mention`; for a `message` event it is set when the envelope names
+	 * the bot user (`authorizations`) and the text mentions it. Slack sends a
+	 * mention in a followed thread twice (`app_mention` and `message`) and only
+	 * the first to arrive is emitted, so a mention can come as a `message`.
+	 */
+	mentionsBot?: boolean;
 }
 
 /**
@@ -268,4 +276,6 @@ export interface SlackEventEnvelope {
 	event_time: number;
 	/** Challenge string (only for url_verification) */
 	challenge?: string;
+	/** Who the event is delivered for; the bot user is the one with `is_bot`. */
+	authorizations?: Array<{ user_id?: string; is_bot?: boolean }>;
 }
