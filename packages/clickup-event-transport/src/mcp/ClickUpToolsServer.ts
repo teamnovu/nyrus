@@ -1,7 +1,7 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { basename, isAbsolute, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { saveAttachment, type TrackerMcpSession } from "cyrus-comment-sessions";
 import { z } from "zod";
 import type { ClickUpApiClient } from "../ClickUpApiClient.js";
 import {
@@ -31,20 +31,6 @@ function fail(error: unknown): ToolResult {
 	return { content: [{ type: "text", text: message }], isError: true };
 }
 
-/** `name`, or `name (2).ext` etc. if a file of that name was already saved. */
-function uniqueName(name: string, used: Set<string>): string {
-	let candidate = name;
-	for (let n = 2; used.has(candidate); n++) {
-		const dot = name.lastIndexOf(".");
-		candidate =
-			dot > 0
-				? `${name.slice(0, dot)} (${n})${name.slice(dot)}`
-				: `${name} (${n})`;
-	}
-	used.add(candidate);
-	return candidate;
-}
-
 const taskSchema = z
 	.string()
 	.describe('The task id, e.g. "86c1abcde" (a "CU-" prefix is fine)');
@@ -58,8 +44,14 @@ const person = (user?: { id: number; username?: string | null } | null) =>
  * MCP tools for an agent working on a ClickUp task: read it, comment, move
  * it to another status and fetch its files. Every call is made with the
  * token of the person nyrus acts as; comments are signed "🤖 nyrus:".
+ *
+ * The server runs outside the session's sandbox, so downloads only go to the
+ * session's attachments folder (`session.attachmentsDir`).
  */
-export function createClickUpToolsServer(api: ClickUpApiClient): McpServer {
+export function createClickUpToolsServer(
+	api: ClickUpApiClient,
+	session: Partial<TrackerMcpSession> = {},
+): McpServer {
 	const server = new McpServer({ name: "clickup", version: "1.0.0" });
 
 	server.registerTool(
@@ -206,44 +198,27 @@ export function createClickUpToolsServer(api: ClickUpApiClient): McpServer {
 		"download_attachments",
 		{
 			description:
-				"Download the files attached to a ClickUp task (screenshots, spreadsheets, documents...) into a directory, e.g. your working directory, so you can open them. Returns each file's path.",
-			inputSchema: {
-				task: taskSchema,
-				directory: z
-					.string()
-					.describe(
-						"Absolute path of the directory to save into; created if missing",
-					),
-			},
+				"Download the files attached to a ClickUp task (screenshots, spreadsheets, documents...) so you can open them; look at images with your Read tool. They are saved in this session's attachments folder, outside the repository, so they never end up in a commit. Returns each file's path.",
+			inputSchema: { task: taskSchema },
 		},
-		async ({ task: id, directory }) => {
+		async ({ task: id }) => {
 			try {
-				if (!isAbsolute(directory)) {
-					return fail("directory must be an absolute path");
+				if (!session.attachmentsDir) {
+					return fail(
+						"Attachments can't be downloaded in this session (it has no attachments folder).",
+					);
 				}
 				const task = await api.getTask(taskId(id));
-				await mkdir(directory, { recursive: true });
-				const used = new Set<string>();
+				const dir = join(session.attachmentsDir, task.id);
 				const files = [];
 				for (const a of task.attachments ?? []) {
-					const original = basename(a.title || a.id);
+					const name = a.title || a.id;
 					const data = await api.download(a.url);
-					let name = uniqueName(original, used);
-					let path = join(directory, name);
-					// Never overwrite: the directory may be the worktree itself.
-					for (;;) {
-						try {
-							await writeFile(path, data, { flag: "wx" });
-							break;
-						} catch (error) {
-							if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-								throw error;
-							}
-							name = uniqueName(original, used);
-							path = join(directory, name);
-						}
-					}
-					files.push({ name, path, size: data.length });
+					files.push({
+						name,
+						path: await saveAttachment(dir, name, data),
+						size: data.length,
+					});
 				}
 				return ok({ task: task.id, files });
 			} catch (error) {
@@ -257,9 +232,13 @@ export function createClickUpToolsServer(api: ClickUpApiClient): McpServer {
 
 /**
  * How Claude Code starts the ClickUp tools for a session: this package's
- * stdio entry point, run with the current Node, with nyrus's token.
+ * stdio entry point, run with the current Node, with nyrus's token and the
+ * session's attachments folder.
  */
-export function clickUpToolsMcpServerConfig(credentials: ClickUpCredentials): {
+export function clickUpToolsMcpServerConfig(
+	credentials: ClickUpCredentials,
+	session?: TrackerMcpSession,
+): {
 	type: "stdio";
 	command: string;
 	args: string[];
@@ -272,6 +251,9 @@ export function clickUpToolsMcpServerConfig(credentials: ClickUpCredentials): {
 		env: {
 			CLICKUP_API_TOKEN: credentials.apiToken,
 			...(credentials.teamId && { CLICKUP_TEAM_ID: credentials.teamId }),
+			...(session?.attachmentsDir && {
+				CLICKUP_ATTACHMENTS_DIR: session.attachmentsDir,
+			}),
 		},
 	};
 }

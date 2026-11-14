@@ -1,5 +1,6 @@
 import { createLogger, type ILogger } from "cyrus-core";
 import type {
+	JiraAttachment,
 	JiraComment,
 	JiraCredentials,
 	JiraIssue,
@@ -299,6 +300,44 @@ export class JiraApiClient {
 			);
 		}
 		return Buffer.from(await response.arrayBuffer());
+	}
+
+	/** Attach files to an issue; returns Jira's records of the new attachments. */
+	async addAttachments(
+		idOrKey: string,
+		files: ReadonlyArray<{ name: string; data: Buffer; type: string }>,
+	): Promise<JiraAttachment[]> {
+		const form = new FormData();
+		for (const file of files) {
+			form.append(
+				"file",
+				new Blob([new Uint8Array(file.data)], { type: file.type }),
+				file.name,
+			);
+		}
+		const path = `/issue/${encodeURIComponent(idOrKey)}/attachments`;
+		const response = await this.fetchImpl(
+			`${await this.apiRoot()}/rest/api/2${path}`,
+			{
+				method: "POST",
+				headers: {
+					Authorization: this.authorization(),
+					Accept: "application/json",
+					// Jira refuses multipart uploads without it (XSRF check).
+					"X-Atlassian-Token": "no-check",
+				},
+				body: form,
+			},
+		);
+		const text = await response.text();
+		if (!response.ok) {
+			throw new JiraApiError(
+				`Jira POST ${path} failed: ${response.status} ${text.slice(0, 200)}`,
+				response.status,
+				text.slice(0, 500),
+			);
+		}
+		return JSON.parse(text) as JiraAttachment[];
 	}
 
 	// ----- plumbing -----

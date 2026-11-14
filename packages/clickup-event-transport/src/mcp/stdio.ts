@@ -26,4 +26,7 @@ const api = new ClickUpApiClient({
 	teamId: process.env.CLICKUP_TEAM_ID?.trim() || undefined,
 });
 
-await createClickUpToolsServer(api).connect(new StdioServerTransport());
+// The session's attachments folder (see clickUpToolsMcpServerConfig).
+await createClickUpToolsServer(api, {
+	attachmentsDir: process.env.CLICKUP_ATTACHMENTS_DIR?.trim() || undefined,
+}).connect(new StdioServerTransport());

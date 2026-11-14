@@ -112,7 +112,9 @@ export function createClickUpIntegrationFactory(
 			workspaceKey,
 			tracker,
 			// Named after the platform, so its tools are mcp__clickup__*.
-			mcpServers: () => ({ clickup: tracker.toolsMcpServerConfig() }),
+			mcpServers: (session) => ({
+				clickup: tracker.toolsMcpServerConfig(session),
+			}),
 			register(host) {
 				const coordinator = tracker.sessions.createCoordinator(host);
 				const handler = new ClickUpEventHandler(

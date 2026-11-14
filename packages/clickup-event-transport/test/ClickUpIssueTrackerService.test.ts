@@ -68,7 +68,7 @@ describe("ClickUpIssueTrackerService", () => {
 			priority: 2,
 		});
 		expect(issue.description).toBe(
-			"## Steps\n\n- open the **shop**\n- tap `menu`\n\n---\nAttached files (download them with the clickup tool download_attachments): screen.png",
+			"## Steps\n\n- open the **shop**\n- tap `menu`\n\n---\nAttached files: screen.png. Download them with the clickup tool download_attachments. Screenshots often show the problem or the expected result: look at every image (Read tool) before you start.",
 		);
 		expect(await issue.state).toMatchObject({
 			id: "to do",

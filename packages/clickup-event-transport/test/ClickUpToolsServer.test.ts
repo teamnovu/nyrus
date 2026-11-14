@@ -9,9 +9,12 @@ import { clickUpTask, fakeClickUp, LIST } from "./fakeClickUp.js";
 
 const TASK = "1amxjbadtjm";
 
-async function connect(routes: Record<string, unknown>) {
+async function connect(
+	routes: Record<string, unknown>,
+	session: { attachmentsDir?: string } = {},
+) {
 	const fake = fakeClickUp(routes);
-	const server = createClickUpToolsServer(fake.api);
+	const server = createClickUpToolsServer(fake.api, session);
 	const [clientTransport, serverTransport] =
 		InMemoryTransport.createLinkedPair();
 	await server.connect(serverTransport);
@@ -103,10 +106,13 @@ describe("ClickUp tools", () => {
 		);
 	});
 
-	it("download_attachments never overwrites a file in the directory", async () => {
-		const dir = await mkdtemp(join(tmpdir(), "clickup-attachments-"));
-		await writeFile(join(dir, "package.json"), "keep");
-		const { call } = await connect({
+	it("download_attachments saves into the session's attachments folder only", async () => {
+		const attachmentsDir = await mkdtemp(
+			join(tmpdir(), "clickup-attachments-"),
+		);
+		const elsewhere = await mkdtemp(join(tmpdir(), "elsewhere-"));
+		await writeFile(join(elsewhere, "package.json"), "keep");
+		const routes = {
 			[`GET /task/${TASK}`]: clickUpTask({
 				attachments: [
 					{
@@ -117,15 +123,27 @@ describe("ClickUp tools", () => {
 				],
 			}),
 			"GET https://files.localhost/a1": new Response("from clickup"),
-		});
+		};
+		const { call } = await connect(routes, { attachmentsDir });
 
 		const { files } = JSON.parse(
-			(await call("download_attachments", { task: TASK, directory: dir })).text,
-		) as { files: Array<{ name: string }> };
-		expect(files.map((f) => f.name)).toEqual(["package (2).json"]);
-		expect(await readFile(join(dir, "package.json"), "utf8")).toBe("keep");
-		expect(await readFile(join(dir, "package (2).json"), "utf8")).toBe(
-			"from clickup",
+			(
+				await call("download_attachments", {
+					task: TASK,
+					directory: elsewhere,
+				})
+			).text,
+		) as { files: Array<{ name: string; path: string }> };
+		const path = join(attachmentsDir, TASK, "package.json");
+		expect(files).toEqual([{ name: "package.json", path, size: 12 }]);
+		expect(await readFile(path, "utf8")).toBe("from clickup");
+		expect(await readFile(join(elsewhere, "package.json"), "utf8")).toBe(
+			"keep",
 		);
+
+		const without = await (await connect(routes)).call("download_attachments", {
+			task: TASK,
+		});
+		expect(without.isError).toBe(true);
 	});
 });

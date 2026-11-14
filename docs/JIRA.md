@@ -83,14 +83,15 @@ A request without `webhookEvent` counts as "this issue may have been handed to N
 - The issue moves to the first "In Progress"-category status when work begins, through the workflow transition that leads there; `JIRA_STARTED_STATUS` names the status to use instead (e.g. `In Progress`, when the workflow lists `REVIEW` first).
 - While Nyrus works, one comment shows what it is doing now and its last few steps. It is edited at most every 20 seconds, without notifying watchers, and deleted when Nyrus answers, asks a question or fails, so only the answer stays.
 - Answers, questions (including repository selection) and errors are posted as comments, converted from Markdown to Jira wiki markup.
-- Sessions get a `jira` MCP server (`mcp__jira__*`) running as the agent account: `get_issue`, `add_comment` (Markdown, with mentions), `download_attachments`, `add_link` (attaches a pull request; the same URL again retitles it), `list_transitions` and `transition_issue`. Its tools are allowed by default.
-- The description reaches the agent as Markdown, with the names of attached files; the agent downloads them with `download_attachments`.
+- Sessions get a `jira` MCP server (`mcp__jira__*`) running as the agent account: `get_issue`, `add_comment` (Markdown, with mentions; `![Before](SAY-12-before.png)` shows an attached image), `download_attachments`, `upload_attachments`, `add_link` (attaches a pull request; the same URL again retitles it), `list_transitions` and `transition_issue`. Its tools are allowed by default.
+- The description reaches the agent as Markdown, with the names of attached files and a request to look at screenshots first. Pasted images read `[attached image: image-20261114-101010.png]`.
+- `download_attachments` saves a ticket's files in the session's attachments folder (`~/.cyrus/<KEY>/attachments/<KEY>/`): outside the repository, so they never end up in a commit, readable in the sandbox, and not writable by the agent's commands. The tool runs outside the sandbox, so it never writes where the agent asks.
+- `upload_attachments` attaches images from the session's worktree (PNG, JPEG, GIF or WebP, up to 10 MB each; files outside the worktree, also through a symlink, are refused), e.g. before/after screenshots; the agent then shows them in a comment.
 
 - After every agent run, the time worked is logged on the issue as a worklog ("🤖 Nyrus: agent run", whole minutes, at least one). If Jira refuses (time tracking off, or the token lacks `write:jira-work`), Nyrus only logs a warning.
 
 ## Not yet
 
-- Images pasted inline into a description (only attachments are listed).
 - Sub-tasks and issue links of Jira issues.
 - Stopping sessions when an issue is resolved in Jira.
 - Some built-in prompts still call the tracker "Linear"; the `appendInstruction` above points the agent to the Jira tools.

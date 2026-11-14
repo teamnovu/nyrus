@@ -194,7 +194,9 @@ export function createJiraIntegrationFactory(
 			workspaceKey: tracker.workspaceKey,
 			tracker,
 			// Named after the platform, so its tools are mcp__jira__*.
-			mcpServers: () => ({ jira: tracker.toolsMcpServerConfig() }),
+			mcpServers: (session) => ({
+				jira: tracker.toolsMcpServerConfig(session),
+			}),
 			register(host) {
 				if (!webhookSecret) {
 					// An open webhook would let anyone prompt the agent.

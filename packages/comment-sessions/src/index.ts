@@ -1,4 +1,15 @@
 export {
+	attachedFilesNote,
+	imageType,
+	isImageFile,
+	MAX_UPLOAD_BYTES,
+	readUploadImages,
+	safeFileName,
+	saveAttachment,
+	type UploadImage,
+	uniqueFileName,
+} from "./attachmentFiles.js";
+export {
 	CommentActivityPublisher,
 	type CommentActivityPublisherOptions,
 	progressMarkdown,
