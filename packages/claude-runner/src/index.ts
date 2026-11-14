@@ -38,6 +38,7 @@ export {
 } from "./sandbox-requirements.js";
 export {
 	buildBaseSessionEnv,
+	CYRUS_INTERNAL_SECRET_ENV_KEYS,
 	CYRUS_SESSION_ENV,
 	normalizeMcpHttpTransport,
 } from "./session-env.js";

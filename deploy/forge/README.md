@@ -94,6 +94,53 @@ With a GitHub App, the agent opens pull requests as `<app>[bot]`, without a user
 
 Each agent session for a repository on GitHub then gets an installation token as `GH_TOKEN`, so `gh pr create` and other `gh` calls act as the App. The token is valid for at least 50 minutes when the session starts; a session that runs longer can lose `gh` access near its end, and the next run (e.g. after a follow-up comment) gets a fresh token. Pushing still uses the server's own git credentials (e.g. its SSH key); set the commit author per repository with `git config user.name` / `user.email`.
 
+### Sandbox (recommended)
+
+Agent sessions run code from the repositories and read ticket text written by others, so a prompt injected through a ticket could make the agent run commands. Without the sandbox those commands can read everything the `forge` user can: other sites' `.env` files, `~/.ssh`, `~/.cyrus/github-app.pem`, nyrus's own `.env`. nyrus never hands its own integration secrets (Jira, Slack, ClickUp tokens, webhook secrets, `CYRUS_API_KEY`) to sessions, but the files are another matter.
+
+With the sandbox on, the agent's shell commands run under bubblewrap: they read only the session's worktree, the repository and its git metadata, write only to the worktree (plus `writablePaths`), and reach only allowed domains through nyrus's egress proxy. Claude's API calls, MCP servers (e.g. the Jira tools) and nyrus itself are not affected.
+
+1. **Packages and AppArmor** (as root, e.g. a Forge recipe with user `root`). Ubuntu 24.04 restricts user namespaces, so bubblewrap needs a profile:
+
+   ```bash
+   apt-get update && apt-get install -y bubblewrap socat
+   cat > /etc/apparmor.d/usr.bin.bwrap <<'PROFILE'
+   abi <abi/4.0>,
+   include <tunables/global>
+
+   /usr/bin/bwrap flags=(unconfined) {
+     userns,
+     network,
+   }
+   PROFILE
+   apparmor_parser -r /etc/apparmor.d/usr.bin.bwrap
+   ```
+
+   Check as `forge`: `bwrap --ro-bind / / --proc /proc --dev /dev --unshare-all true && echo ok`.
+
+2. **Git over HTTPS with the App token.** Inside the sandbox there is no SSH key, and that is the point. Point the repository at HTTPS and let git take the App token: the session's `GH_TOKEN`, or for nyrus's own fetches a fresh token from [`github-app-token.mjs`](github-app-token.mjs):
+
+   ```bash
+   cd ~/.cyrus/repos/<repo>
+   git remote set-url origin https://github.com/<owner>/<repo>.git
+   git config credential.https://github.com.helper '!f() { test "$1" = get || exit 0; t="$GH_TOKEN"; [ -n "$t" ] || t=$(node /home/forge/nyrus.on-forge.com/deploy/forge/github-app-token.mjs) || exit 1; echo username=x-access-token; echo "password=$t"; }; f'
+   git fetch && echo ok
+   ```
+
+   Repository-local config, because the sandbox can't read `~/.gitconfig`; set the commit author there too (`git config user.name` / `user.email`).
+
+3. **Turn it on** in `~/.cyrus/config.json` and restart (`NYRUS_SKIP_BUILD=1 bash deploy/forge/deploy.sh`):
+
+   ```json
+   "sandbox": {
+     "enabled": true,
+     "networkPolicy": { "preset": "trusted" },
+     "writablePaths": ["~/.cyrus/repos/<repo>/.git"]
+   }
+   ```
+
+   `preset: "trusted"` allows the package registries, GitHub and other common developer domains (the default list of Claude Code on the web); add more under `networkPolicy.allow`. `writablePaths` lets the agent commit: a worktree keeps its objects and refs in the repository's `.git`. The log shows `Sandbox egress proxy: enabled` and no "Linux sandbox requirements are not met" warning.
+
 ## Dashboard
 
 The Laravel dashboard in [`dashboard/`](../../dashboard) runs as a second Forge site on the same server and talks to nyrus on `127.0.0.1`. Setup: [`dashboard/README.md`](../../dashboard/README.md).
