@@ -40,7 +40,7 @@ nyrus reads projects and their infos with an inBudget **access token** (user →
 In `<cyrus-home>/.env` (Forge: site → Environment):
 
 ```bash
-INBUDGET_URL=https://inbudget.novu.ch       # without /api
+INBUDGET_URL=https://api.inbudget.ch        # the API, not the web app; without /api
 INBUDGET_TOKEN=...                          # the access token
 # INBUDGET_SYNC_INTERVAL_MINUTES=30         # 0: only at startup and on demand
 ```

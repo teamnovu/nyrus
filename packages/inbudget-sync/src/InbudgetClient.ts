@@ -18,7 +18,7 @@ export interface InbudgetProjectInfo {
 }
 
 export interface InbudgetClientOptions {
-	/** e.g. `https://inbudget.novu.ch` (without `/api`) */
+	/** inBudget's API, e.g. `https://api.inbudget.ch` (without `/api`) */
 	baseUrl: string;
 	/**
 	 * An inBudget access token (user → Access Tokens): a long-lived JWT,
@@ -91,6 +91,12 @@ export class InbudgetClient {
 		if (!response.ok) {
 			throw new Error(
 				`inBudget GET ${path} failed: ${response.status} ${(await response.text().catch(() => "")).slice(0, 200)}`,
+			);
+		}
+		const type = response.headers.get("content-type") ?? "";
+		if (!type.includes("json")) {
+			throw new Error(
+				`inBudget answered ${path} with ${type.split(";")[0] || "no content type"} instead of JSON: INBUDGET_URL must be inBudget's API (e.g. https://api.inbudget.ch), not its web app`,
 			);
 		}
 		return (await response.json()) as T;

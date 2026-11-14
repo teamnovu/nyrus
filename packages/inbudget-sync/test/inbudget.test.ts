@@ -326,6 +326,20 @@ describe("InbudgetClient", () => {
 		]);
 	});
 
+	it("says when INBUDGET_URL is the web app instead of the API", async () => {
+		const client = new InbudgetClient({
+			baseUrl: "https://app.inbudget.test",
+			token: "t",
+			fetch: (async () =>
+				new Response("<!DOCTYPE html><html></html>", {
+					headers: { "content-type": "text/html; charset=UTF-8" },
+				})) as unknown as typeof fetch,
+		});
+		await expect(client.listProjects()).rejects.toThrow(
+			"inBudget answered /api/projects?page=1&itemsPerPage=500 with text/html instead of JSON: INBUDGET_URL must be inBudget's API",
+		);
+	});
+
 	it("says when the token is no longer valid", async () => {
 		const client = new InbudgetClient({
 			baseUrl: "https://inbudget.test",
