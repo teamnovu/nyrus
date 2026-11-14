@@ -125,6 +125,16 @@ export class InbudgetClient {
 		return results.flat();
 	}
 
+	/** Every item of a collection, e.g. `listAll("/api/people", "search=x")`. */
+	listAll<T>(path: string, query = ""): Promise<T[]> {
+		return this.allPages<T>(path, query);
+	}
+
+	/** One resource, e.g. `getJson("/api/projects/12/work_hour_insights")`. */
+	getJson<T>(path: string): Promise<T> {
+		return this.get<T>(path);
+	}
+
 	private async allPages<T>(path: string, query = ""): Promise<T[]> {
 		const items: T[] = [];
 		for (let page = 1; page <= 1000; page++) {

@@ -89,6 +89,34 @@ export class JiraApiClient {
 		return this.request("GET", "/user", undefined, { accountId });
 	}
 
+	/**
+	 * The active Jira user with exactly this email, if Jira shows it. Jira
+	 * hides emails unless the user's profile allows it, so a user can exist
+	 * and still not be found.
+	 */
+	async findUserByEmail(email: string): Promise<JiraUser | undefined> {
+		const users = await this.request<JiraUser[]>(
+			"GET",
+			"/user/search",
+			undefined,
+			{ query: email, maxResults: "10" },
+		);
+		const wanted = email.trim().toLowerCase();
+		return users.find(
+			(user) =>
+				user.active !== false &&
+				user.emailAddress?.trim().toLowerCase() === wanted,
+		);
+	}
+
+	async assignIssue(idOrKey: string, accountId: string): Promise<void> {
+		await this.request(
+			"PUT",
+			`/issue/${encodeURIComponent(idOrKey)}/assignee`,
+			{ accountId },
+		);
+	}
+
 	// ----- issues -----
 
 	getIssue(idOrKey: string): Promise<JiraIssue> {
@@ -168,6 +196,22 @@ export class JiraApiClient {
 			"POST",
 			`/issue/${encodeURIComponent(idOrKey)}/comment`,
 			{ body },
+		);
+	}
+
+	/**
+	 * A comment only agents see (Jira Service Management's "internal note");
+	 * the customer gets no mail. Needs an account with an agent license in
+	 * service projects; on other projects it is a normal comment.
+	 */
+	createInternalComment(idOrKey: string, body: string): Promise<JiraComment> {
+		return this.request(
+			"POST",
+			`/issue/${encodeURIComponent(idOrKey)}/comment`,
+			{
+				body,
+				properties: [{ key: "sd.public.comment", value: { internal: true } }],
+			},
 		);
 	}
 

@@ -7,6 +7,7 @@ import {
 import type { ILogger } from "cyrus-core";
 import { createInbudgetIntegration } from "cyrus-inbudget-sync";
 import { createJiraIntegration } from "cyrus-jira-event-transport";
+import { createServicedeskTriageIntegration } from "cyrus-servicedesk-triage";
 
 /**
  * Trackers without built-in agent sessions (ClickUp, Jira), built on
@@ -18,6 +19,8 @@ export const trackerIntegrationFactories: TrackerIntegrationFactory[] = [
 	createClickUpIntegration,
 	// Not a tracker: repositories and their routing from inBudget projects.
 	createInbudgetIntegration,
+	// Not a tracker: suggests project and assignee for new service desk tickets.
+	createServicedeskTriageIntegration,
 ];
 
 /**
