@@ -26,12 +26,12 @@ Setup guides for users go in `docs/<TRACKER>.md`, like upstream's. Notes for dev
 
 | # | Package | Status | Branch |
 |---|---|---|---|
-| AP1 | Hosting & operations (Forge) | Deploy script and dashboard on `main`, prod at https://nyrus.novu.ch | `main` |
+| AP1 | Hosting & operations (Forge) | Deploy script and dashboard on `main`, prod at https://nyrus.novu.ch. Agent sessions run in the sandbox ([deploy/forge/README.md](deploy/forge/README.md#sandbox-recommended)); GitHub webhooks via an org webhook to `/github-webhook` | `main` |
 | AP2 | Shared base for trackers without agent sessions | Merged: [#5](https://github.com/teamnovu/nyrus/pull/5), fixes in [#9](https://github.com/teamnovu/nyrus/pull/9) | `main` |
 | AP3 | ClickUp integration | Sessions on `main`: tag `nyrus` and `/nyrus` comments, acting with one person's token ([docs/CLICKUP.md](docs/CLICKUP.md)). Next: test on prod in the sandbox Space, confirm webhook payloads, admins' OK for the token | `main` |
-| AP4 | Jira integration | Merged on the AP2 base ([#3](https://github.com/teamnovu/nyrus/pull/3), fixes in [#9](https://github.com/teamnovu/nyrus/pull/9)); not yet tested against a real Jira site | `main` |
-| AP5 | Tracker-neutral prompts, status mapping, PR links | Open | — |
-| AP6 | Tests & pilot | Open | — |
+| AP4 | Jira integration | Live on jkwebch.atlassian.net (space "sayflowers 2.0", `SAY`) since 2026-11-13: label `nyrus` → session → PR. Service account ([#10](https://github.com/teamnovu/nyrus/pull/10)), worklogs per run and dashboard usage ([#13](https://github.com/teamnovu/nyrus/pull/13)), start status `JIRA_STARTED_STATUS` ([#16](https://github.com/teamnovu/nyrus/pull/16)) | `main` |
+| AP5 | Tracker-neutral prompts, status mapping, PR links | Partly: Jira start status ([#16](https://github.com/teamnovu/nyrus/pull/16)), review/done on PR open/merge and PR links (GitHub issues). Open: tracker-neutral prompts | — |
+| AP6 | Tests & pilot | Pilot started on sayflowers (SAY-686 analysis, SAY-687 README PR, SAY-688 sandbox check); PR comments to `@novu-nyrus` answered | — |
 | AP7 | Fork maintenance (merging upstream) | Ongoing | — |
 
 Keep this table current when a package changes state.
@@ -50,8 +50,11 @@ Keep this table current when a package changes state.
 
 | 2026-11-14 | Tickets from Jira and ClickUp are worked in a GitHub issue in their repository (on with `GITHUB_ISSUES_WEBHOOK_SECRET`): the issue gets all the ticket's details, questions and progress go there, and the agent clears up open questions before it starts. The pull request closes the issue. The ticket only gets the link, the PR, review/done status and the result; its comments are still passed on and copied to GitHub. Only repository members and collaborators steer nyrus on GitHub. |
 | 2026-11-14 | Repositories come from inBudget (on with `INBUDGET_URL`): an active project with a GitHub link and a Jira or ClickUp link becomes a managed repository `inbudget-<repo>-<tracker>`. inBudget owns its routing; base branch, active flag and instructions stay editable in the dashboard. Repositories configured by hand win. Links are read by URL, so no new info kinds are needed in inBudget. |
+| 2026-11-14 | Agent sessions run in Claude Code's sandbox (bubblewrap, egress allowlist preset `trusted`): their shell commands read only their worktree and repository, can't reach `~/.ssh`, `.env` files or the other sites on the server, and only reach allowed domains. nyrus's own integration secrets (Slack, Jira, ClickUp tokens, webhook secrets, `CYRUS_API_KEY`) never reach sessions ([#14](https://github.com/teamnovu/nyrus/pull/14)). |
+| 2026-11-14 | GitHub: nyrus acts as the user account `novu-nyrus` (fine-grained token on teamnovu) instead of a GitHub App; commits are "Nyrus <nyrus@novu.ch>". Git talks to GitHub over HTTPS with that token for every repository, so repositories added later (dashboard, inBudget) need no setup. `@novu-nyrus` in a PR comment and failed CI checks reach nyrus through an org webhook to `/github-webhook` ([#16](https://github.com/teamnovu/nyrus/pull/16)). |
+| 2026-11-14 | Jira: the agent account is an Atlassian service account (`…@serviceaccount.atlassian.com`, API calls through api.atlassian.com); each agent run logs its time on the issue. |
 
-Open: Jira Cloud or Data Center, where nyrus runs in production, and which projects and repositories the pilot uses.
+Answered: Jira Cloud (jkwebch.atlassian.net); production on Forge (https://nyrus.novu.ch); pilot on sayflowers. Open: which further projects and repositories (from inBudget).
 
 ## Working on the fork
 

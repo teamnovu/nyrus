@@ -5,6 +5,7 @@ import {
 	type IMcpConfigProvider,
 	type IRunnerSelector,
 	RunnerConfigBuilder,
+	repositoryRoots,
 } from "../src/RunnerConfigBuilder.js";
 
 const silentLogger: ILogger = {
@@ -127,5 +128,60 @@ describe("RunnerConfigBuilder sandbox writable paths", () => {
 			sandboxEnabled: false,
 		});
 		expect(config.writableRoots).toEqual(["/home/me/.supabase"]);
+	});
+});
+
+describe("repositoryRoots", () => {
+	it("finds the repositories behind the git common directories", () => {
+		expect(
+			repositoryRoots([
+				"/home/forge/.cyrus/SAY-1/attachments",
+				"/home/forge/.cyrus/repos/sayflowers",
+				"/home/forge/.cyrus/repos/sayflowers/.git/worktrees/SAY-1",
+				"/home/forge/.cyrus/repos/sayflowers/.git",
+				"/home/forge/.cyrus/repos/web/.git",
+			]),
+		).toEqual([
+			"/home/forge/.cyrus/repos/sayflowers",
+			"/home/forge/.cyrus/repos/web",
+		]);
+	});
+});
+
+describe("RunnerConfigBuilder sandbox and the session's repository", () => {
+	it("lets the sandbox write the repository a worktree belongs to", () => {
+		const { config } = makeBuilder("claude").buildIssueConfig({
+			session: {
+				issueId: "issue-1",
+				issue: { identifier: "SAY-1" },
+				workspace: { path: "/worktrees/SAY-1", isGitWorktree: true },
+			} as unknown as CyrusAgentSession,
+			repository: {
+				id: "sayflowers",
+				name: "sayflowers",
+				repositoryPath: "/repos/sayflowers",
+				allowedTools: [],
+			} as unknown as RepositoryConfig,
+			sessionId: "sess-1",
+			systemPrompt: "test",
+			allowedTools: ["Read(**)"],
+			allowedDirectories: [
+				"/repos/sayflowers",
+				"/repos/sayflowers/.git/worktrees/SAY-1",
+				"/repos/sayflowers/.git",
+			],
+			disallowedTools: [],
+			cyrusHome: "/tmp/cyrus-home",
+			linearWorkspaceId: "ws-1",
+			logger: silentLogger,
+			onMessage: () => {},
+			onError: () => {},
+			requireLinearWorkspaceId: () => "ws-1",
+			sandboxSettings: { enabled: true },
+		});
+
+		expect(
+			(config as Record<string, any>).sandbox.filesystem.allowWrite,
+		).toEqual(["/worktrees/SAY-1", "/repos/sayflowers"]);
 	});
 });

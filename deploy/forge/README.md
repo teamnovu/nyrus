@@ -139,16 +139,15 @@ With the sandbox on, the agent's shell commands run under bubblewrap: they read 
 
    Check as `forge`: `bwrap --ro-bind / / --proc /proc --dev /dev --unshare-all true && echo ok`.
 
-2. **Git over HTTPS with the App token.** Inside the sandbox there is no SSH key, and that is the point. Point the repository at HTTPS and let git take the App token: the session's `GH_TOKEN`, or for nyrus's own fetches a fresh token from [`github-app-token.mjs`](github-app-token.mjs):
+2. **Git over HTTPS with a token.** Inside the sandbox there is no SSH key, and that is the point. With the sandbox on and `GITHUB_TOKEN` (or `GH_TOKEN`) set, nyrus makes git use HTTPS with that token for every GitHub repository, through git config in its environment (SSH remotes are rewritten, `git@github.com:` → `https://github.com/`). Its own fetches and every session get it, so repositories added later (dashboard, inBudget) need no setup. With only a GitHub App (no token in nyrus's environment), use the repository-local credential helper with [`github-app-token.mjs`](github-app-token.mjs) instead:
 
    ```bash
    cd ~/.cyrus/repos/<repo>
    git remote set-url origin https://github.com/<owner>/<repo>.git
    git config credential.https://github.com.helper '!f() { test "$1" = get || exit 0; t="$GH_TOKEN"; [ -n "$t" ] || t=$(node /home/forge/nyrus.on-forge.com/deploy/forge/github-app-token.mjs) || exit 1; echo username=x-access-token; echo "password=$t"; }; f'
-   git fetch && echo ok
    ```
 
-   Repository-local config, because the sandbox can't read `~/.gitconfig`; set the commit author there too (`git config user.name` / `user.email`).
+   Set the commit author per repository (`git config user.name` / `user.email`); the sandbox can't read `~/.gitconfig`.
 
 3. **Turn it on** in `~/.cyrus/config.json` and restart (`NYRUS_SKIP_BUILD=1 bash deploy/forge/deploy.sh`):
 
@@ -156,13 +155,12 @@ With the sandbox on, the agent's shell commands run under bubblewrap: they read 
    "sandbox": {
      "enabled": true,
      "networkPolicy": { "preset": "trusted" },
-     "writablePaths": ["~/.cyrus/repos/<repo>"],
      "systemWideCert": true
    }
    ```
 
    - `preset: "trusted"` allows the package registries, GitHub and other common developer domains (the default list of Claude Code on the web); add more under `networkPolicy.allow`. Everything else is blocked.
-   - `writablePaths` must be the **whole repository directory**, not just its `.git`: a worktree keeps its objects and refs in the repository's `.git`, and Claude Code's sandbox keeps that repository's `.git/config` and `.git/hooks` read-only even inside writable paths, which it can only set up when the repository directory is writable. With only `.git` listed, every shell command fails with `bwrap: Can't create file at …/.git/config.lock: Read-only file system`. One entry per repository.
+   - The session's **repository directory is writable automatically**: a worktree keeps its objects and refs in the repository's `.git`, and Claude Code's sandbox keeps that `.git`'s config and hooks read-only, which it can only set up in a writable repository directory (otherwise every shell command fails with `bwrap: Can't create file at …/.git/config.lock`). `writablePaths` is for anything else the agent must write (e.g. `~/.supabase`).
    - `systemWideCert: true` keeps sessions on the system CA store. Without header transforms the proxy doesn't intercept TLS, so its own CA isn't needed; without the flag, sessions get `SSL_CERT_FILE` / `GIT_SSL_CAINFO` pointing into `~/.cyrus/certs`, which the sandbox can't read, and `git push` and `gh` fail TLS verification. The startup warning that the CA "is not trusted" doesn't matter as long as no transforms are configured.
 
    The log shows `Policy: deny-all with … allowed domain(s)`; a session's `claude_query_options` show `"cqo.hasSandbox":true` and no "Linux sandbox requirements are not met" warning. Checked on lychee: commit, push (App token) and `gh` work; `~/.ssh`, `.env` files, other sites, `.git/hooks` and unlisted domains are blocked.
