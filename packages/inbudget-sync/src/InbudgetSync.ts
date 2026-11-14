@@ -21,6 +21,12 @@ export interface SyncStatus {
 	durationMs?: number;
 	error?: string;
 	projectCount?: number;
+	/** Project infos read from inBudget. */
+	infoCount?: number;
+	/** Infos that belong to an active project. */
+	matchedInfoCount?: number;
+	/** Infos recognised as a GitHub, Jira or ClickUp link. */
+	linkCount?: number;
 	/** Managed repositories wanted by inBudget, with the projects they come from. */
 	repositories?: Array<
 		Pick<
@@ -78,10 +84,8 @@ export class InbudgetSync {
 		const started = Date.now();
 		this.status = { ...this.status, running: true };
 		try {
-			const [projects, infos] = await Promise.all([
-				this.options.client.listProjects(),
-				this.options.client.listProjectInfos(),
-			]);
+			const projects = await this.options.client.listProjects();
+			const infos = await this.options.client.listProjectInfos(projects);
 			const plan = await planRepositories(
 				projects,
 				infos,
@@ -100,6 +104,9 @@ export class InbudgetSync {
 				lastSuccessAt: new Date().toISOString(),
 				durationMs: Date.now() - started,
 				projectCount: plan.projectCount,
+				infoCount: plan.infoCount,
+				matchedInfoCount: plan.matchedInfoCount,
+				linkCount: plan.linkCount,
 				repositories: plan.repositories,
 				result,
 				warnings: plan.warnings,
@@ -112,7 +119,7 @@ export class InbudgetSync {
 				result.deactivated.length && `${result.deactivated.length} turned off`,
 			].filter(Boolean);
 			this.logger.info(
-				`inBudget sync: ${plan.repositories.length} repositories from ${plan.projectCount} projects${changes.length ? ` (${changes.join(", ")})` : ", no changes"}${plan.warnings.length ? `, ${plan.warnings.length} warnings` : ""}`,
+				`inBudget sync: ${plan.repositories.length} repositories from ${plan.projectCount} projects (${plan.infoCount} infos, ${plan.linkCount} links)${changes.length ? ` (${changes.join(", ")})` : ", no changes"}${plan.warnings.length ? `, ${plan.warnings.length} warnings` : ""}`,
 			);
 			for (const error of result.errors) {
 				this.logger.warn(

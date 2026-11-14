@@ -153,6 +153,11 @@ describe("planRepositories", () => {
 			},
 		]);
 		expect(plan.unrouted).toEqual(["4000 Intern"]);
+		expect(plan).toMatchObject({
+			infoCount: 11,
+			matchedInfoCount: 11,
+			linkCount: 11,
+		});
 		expect(plan.warnings).toEqual([
 			{
 				project: "5000 Ohne Repo",
@@ -162,6 +167,79 @@ describe("planRepositories", () => {
 				project: "6000 Anderes Jira",
 				message:
 					"Jira project OTH is on elsewhere.atlassian.net, nyrus works on novu.atlassian.net",
+			},
+		]);
+	});
+});
+
+describe("planRepositories with inBudget's IRIs", () => {
+	it("matches infos by IRI, also when it doesn't use the numeric id", async () => {
+		const plan = await planRepositories(
+			[
+				{
+					id: 1,
+					"@id": "/api/projects/p-abc",
+					publicId: "p-abc",
+					nr: "2041",
+					name: "Webshop",
+				},
+				{ id: 2, nr: "2050", name: "Archiv" },
+			],
+			[
+				{
+					id: 1,
+					kind: "git",
+					url: "https://github.com/teamnovu/shop",
+					project: "/api/projects/p-abc",
+				},
+				{
+					id: 2,
+					kind: "jira",
+					value: "SAY",
+					project: { "@id": "/api/projects/p-abc" },
+				},
+				{
+					id: 3,
+					kind: "git",
+					url: "https://github.com/teamnovu/old",
+					project: "/api/projects/99",
+				},
+			],
+			context,
+		);
+		expect(plan.repositories.map((r) => [r.repo, r.teamKeys])).toEqual([
+			["teamnovu/shop", ["SAY"]],
+		]);
+		expect(plan).toMatchObject({
+			infoCount: 3,
+			matchedInfoCount: 2,
+			linkCount: 2,
+		});
+	});
+
+	it("warns about git links that aren't on GitHub", async () => {
+		const plan = await planRepositories(
+			[{ id: 1, nr: "2041", name: "Webshop" }],
+			[
+				{
+					id: 1,
+					kind: "git",
+					url: "https://gitlab.com/novu/shop",
+					project: "/api/projects/1",
+				},
+				{ id: 2, kind: "jira", value: "SAY", project: "/api/projects/1" },
+			],
+			context,
+		);
+		expect(plan.warnings).toEqual([
+			{
+				project: "2041 Webshop",
+				message:
+					"git link https://gitlab.com/novu/shop is not a GitHub repository (nyrus clones from GitHub only)",
+			},
+			{
+				project: "2041 Webshop",
+				message: "has a Jira/ClickUp link but no GitHub repository link",
 			},
 		]);
 	});
@@ -352,7 +430,7 @@ describe("InbudgetClient", () => {
 			token: "t",
 			fetch: fetchImpl,
 		});
-		expect(await client.listProjectInfos()).toEqual([
+		expect(await client.listProjectInfos([{ id: 3 }])).toEqual([
 			{
 				id: 7,
 				kind: "git",
@@ -360,6 +438,36 @@ describe("InbudgetClient", () => {
 				project: "/api/projects/3",
 			},
 		]);
+	});
+
+	it("reads project infos by project, in batches", async () => {
+		const calls: string[] = [];
+		const fetchImpl = vi.fn(async (url: string) => {
+			calls.push(decodeURIComponent(url.replace("https://inbudget.test", "")));
+			const ids = [
+				...url.matchAll(/project\[\]=%2Fapi%2Fprojects%2F(\d+)/g),
+			].map((m) => Number(m[1]));
+			return Response.json({
+				member: ids.map((id) => ({
+					id: id * 10,
+					kind: "git",
+					project: `/api/projects/${id}`,
+				})),
+			});
+		}) as unknown as typeof fetch;
+		const client = new InbudgetClient({
+			baseUrl: "https://inbudget.test",
+			token: "t",
+			fetch: fetchImpl,
+		});
+		const projects = Array.from({ length: 120 }, (_, i) => ({ id: i + 1 }));
+		const infos = await client.listProjectInfos(projects);
+		expect(infos).toHaveLength(120);
+		expect(infos[0]).toMatchObject({ id: 10, project: "/api/projects/1" });
+		expect(calls).toHaveLength(3);
+		expect(calls[0]).toMatch(
+			/^\/api\/project_infos\?project\[\]=\/api\/projects\/1&project\[\]=\/api\/projects\/2&.*&page=1&itemsPerPage=500$/,
+		);
 	});
 
 	it("says when INBUDGET_URL is the web app instead of the API", async () => {
@@ -383,7 +491,7 @@ describe("InbudgetClient", () => {
 			fetch: (async () =>
 				new Response("Expired", { status: 401 })) as unknown as typeof fetch,
 		});
-		await expect(client.listProjectInfos()).rejects.toThrow(
+		await expect(client.listProjectInfos([{ id: 3 }])).rejects.toThrow(
 			"inBudget rejected INBUDGET_TOKEN",
 		);
 	});

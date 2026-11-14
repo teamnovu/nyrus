@@ -1,7 +1,8 @@
 import {
 	type InbudgetProject,
 	type InbudgetProjectInfo,
-	projectIdOf,
+	projectKeysOf,
+	projectRefOf,
 } from "./InbudgetClient.js";
 import { type ProjectLink, parseProjectLink } from "./links.js";
 
@@ -38,6 +39,12 @@ export interface SyncPlan {
 	/** Projects with a GitHub repository but no Jira or ClickUp link. */
 	unrouted: string[];
 	projectCount: number;
+	/** Project infos read from inBudget (of all projects, archived ones too). */
+	infoCount: number;
+	/** Infos that belong to an active project. */
+	matchedInfoCount: number;
+	/** Infos of active projects nyrus recognised as a GitHub, Jira or ClickUp link. */
+	linkCount: number;
 }
 
 /**
@@ -51,23 +58,41 @@ export async function planRepositories(
 	infos: InbudgetProjectInfo[],
 	context: PlanContext,
 ): Promise<SyncPlan> {
-	const linksByProject = new Map<number, ProjectLink[]>();
+	const infosByProject = new Map<string, InbudgetProjectInfo[]>();
 	for (const info of infos) {
-		const projectId = projectIdOf(info);
-		const link = projectId === undefined ? undefined : parseProjectLink(info);
-		if (projectId === undefined || !link) continue;
-		const links = linksByProject.get(projectId) ?? [];
-		links.push(link);
-		linksByProject.set(projectId, links);
+		const ref = projectRefOf(info);
+		if (ref === undefined) continue;
+		const list = infosByProject.get(ref) ?? [];
+		list.push(info);
+		infosByProject.set(ref, list);
 	}
+	let matchedInfoCount = 0;
+	let linkCount = 0;
 
 	const desired = new Map<string, DesiredRepository>();
 	const warnings: SyncPlan["warnings"] = [];
 	const unrouted: string[] = [];
 
 	for (const project of projects) {
-		const links = linksByProject.get(project.id) ?? [];
 		const label = projectLabel(project);
+		const projectInfos = uniqueBy(
+			projectKeysOf(project).flatMap((key) => infosByProject.get(key) ?? []),
+			(info) => String(info.id),
+		);
+		matchedInfoCount += projectInfos.length;
+		const links: ProjectLink[] = [];
+		for (const info of projectInfos) {
+			const link = parseProjectLink(info);
+			if (link) {
+				links.push(link);
+				linkCount++;
+			} else if (isUnusableGitLink(info)) {
+				warnings.push({
+					project: label,
+					message: `git link ${(info.url ?? info.value ?? "").trim()} is not a GitHub repository (nyrus clones from GitHub only)`,
+				});
+			}
+		}
 		const repos = uniqueBy(
 			links.filter((l) => l.type === "github"),
 			(l) => l.repo.toLowerCase(),
@@ -162,7 +187,19 @@ export async function planRepositories(
 		warnings,
 		unrouted,
 		projectCount: projects.length,
+		infoCount: infos.length,
+		matchedInfoCount,
+		linkCount,
 	};
+}
+
+/** A git info with a value nyrus can't read as a GitHub repository. */
+function isUnusableGitLink(info: InbudgetProjectInfo): boolean {
+	const text = (info.url ?? info.value ?? "").trim();
+	if (!text) return false;
+	return (
+		info.kind === "git" || /(^|[@/.])(gitlab|bitbucket)\.|\.git\/?$/i.test(text)
+	);
 }
 
 async function clickUpTarget(

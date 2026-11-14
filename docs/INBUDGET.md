@@ -47,7 +47,7 @@ INBUDGET_TOKEN=...                          # the access token
 
 Jira and ClickUp have to be set up in nyrus (see [JIRA.md](JIRA.md), [CLICKUP.md](CLICKUP.md)); their links are matched against `JIRA_BASE_URL` and `CLICKUP_TEAM_ID`. ClickUp List links need `CLICKUP_API_TOKEN` to read the List's name.
 
-Restart. The log shows `✅ inBudget registered` and, a few seconds later, `inBudget sync: N repositories from M projects`.
+Restart. The log shows `✅ inBudget registered` and, a few seconds later, `inBudget sync: N repositories from M projects (I infos, L links)`. nyrus reads the infos per project (`project[]=…`, 50 projects per request): inBudget answers `/api/project_infos` without a project filter with an empty list. If the dashboard shows `0 Infos`, the token's user can't see the projects' infos.
 
 Repositories are cloned like the dashboard does it (`gh repo clone`), into `~/.cyrus/repos/<name>`, so the server's GitHub login needs access to them.
 

@@ -1,6 +1,9 @@
 /** An inBudget project, as `/api/projects` lists it (archived ones are left out). */
 export interface InbudgetProject {
 	id: number;
+	/** The project's IRI, e.g. `/api/projects/12` (JSON-LD). */
+	"@id"?: string;
+	publicId?: string | null;
 	name: string;
 	nr?: string | number | null;
 	client?: { name?: string | null } | string | null;
@@ -16,6 +19,10 @@ export interface InbudgetProjectInfo {
 	/** The project, as an IRI (`/api/projects/12`) or an object with its id. */
 	project?: string | { id?: number; "@id"?: string } | null;
 }
+
+/** Projects per `project_infos` request (keeps URLs well below 8 KB). */
+const PROJECTS_PER_REQUEST = 50;
+const PARALLEL_REQUESTS = 4;
 
 export interface InbudgetClientOptions {
 	/** inBudget's API, e.g. `https://api.inbudget.ch` (without `/api`) */
@@ -50,15 +57,49 @@ export class InbudgetClient {
 		return this.allPages<InbudgetProject>("/api/projects");
 	}
 
-	listProjectInfos(): Promise<InbudgetProjectInfo[]> {
-		return this.allPages<InbudgetProjectInfo>("/api/project_infos");
+	/**
+	 * The infos of these projects. inBudget lists project infos only when
+	 * asked for by project (without a `project` filter it answers with an
+	 * empty collection), so they are read in batches of `project[]=<iri>`.
+	 */
+	async listProjectInfos(
+		projects: Pick<InbudgetProject, "id" | "@id">[],
+	): Promise<InbudgetProjectInfo[]> {
+		const iris = [
+			...new Set(projects.map((p) => p["@id"] ?? `/api/projects/${p.id}`)),
+		];
+		const batches: string[][] = [];
+		for (let i = 0; i < iris.length; i += PROJECTS_PER_REQUEST) {
+			batches.push(iris.slice(i, i + PROJECTS_PER_REQUEST));
+		}
+		const results: InbudgetProjectInfo[][] = new Array(batches.length);
+		let next = 0;
+		const worker = async () => {
+			while (next < batches.length) {
+				const index = next++;
+				const query = batches[index]!.map(
+					(iri) => `project[]=${encodeURIComponent(iri)}`,
+				).join("&");
+				results[index] = await this.allPages<InbudgetProjectInfo>(
+					"/api/project_infos",
+					query,
+				);
+			}
+		};
+		await Promise.all(
+			Array.from(
+				{ length: Math.min(PARALLEL_REQUESTS, batches.length) },
+				worker,
+			),
+		);
+		return results.flat();
 	}
 
-	private async allPages<T>(path: string): Promise<T[]> {
+	private async allPages<T>(path: string, query = ""): Promise<T[]> {
 		const items: T[] = [];
 		for (let page = 1; page <= 1000; page++) {
 			const batch = await this.get<unknown>(
-				`${path}?page=${page}&itemsPerPage=${this.pageSize}`,
+				`${path}?${query ? `${query}&` : ""}page=${page}&itemsPerPage=${this.pageSize}`,
 			);
 			const list = Array.isArray(batch)
 				? (batch as T[])
@@ -104,14 +145,37 @@ export class InbudgetClient {
 	}
 }
 
-/** The id of an info's project, from its IRI or object. */
-export function projectIdOf(info: InbudgetProjectInfo): number | undefined {
+/**
+ * The key of an info's project: the last segment of its IRI
+ * (`/api/projects/12` → `12`), or the id of an embedded project. Compared
+ * with {@link projectKeysOf}, so it doesn't matter whether inBudget's IRIs
+ * use the numeric id or another identifier.
+ */
+export function projectRefOf(info: InbudgetProjectInfo): string | undefined {
 	const project = info.project;
-	const iri =
-		typeof project === "string" ? project : (project?.["@id"] ?? undefined);
-	if (iri) {
-		const id = Number(/\/(\d+)$/.exec(iri)?.[1]);
-		return Number.isFinite(id) ? id : undefined;
-	}
-	return typeof project === "object" && project?.id ? project.id : undefined;
+	if (project === null || project === undefined) return undefined;
+	if (typeof project === "string") return lastSegment(project);
+	const iri = project["@id"];
+	if (iri) return lastSegment(iri);
+	return project.id === undefined || project.id === null
+		? undefined
+		: String(project.id);
+}
+
+/** The keys an info's project reference may use for this project. */
+export function projectKeysOf(project: InbudgetProject): string[] {
+	const keys = [
+		project.id === undefined || project.id === null
+			? undefined
+			: String(project.id),
+		project["@id"] ? lastSegment(project["@id"]) : undefined,
+		project.publicId ?? undefined,
+	].filter((key): key is string => Boolean(key));
+	return [...new Set(keys)];
+}
+
+function lastSegment(iri: string): string | undefined {
+	const path = iri.split(/[?#]/)[0] ?? "";
+	const segment = path.replace(/\/+$/, "").split("/").pop();
+	return segment ? decodeURIComponent(segment) : undefined;
 }

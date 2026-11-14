@@ -10,7 +10,8 @@ export {
 	type InbudgetClientOptions,
 	type InbudgetProject,
 	type InbudgetProjectInfo,
-	projectIdOf,
+	projectKeysOf,
+	projectRefOf,
 } from "./InbudgetClient.js";
 export {
 	cloneRepository,
