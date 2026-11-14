@@ -4,4 +4,5 @@ export {
 	ensureGitHubCredentialHelper,
 	handleGitHubTokens,
 } from "./handlers/githubTokens.js";
+export { handleRepository } from "./handlers/repository.js";
 export * from "./types.js";

@@ -27,8 +27,63 @@ class RepositoryController extends Controller
         } catch (NyrusException $e) {
             $error = $e->getMessage();
         }
+        $inbudget = $error ? null : $nyrus->inbudget();
+        $inbudgetProjects = $this->inbudgetProjects($repositories, $inbudget);
 
-        return view('repositories', compact('repositories', 'error'));
+        return view('repositories', compact('repositories', 'error', 'inbudget', 'inbudgetProjects'));
+    }
+
+    /**
+     * The inBudget projects behind each managed repository, by repository id.
+     *
+     * @param  list<array<string, mixed>>  $repositories
+     * @param  array<string, mixed>|null  $inbudget
+     * @return array<string, list<string>>
+     */
+    private function inbudgetProjects(array $repositories, ?array $inbudget): array
+    {
+        $projects = [];
+        foreach ($repositories as $repo) {
+            if (! str_starts_with((string) ($repo['id'] ?? ''), 'inbudget-')) {
+                continue;
+            }
+            $url = strtolower(rtrim((string) ($repo['githubUrl'] ?? ''), '/'));
+            foreach ($inbudget['repositories'] ?? [] as $wanted) {
+                if ('https://github.com/'.strtolower($wanted['repo'] ?? '') === $url
+                    && ($wanted['workspaceKey'] ?? null) === ($repo['linearWorkspaceId'] ?? null)) {
+                    $projects[$repo['id']] = $wanted['projects'] ?? [];
+                }
+            }
+        }
+
+        return $projects;
+    }
+
+    /** Sync repositories from inBudget now. */
+    public function syncInbudget(NyrusClient $nyrus): RedirectResponse
+    {
+        try {
+            $status = $nyrus->syncInbudget();
+        } catch (NyrusException $e) {
+            AuditLog::record('inbudget.sync', 'inbudget', ['error' => $e->getMessage()], success: false);
+
+            return back()->with('error', $e->getMessage());
+        }
+
+        $failed = filled($status['error'] ?? null);
+        AuditLog::record('inbudget.sync', 'inbudget', array_filter([
+            'error' => $status['error'] ?? null,
+            'result' => $status['result'] ?? null,
+        ]), success: ! $failed);
+
+        return redirect()->route('repositories.index')->with(
+            $failed ? 'error' : 'status',
+            match (true) {
+                $failed => 'inBudget-Abgleich fehlgeschlagen: '.$status['error'],
+                (bool) ($status['running'] ?? false) => 'inBudget-Abgleich läuft noch (Repositories werden geklont). Lade die Seite gleich neu.',
+                default => 'Mit inBudget abgeglichen.',
+            },
+        );
     }
 
     public function store(Request $request, NyrusClient $nyrus): RedirectResponse

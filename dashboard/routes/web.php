@@ -6,6 +6,7 @@ use App\Http\Controllers\DeployHookController;
 use App\Http\Controllers\LogController;
 use App\Http\Controllers\RepositoryController;
 use App\Http\Controllers\SettingsController;
+use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('guest')->group(function () {
@@ -23,6 +24,7 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/repositories', [RepositoryController::class, 'index'])->name('repositories.index');
     Route::post('/repositories', [RepositoryController::class, 'store'])->name('repositories.store');
+    Route::post('/repositories/inbudget-sync', [RepositoryController::class, 'syncInbudget'])->name('repositories.inbudget-sync');
     Route::put('/repositories/{name}', [RepositoryController::class, 'update'])->name('repositories.update');
     Route::delete('/repositories/{name}', [RepositoryController::class, 'destroy'])->name('repositories.destroy');
 
@@ -36,5 +38,5 @@ Route::middleware('auth')->group(function () {
 
 // Called by the Forge deploy script (see README): clears PHP-FPM's OPcache.
 Route::post('/_deploy/opcache-reset', [DeployHookController::class, 'resetOpcache'])
-    ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class])
+    ->withoutMiddleware([ValidateCsrfToken::class])
     ->name('deploy.opcache-reset');

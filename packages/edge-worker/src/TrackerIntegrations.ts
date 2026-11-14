@@ -5,6 +5,7 @@ import {
 	type TrackerIntegrationFactory,
 } from "cyrus-comment-sessions";
 import type { ILogger } from "cyrus-core";
+import { createInbudgetIntegration } from "cyrus-inbudget-sync";
 import { createJiraIntegration } from "cyrus-jira-event-transport";
 
 /**
@@ -15,6 +16,8 @@ import { createJiraIntegration } from "cyrus-jira-event-transport";
 export const trackerIntegrationFactories: TrackerIntegrationFactory[] = [
 	createJiraIntegration,
 	createClickUpIntegration,
+	// Not a tracker: repositories and their routing from inBudget projects.
+	createInbudgetIntegration,
 ];
 
 /**

@@ -10,15 +10,83 @@
         </div>
     @endif
 
+    @if ($inbudget)
+        @php($result = $inbudget['result'] ?? [])
+        @php($warnings = $inbudget['warnings'] ?? [])
+        @php($unrouted = $inbudget['unrouted'] ?? [])
+        @php($cloneErrors = $result['errors'] ?? [])
+        <div class="card mt-8 p-5 sm:p-6">
+            <div class="flex flex-wrap items-start gap-4">
+                <div class="min-w-0">
+                    <h2 class="text-lg">inBudget</h2>
+                    <p class="muted mt-1 text-sm">Repositories und Routing kommen aus den Projekten in inBudget: Git-Link plus Jira- oder ClickUp-Link. Ein Repository, das du hier selbst für denselben Tracker einrichtest, hat Vorrang.</p>
+                </div>
+                <form method="POST" action="{{ route('repositories.inbudget-sync') }}" class="ml-auto" data-busy-form>
+                    @csrf
+                    <button class="btn" data-busy-label="Gleiche ab…" @disabled($inbudget['running'] ?? false)>Jetzt abgleichen</button>
+                </form>
+            </div>
+            <div class="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+                @if ($inbudget['running'] ?? false)
+                    <span class="text-gold">Abgleich läuft…</span>
+                @endif
+                @if ($inbudget['lastSuccessAt'] ?? null)
+                    <span class="muted">Zuletzt: {{ \Illuminate\Support\Carbon::parse($inbudget['lastSuccessAt'])->timezone(config('app.timezone'))->format('d.m.Y H:i') }}</span>
+                    <span class="muted">{{ $inbudget['projectCount'] ?? 0 }} aktive Projekte</span>
+                    <span class="muted">{{ count($inbudget['repositories'] ?? []) }} Repositories</span>
+                @elseif (! ($inbudget['running'] ?? false) && ! ($inbudget['error'] ?? null))
+                    <span class="muted">Noch nicht abgeglichen.</span>
+                @endif
+                @foreach (['added' => 'neu', 'updated' => 'geändert', 'reactivated' => 'wieder aktiv', 'deactivated' => 'deaktiviert'] as $key => $label)
+                    @if (! empty($result[$key]))
+                        <span class="text-white/80">{{ count($result[$key]) }} {{ $label }}</span>
+                    @endif
+                @endforeach
+            </div>
+            @if ($inbudget['error'] ?? null)
+                <div class="notice mt-4">
+                    <span class="notice-dot text-warning" aria-hidden="true"></span>
+                    <span>Letzter Abgleich fehlgeschlagen: {{ $inbudget['error'] }}</span>
+                </div>
+            @endif
+            @foreach ($cloneErrors as $cloneError)
+                <div class="notice mt-3">
+                    <span class="notice-dot text-warning" aria-hidden="true"></span>
+                    <span><span class="font-mono">{{ $cloneError['repository'] }}</span> konnte nicht geklont werden: {{ $cloneError['message'] }}</span>
+                </div>
+            @endforeach
+            @if (count($warnings))
+                <details class="mt-4">
+                    <summary class="link cursor-pointer text-sm">{{ count($warnings) }} Projekte mit Links, die nyrus nicht nutzen kann</summary>
+                    <ul class="muted mt-2 space-y-1 text-sm">
+                        @foreach ($warnings as $warning)
+                            <li><span class="text-white/80">{{ $warning['project'] }}</span>: {{ $warning['message'] }}</li>
+                        @endforeach
+                    </ul>
+                </details>
+            @endif
+            @if (count($unrouted))
+                <details class="mt-2">
+                    <summary class="link cursor-pointer text-sm">{{ count($unrouted) }} Projekte mit Repository, aber ohne Jira- oder ClickUp-Link</summary>
+                    <p class="muted mt-2 text-sm">{{ implode(' · ', $unrouted) }}</p>
+                </details>
+            @endif
+        </div>
+    @endif
+
     <div class="card divided mt-8 overflow-hidden">
         @forelse ($repositories as $repo)
             @php($name = $repo['name'] ?? $repo['id'])
+            @php($managed = str_starts_with($repo['id'] ?? '', 'inbudget-'))
             <details class="group" @if (old('_repo') === $name) open @endif>
                 <summary class="card-row flex cursor-pointer list-none flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4 [&::-webkit-details-marker]:hidden">
                     <div class="min-w-0">
                         <div class="font-medium text-white">{{ $name }}</div>
-                        <div class="muted mt-0.5 text-xs"><span class="font-mono">{{ $repo['baseBranch'] ?? 'main' }}</span>@if (! empty($repo['projectKeys'])) · {{ implode(', ', $repo['projectKeys']) }}@endif</div>
+                        <div class="muted mt-0.5 text-xs"><span class="font-mono">{{ $repo['baseBranch'] ?? 'main' }}</span>@if (! empty($repo['teamKeys'])) · {{ implode(', ', $repo['teamKeys']) }}@endif @if (! empty($repo['projectKeys'])) · {{ implode(', ', $repo['projectKeys']) }}@endif</div>
                     </div>
+                    @if ($managed)
+                        <span class="chip text-white/70">inBudget</span>
+                    @endif
                     @if (($repo['isActive'] ?? true) === false)
                         <span class="chip text-white/50">inaktiv</span>
                     @else
@@ -36,14 +104,17 @@
                         @csrf
                         @method('PUT')
                         <input type="hidden" name="_repo" value="{{ $name }}">
+                        @if ($managed)
+                            <p class="muted text-xs sm:col-span-2">Routing kommt aus inBudget{{ empty($inbudgetProjects[$repo['id']]) ? '' : ' ('.implode(', ', $inbudgetProjects[$repo['id']]).')' }}. Team-Keys und Projekte änderst du dort; Basis-Branch und aktiv bleiben hier.</p>
+                        @endif
                         <label class="label">Basis-Branch
                             <input name="baseBranch" value="{{ $repo['baseBranch'] ?? 'main' }}" class="field font-mono">
                         </label>
                         <label class="label">Projekte (kommagetrennt)
-                            <input name="projectKeys" value="{{ implode(', ', $repo['projectKeys'] ?? []) }}" class="field">
+                            <input name="projectKeys" value="{{ implode(', ', $repo['projectKeys'] ?? []) }}" class="field" @readonly($managed)>
                         </label>
                         <label class="label">Team-Keys (kommagetrennt)
-                            <input name="teamKeys" value="{{ implode(', ', $repo['teamKeys'] ?? []) }}" class="field">
+                            <input name="teamKeys" value="{{ implode(', ', $repo['teamKeys'] ?? []) }}" class="field" @readonly($managed)>
                         </label>
                         <label class="label">Routing-Labels (kommagetrennt)
                             <input name="routingLabels" value="{{ implode(', ', $repo['routingLabels'] ?? []) }}" class="field">
@@ -64,6 +135,9 @@
                         <label class="flex items-center gap-2 text-sm text-white/60">
                             <input type="checkbox" name="deleteFiles" value="1" class="size-4 accent-danger"> auch den Klon auf dem Server löschen
                         </label>
+                        @if ($managed)
+                            <span class="muted text-xs">Kommt beim nächsten Abgleich wieder, solange das Projekt in inBudget verknüpft ist. Zum Pausieren „aktiv“ ausschalten.</span>
+                        @endif
                         <button class="btn-danger ml-auto">Entfernen</button>
                     </form>
                 </div>

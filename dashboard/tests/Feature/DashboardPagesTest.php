@@ -6,6 +6,7 @@ use App\Models\AuditLog;
 use App\Models\User;
 use App\Services\NyrusClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -63,7 +64,7 @@ class DashboardPagesTest extends TestCase
 
     public function test_overview_survives_nyrus_being_down(): void
     {
-        Http::fake(fn () => throw new \Illuminate\Http\Client\ConnectionException('refused'));
+        Http::fake(fn () => throw new ConnectionException('refused'));
 
         $this->get('/')->assertOk()->assertSee('nicht erreichbar')->assertSee('Sessions konnten nicht geladen werden');
     }
@@ -118,6 +119,55 @@ class DashboardPagesTest extends TestCase
             && $request['projectKeys'] === ['API', 'Backend']
             && $request['routingLabels'] === []);
         $this->assertDatabaseHas('audit_logs', ['action' => 'repository.add', 'success' => true]);
+    }
+
+    public function test_repositories_show_the_inbudget_sync_and_sync_on_demand(): void
+    {
+        $status = [
+            'running' => false,
+            'lastSuccessAt' => '2026-11-14T09:30:00.000Z',
+            'projectCount' => 42,
+            'repositories' => [[
+                'repo' => 'teamnovu/sayflowers', 'platform' => 'jira', 'workspaceKey' => 'jira-novu',
+                'teamKeys' => ['SAY'], 'projectKeys' => [], 'projects' => ['2041 Webshop (Sayflowers)'],
+            ]],
+            'result' => ['added' => ['inbudget-sayflowers-jira'], 'updated' => [], 'reactivated' => [], 'deactivated' => [], 'manual' => [], 'errors' => [
+                ['repository' => 'teamnovu/secret', 'message' => 'no access'],
+            ]],
+            'warnings' => [['project' => '5000 Ohne Repo', 'message' => 'has a Jira/ClickUp link but no GitHub repository link']],
+            'unrouted' => ['4000 Intern'],
+        ];
+        Http::fake([
+            'nyrus.test/api/dashboard/config' => Http::response(['success' => true, 'data' => ['repositories' => [
+                ['id' => 'inbudget-sayflowers-jira', 'name' => 'inbudget-sayflowers-jira', 'baseBranch' => 'main', 'teamKeys' => ['SAY'],
+                    'githubUrl' => 'https://github.com/teamnovu/sayflowers', 'linearWorkspaceId' => 'jira-novu', 'repositoryPath' => '/r/sayflowers'],
+            ]]]),
+            'nyrus.test/api/dashboard/inbudget' => Http::response(['success' => true, 'data' => ['status' => $status]]),
+        ]);
+
+        $this->get('/repositories')->assertOk()
+            ->assertSee('42 aktive Projekte')
+            ->assertSee('1 neu')
+            ->assertSee('teamnovu/secret')
+            ->assertSee('5000 Ohne Repo')
+            ->assertSee('4000 Intern')
+            ->assertSee('Routing kommt aus inBudget (2041 Webshop (Sayflowers))', false);
+
+        $this->post('/repositories/inbudget-sync')
+            ->assertRedirect('/repositories')
+            ->assertSessionHas('status', 'Mit inBudget abgeglichen.');
+        Http::assertSent(fn (Request $request) => $request->method() === 'POST' && $request->url() === 'http://nyrus.test/api/dashboard/inbudget');
+        $this->assertDatabaseHas('audit_logs', ['action' => 'inbudget.sync', 'success' => true]);
+    }
+
+    public function test_repositories_without_inbudget_hide_the_panel(): void
+    {
+        Http::fake([
+            'nyrus.test/api/dashboard/config' => Http::response(['success' => true, 'data' => ['repositories' => []]]),
+            'nyrus.test/api/dashboard/inbudget' => Http::response('Not Found', 404),
+        ]);
+
+        $this->get('/repositories')->assertOk()->assertDontSee('Jetzt abgleichen');
     }
 
     public function test_failed_add_shows_nyrus_error_and_is_logged(): void

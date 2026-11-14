@@ -84,6 +84,32 @@ class NyrusClient
         return $this->api('get', '/api/dashboard/env');
     }
 
+    /**
+     * Status of the inBudget repository sync, or null if nyrus has no
+     * inBudget integration (INBUDGET_URL not set). Never throws.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function inbudget(): ?array
+    {
+        try {
+            return $this->api('get', '/api/dashboard/inbudget')['status'] ?? null;
+        } catch (NyrusException) {
+            return null;
+        }
+    }
+
+    /**
+     * Sync repositories from inBudget now; returns the status (still
+     * running if the sync takes long, e.g. while cloning).
+     *
+     * @return array<string, mixed>
+     */
+    public function syncInbudget(): array
+    {
+        return $this->api('post', '/api/dashboard/inbudget', [], timeout: 60)['status'] ?? [];
+    }
+
     /** @param  array<string, mixed>  $repository */
     public function addRepository(array $repository): array
     {

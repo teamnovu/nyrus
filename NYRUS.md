@@ -16,6 +16,7 @@ Project brief (German): [ClickUp doc "novu cyrus"](https://app.clickup.com/14278
 | ClickUp integration (AP3): spike and findings | [docs/nyrus/clickup-spike.md](docs/nyrus/clickup-spike.md), tools in [scripts/clickup/](scripts/clickup) |
 | ClickUp setup guide | [docs/CLICKUP.md](docs/CLICKUP.md) |
 | Jira integration (AP4) setup guide (once released) | `docs/JIRA.md` |
+| Repositories and routing from inBudget projects | [docs/INBUDGET.md](docs/INBUDGET.md), code in [packages/inbudget-sync](packages/inbudget-sync) |
 | Working Jira/ClickUp tickets in GitHub issues | [docs/GITHUB-ISSUES.md](docs/GITHUB-ISSUES.md), code in [packages/comment-sessions/src/github/](packages/comment-sessions/src/github) |
 | Plane, the integration ClickUp and Jira are modeled on | [docs/PLANE.md](docs/PLANE.md), [packages/plane-event-transport](packages/plane-event-transport) |
 
@@ -48,6 +49,7 @@ Keep this table current when a package changes state.
 | 2026-11-13 | ClickUp sessions start on the tag `nyrus` (hand-over) and on comments starting with `/nyrus` (questions); assignment only with `CLICKUP_TRIGGER_ON_ASSIGN=true`. nyrus reads tasks and comments from the API instead of trusting webhook payloads, and only acts in `CLICKUP_SPACE_IDS`. Tasks are `CU-<id>` (branch `CU-<id>-<title>`) and a Space's id is its team key. No time entries, since they would land on the token person's timesheet. Whose token in production is still open. |
 
 | 2026-11-14 | Tickets from Jira and ClickUp are worked in a GitHub issue in their repository (on with `GITHUB_ISSUES_WEBHOOK_SECRET`): the issue gets all the ticket's details, questions and progress go there, and the agent clears up open questions before it starts. The pull request closes the issue. The ticket only gets the link, the PR, review/done status and the result; its comments are still passed on and copied to GitHub. Only repository members and collaborators steer nyrus on GitHub. |
+| 2026-11-14 | Repositories come from inBudget (on with `INBUDGET_URL`): an active project with a GitHub link and a Jira or ClickUp link becomes a managed repository `inbudget-<repo>-<tracker>`. inBudget owns its routing; base branch, active flag and instructions stay editable in the dashboard. Repositories configured by hand win. Links are read by URL, so no new info kinds are needed in inBudget. |
 
 Open: Jira Cloud or Data Center, where nyrus runs in production, and which projects and repositories the pilot uses.
 
