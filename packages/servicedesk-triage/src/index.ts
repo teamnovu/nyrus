@@ -1,6 +1,9 @@
 export { buildPrompt, createClaudeClassifier } from "./claudeClassifier.js";
 export { TRIAGE_HEADING, triageComment } from "./comment.js";
-export { InbudgetTriageSource } from "./InbudgetTriageSource.js";
+export {
+	formerEmployees,
+	InbudgetTriageSource,
+} from "./InbudgetTriageSource.js";
 export {
 	createServicedeskTriageIntegration,
 	createServicedeskTriageIntegrationFactory,
@@ -11,6 +14,7 @@ export {
 export {
 	type Classifier,
 	type ClassifierOption,
+	customerLabel,
 	domainOf,
 	FREE_MAIL_DOMAINS,
 	hostOf,

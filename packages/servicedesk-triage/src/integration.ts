@@ -83,7 +83,7 @@ export function createServicedeskTriageIntegrationFactory(
 					env.ANTHROPIC_AUTH_TOKEN?.trim(),
 			);
 		const ownDomains = list(env.TRIAGE_OWN_DOMAINS ?? "novu.ch");
-		const hoursMonths = Number(env.TRIAGE_HOURS_MONTHS ?? 12);
+		const hoursMonths = Number(env.TRIAGE_HOURS_MONTHS ?? 0);
 		const assign = env.TRIAGE_ASSIGN?.trim().toLowerCase() === "true";
 		const service = new TriageService({
 			jira,
@@ -100,7 +100,7 @@ export function createServicedeskTriageIntegrationFactory(
 					[...FREE_MAIL_DOMAINS, ...ownDomains].map((d) => d.toLowerCase()),
 				),
 				hoursMonths:
-					Number.isFinite(hoursMonths) && hoursMonths >= 0 ? hoursMonths : 12,
+					Number.isFinite(hoursMonths) && hoursMonths >= 0 ? hoursMonths : 0,
 				maxPeople: 3,
 			},
 			projectKeys: new Set(projectKeys),

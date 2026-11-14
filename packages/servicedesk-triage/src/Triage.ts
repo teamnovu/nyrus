@@ -165,15 +165,26 @@ export async function triage(
 		}
 	}
 	// 2. Not found that way: Claude reads the ticket and picks a customer.
+	// Each customer comes with its project names: an agency's end customers
+	// (e.g. "The Clinic AG" under an agency) only show up there.
 	if (result.clients.length === 0 && classify) {
 		const byId = new Map<string, TriageClient>();
-		for (const project of projects) byId.set(project.client.id, project.client);
+		const projectNames = new Map<string, string[]>();
+		for (const project of projects) {
+			byId.set(project.client.id, project.client);
+			const names = projectNames.get(project.client.id) ?? [];
+			names.push(project.name);
+			projectNames.set(project.client.id, names);
+		}
 		const picked = await classify(
 			ticket,
 			"customer",
 			[...byId.values()]
 				.sort((a, b) => a.name.localeCompare(b.name))
-				.map((client) => ({ id: client.id, label: client.name })),
+				.map((client) => ({
+					id: client.id,
+					label: customerLabel(client, projectNames.get(client.id) ?? []),
+				})),
 		);
 		const client = picked ? byId.get(picked) : undefined;
 		if (client) {
@@ -244,6 +255,28 @@ async function sumHours(
 		}
 	}
 	return total;
+}
+
+/** Longest list of project names shown with a customer. */
+const MAX_PROJECT_NAMES_CHARS = 200;
+
+/** "Lumina Marketing (projects: the-clinic.ch Support novu, …)" */
+export function customerLabel(
+	client: TriageClient,
+	projectNames: string[],
+): string {
+	let names = "";
+	for (const name of projectNames) {
+		const next = names ? `${names}, ${name}` : name;
+		if (next.length > MAX_PROJECT_NAMES_CHARS) {
+			names = names
+				? `${names}, …`
+				: `${name.slice(0, MAX_PROJECT_NAMES_CHARS)}…`;
+			break;
+		}
+		names = next;
+	}
+	return names ? `${client.name} (projects: ${names})` : client.name;
 }
 
 export function projectLabel(project: TriageProject): string {

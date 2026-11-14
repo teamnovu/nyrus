@@ -4,6 +4,8 @@ import type { JiraIssue } from "cyrus-jira-event-transport";
 import { describe, expect, it, vi } from "vitest";
 import {
 	type Classifier,
+	customerLabel,
+	formerEmployees,
 	InbudgetTriageSource,
 	newIssueKey,
 	type PersonHours,
@@ -170,8 +172,8 @@ describe("triage", () => {
 		expect(clientsByDomain).not.toHaveBeenCalled();
 		expect(classify.mock.calls[0]?.[1]).toBe("customer");
 		expect(classify.mock.calls[0]?.[2]).toEqual([
-			{ id: "2", label: "SIBA" },
-			{ id: "1", label: "Zoo Zürich" },
+			{ id: "2", label: "SIBA (projects: Ombudsstelle)" },
+			{ id: "1", label: "Zoo Zürich (projects: Website, Shop)" },
 		]);
 		expect(result.match).toBe("claude");
 		expect(result.project?.id).toBe("20");
@@ -202,6 +204,24 @@ describe("triage", () => {
 		);
 		expect(result.match).toBe("none");
 		expect(result.clients).toEqual([]);
+	});
+});
+
+describe("customerLabel", () => {
+	it("lists the project names, cut after about 200 characters", () => {
+		const client = { id: "540", name: "Lumina Marketing & Branding" };
+		expect(customerLabel(client, [])).toBe("Lumina Marketing & Branding");
+		expect(
+			customerLabel(client, ["the-clinic.ch Support novu", "neuro-uro.ch"]),
+		).toBe(
+			"Lumina Marketing & Branding (projects: the-clinic.ch Support novu, neuro-uro.ch)",
+		);
+		const label = customerLabel(
+			client,
+			Array.from({ length: 30 }, (_, i) => `project-${i}.ch`),
+		);
+		expect(label.endsWith(", …)")).toBe(true);
+		expect(label.length).toBeLessThan(260);
 	});
 });
 
@@ -482,5 +502,61 @@ describe("InbudgetTriageSource", () => {
 		expect(calls).toContain(
 			"/api/projects/10/work_hour_insights?startDate=2025-11-14&endDate=2026-11-14",
 		);
+	});
+
+	it("leaves out disabled users and users whose employments all ended", async () => {
+		const { source } = inbudget({
+			"/api/users": {
+				member: [
+					{ id: 1, fullName: "Anna Muster", email: "anna@novu.ch" },
+					{ id: 2, fullName: "Left Last Year", email: "left@novu.ch" },
+					{ id: 3, fullName: "Rejoined", email: "back@novu.ch" },
+					{ id: 4, fullName: "Disabled", enabled: false },
+				],
+			},
+			"/api/employments": {
+				member: [
+					{ user: "/api/users/1", activeFrom: "2020-01-01", activeUntil: null },
+					{
+						user: "/api/users/2",
+						activeFrom: "2019-01-01",
+						activeUntil: "2025-12-31",
+					},
+					{
+						user: "/api/users/3",
+						activeFrom: "2018-01-01",
+						activeUntil: "2020-06-30",
+					},
+					{
+						user: { id: 3 },
+						activeFrom: "2024-01-01",
+						activeUntil: "2027-03-31",
+					},
+				],
+			},
+		});
+		expect([...(await source.activeUsers()).keys()]).toEqual(["1", "3"]);
+	});
+
+	it("keeps everyone enabled when employments can't be read", async () => {
+		const { source } = inbudget({
+			"/api/users": { member: [{ id: 2, fullName: "Left Last Year" }] },
+			"/api/employments": "not json-ld",
+		});
+		expect([...(await source.activeUsers()).keys()]).toEqual(["2"]);
+	});
+});
+
+describe("formerEmployees", () => {
+	it("counts an employment ending today as current", () => {
+		expect(
+			formerEmployees(
+				[
+					{ user: "/api/users/5", activeUntil: "2026-11-14" },
+					{ user: "/api/users/6", activeUntil: "2026-11-13T23:00:00+01:00" },
+				],
+				"2026-11-14",
+			),
+		).toEqual(new Set(["6"]));
 	});
 });
