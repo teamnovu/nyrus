@@ -6,34 +6,59 @@
 @source '../../storage/framework/views/*.php';
 
 /*
- * nyrus dashboard: a quiet, unbranded dark mode. Near-black canvas, slightly
- * lighter cards separated by hairlines, white type in a few weights, and gold
- * as the single accent (primary actions, running state, active navigation).
+ * nyrus dashboard: a dark, unbranded UI with clear layers.
+ *
+ * - Layers: canvas < surface (cards) < raised (card headers, hover) with
+ *   solid hairline borders, so cards stand off the background.
+ * - Gold is the brand accent: primary buttons, active navigation, focus.
+ * - State has its own colors: success (green), info (blue, running),
+ *   warning (amber), danger (red). Trackers have brand marks (Jira blue,
+ *   ClickUp violet, GitHub white).
+ * - Chips come in three shapes so they read at a glance:
+ *   status = pill with a dot, tag = tracker with a brand mark and key,
+ *   meta = dashed outline (source, group kind).
  * Fonts: Geist and Geist Mono, self-hosted via Fontsource.
  */
 @theme {
     --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
     --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
 
-    --color-canvas: #0a0a0a;
-    --color-surface: #111111;
-    --color-raised: #171717;
-    --color-ink: #0a0a0a;
-    --color-gold: #c9a961;
-    --color-gold-light: #e3cb94;
-    --color-gold-dark: #8a7442;
-    --color-danger: #e0695b;
-    --color-warning: #e3a75f;
+    --color-canvas: #09090b;
+    --color-surface: #131316;
+    --color-raised: #1a1a1e;
+    --color-inset: #0d0d10;
+    --color-line: #26262c;
+    --color-line-strong: #34343c;
+    --color-ink: #09090b;
+
+    --color-gold: #d6b26b;
+    --color-gold-light: #e8cf98;
+    --color-gold-dark: #8f7744;
+
+    --color-success: #4ade80;
+    --color-info: #60a5fa;
+    --color-warning: #f5b544;
+    --color-danger: #f87171;
+
+    --color-jira: #4c9aff;
+    --color-clickup: #b18cff;
+    --color-github: #e6edf3;
+
+    --animate-ping-slow: ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
 
 @layer base {
     html {
         color-scheme: dark;
+        scroll-padding-top: var(--sticky-offset, 4rem);
     }
 
     body {
         @apply bg-canvas font-sans text-[15px] text-white/80 antialiased;
         font-feature-settings: 'tnum';
+        /* a faint gold glow behind the header */
+        background-image: radial-gradient(1100px 380px at 50% -220px, rgb(214 178 107 / 0.075), transparent 70%);
+        background-repeat: no-repeat;
     }
 
     h1,
@@ -49,63 +74,309 @@
     :focus-visible {
         @apply outline-2 outline-offset-2 outline-gold;
     }
+
+    * {
+        scrollbar-color: rgb(255 255 255 / 0.18) transparent;
+        scrollbar-width: thin;
+    }
 }
 
 @layer components {
-    /* surfaces */
+    /* ---------- surfaces ---------- */
     .card {
-        @apply rounded-xl bg-surface ring-1 ring-white/[0.07];
+        @apply rounded-xl border border-line bg-surface shadow-[0_1px_0_rgb(255_255_255/0.03)_inset,0_8px_24px_-12px_rgb(0_0_0/0.6)];
+    }
+    .card-head {
+        @apply flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-line bg-raised px-4 py-2.5 sm:px-5;
     }
     .card-row {
-        @apply transition-colors duration-150 hover:bg-white/[0.025];
+        @apply transition-colors duration-150 hover:bg-white/[0.035];
     }
     .divided {
-        @apply divide-y divide-white/[0.06];
+        @apply divide-y divide-line;
+    }
+    /* a scroll area inside a card, with a soft fade at the bottom while there is more */
+    .scroll-area {
+        @apply overflow-y-auto overscroll-contain;
+        mask-image: linear-gradient(to bottom, black calc(100% - 2.5rem), transparent);
+    }
+    .scroll-area[data-at-end] {
+        mask-image: none;
     }
 
-    /* page heading */
+    /* ---------- page structure ---------- */
     .eyebrow {
         @apply text-xs font-medium tracking-[0.14em] text-gold uppercase;
     }
     .page-title {
-        @apply mt-2 text-3xl sm:text-4xl;
+        @apply mt-1.5 text-3xl sm:text-[2.5rem] sm:leading-tight;
+    }
+    .page-lead {
+        @apply mt-2 max-w-3xl text-sm leading-relaxed text-white/60;
+    }
+    .section-title {
+        @apply flex items-center gap-2.5 text-lg;
+    }
+    .count {
+        @apply inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white/[0.08] px-1.5 text-xs font-medium text-white/70 tabular-nums;
     }
     .label {
-        @apply text-xs font-medium text-white/45;
+        @apply text-xs font-medium text-white/55;
     }
     .muted {
-        @apply text-white/50;
+        @apply text-white/55;
+    }
+    .faint {
+        @apply text-white/40;
     }
     .link {
         @apply text-gold underline-offset-4 transition-colors hover:text-gold-light hover:underline;
     }
+    .back-link {
+        @apply inline-flex items-center gap-1 text-sm text-white/55 transition-colors hover:text-white;
+    }
 
-    /* controls */
+    /* a bar that sticks under the header (filters, a detail page's title) */
+    .sticky-bar {
+        @apply sticky top-14 z-20 -mx-4 border-b border-transparent bg-canvas/95 px-4 backdrop-blur-xl transition-[border-color,box-shadow] duration-200 sm:-mx-6 sm:px-6;
+    }
+    .sticky-bar[data-stuck] {
+        @apply border-line shadow-[0_10px_30px_-18px_rgb(0_0_0/0.9)];
+    }
+    /* the compact title that appears in a stuck detail bar */
+    .sticky-title {
+        @apply pointer-events-none min-w-0 translate-y-1 truncate font-semibold text-white opacity-0 transition duration-200;
+    }
+    [data-stuck] .sticky-title {
+        @apply pointer-events-auto translate-y-0 opacity-100;
+    }
+
+    /* key figures: label above value */
+    .stats {
+        @apply grid gap-px overflow-hidden rounded-xl border border-line bg-line;
+    }
+    .stat {
+        @apply bg-surface px-4 py-3.5 sm:px-5;
+    }
+    .stat-value {
+        @apply mt-1 text-sm font-medium text-white tabular-nums;
+    }
+    .stat-big {
+        @apply mt-1.5 text-3xl font-semibold tracking-tight tabular-nums;
+    }
+
+    /* ---------- controls ---------- */
     .btn {
-        @apply inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-gold px-4 text-sm font-medium text-ink transition-colors duration-150 hover:bg-gold-light disabled:opacity-70;
+        @apply inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-gold px-4 text-sm font-medium whitespace-nowrap text-ink shadow-[0_1px_0_rgb(255_255_255/0.35)_inset,0_6px_18px_-8px_rgb(214_178_107/0.6)] transition duration-150 hover:bg-gold-light active:translate-y-px disabled:opacity-70;
     }
     .btn-ghost {
-        @apply inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3.5 text-sm font-medium text-white/75 ring-1 ring-white/10 transition-colors duration-150 ring-inset hover:bg-white/[0.05] hover:text-white;
+        @apply inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-line-strong bg-white/[0.03] px-3.5 text-sm font-medium whitespace-nowrap text-white/85 transition duration-150 hover:border-white/25 hover:bg-white/[0.07] hover:text-white active:translate-y-px;
     }
     .btn-danger {
-        @apply inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3.5 text-sm font-medium text-danger ring-1 ring-danger/30 transition-colors duration-150 ring-inset hover:bg-danger/10;
+        @apply inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-danger/40 bg-danger/10 px-3.5 text-sm font-medium whitespace-nowrap text-danger transition duration-150 hover:bg-danger/20;
+    }
+    .btn-icon {
+        @apply inline-flex size-8 items-center justify-center rounded-md text-white/50 transition-colors hover:bg-white/[0.07] hover:text-white;
     }
     .field {
-        @apply mt-1.5 block h-10 w-full rounded-lg bg-canvas px-3 text-sm text-white ring-1 ring-white/10 transition-shadow duration-150 outline-none ring-inset placeholder:text-white/25 focus:ring-gold/60;
+        @apply mt-1.5 block h-10 w-full rounded-lg border border-line-strong bg-inset px-3 text-sm text-white transition-[border-color,box-shadow] duration-150 outline-none placeholder:text-white/30 hover:border-white/20 focus:border-gold/70 focus:ring-3 focus:ring-gold/15;
+    }
+    .input {
+        @apply h-9 w-full min-w-0 rounded-lg border border-line-strong bg-inset px-3 text-sm text-white transition-[border-color,box-shadow] duration-150 outline-none placeholder:text-white/35 hover:border-white/20 focus:border-gold/70 focus:ring-3 focus:ring-gold/15;
+    }
+    .select,
+    select.field {
+        @apply cursor-pointer appearance-none pr-8;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%23a1a1aa'%3E%3Cpath fill-rule='evenodd' d='M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z' clip-rule='evenodd'/%3E%3C/svg%3E");
+        background-position: right 0.55rem center;
+        background-size: 1rem;
+        background-repeat: no-repeat;
+    }
+    .select {
+        @apply h-9 min-w-0 rounded-lg border border-line-strong bg-raised py-0 pl-3 text-sm text-white/85 transition-[border-color,box-shadow,color] duration-150 outline-none hover:border-white/25 hover:text-white focus:border-gold/70 focus:ring-3 focus:ring-gold/15;
+    }
+    /* a select whose filter is set stands out */
+    .select[data-active] {
+        @apply border-gold/50 bg-gold/[0.08] text-gold-light;
+    }
+    option {
+        @apply bg-raised text-white;
+    }
+    .search {
+        @apply relative block min-w-0;
+    }
+    .search > svg {
+        @apply pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-white/35;
+    }
+    .search > input {
+        @apply pl-9 sm:pr-9;
+    }
+    .kbd {
+        @apply pointer-events-none absolute top-1/2 right-2 hidden h-5 -translate-y-1/2 items-center rounded border border-line-strong px-1.5 font-mono text-[11px] text-white/40 sm:inline-flex;
+    }
+    .search > input:focus ~ .kbd,
+    .search > input:not(:placeholder-shown) ~ .kbd {
+        @apply hidden;
+    }
+    /* segmented control (log levels) */
+    .segmented {
+        @apply flex rounded-lg border border-line-strong bg-inset p-0.5;
+    }
+    .segmented > * {
+        @apply rounded-md px-3 py-1 text-sm text-white/55 transition-colors duration-150 hover:text-white;
+    }
+    .segmented > [aria-pressed='true'] {
+        @apply bg-white/[0.1] text-white shadow-[0_1px_0_rgb(255_255_255/0.06)_inset];
     }
 
-    /* small status labels */
+    /* ---------- chips ---------- */
     .chip {
-        @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap ring-1 ring-current/20 ring-inset;
+        @apply inline-flex h-6 items-center gap-1.5 rounded-md border px-2 text-xs font-medium whitespace-nowrap;
+        border-color: color-mix(in oklab, currentColor 30%, transparent);
+        background-color: color-mix(in oklab, currentColor 12%, transparent);
     }
     .chip-dot {
-        @apply size-1.5 rounded-full bg-current;
+        @apply relative size-1.5 shrink-0 rounded-full bg-current;
+    }
+    /* running things pulse */
+    .chip-dot[data-ping]::after {
+        @apply absolute inset-0 animate-ping-slow rounded-full bg-current content-[''];
+    }
+    /* status: pill with a dot */
+    .chip-status {
+        @apply rounded-full pr-2.5 pl-2;
+    }
+    /* meta (source, kind): dashed outline, quieter */
+    .chip-meta {
+        @apply border-dashed font-normal;
+        background-color: transparent;
+    }
+    /* tracker: neutral tag with a brand mark and the key in mono */
+    .chip-tag {
+        @apply border-line-strong bg-raised pl-1.5 text-white/90;
+    }
+    .chip-tag .tag-key {
+        @apply font-mono text-[11px] font-normal text-white/55;
+    }
+    .chip-tag[data-inherited] {
+        @apply border-dashed bg-transparent text-white/55;
+    }
+    .mark {
+        @apply inline-block size-2.5 shrink-0 rounded-[3px];
+    }
+    .mark-jira {
+        @apply bg-jira;
+    }
+    .mark-clickup {
+        background: linear-gradient(135deg, #b18cff, #ff7ac2);
+    }
+    .mark-github {
+        @apply rounded-full bg-github;
+    }
+    .mark-slack {
+        background: linear-gradient(135deg, #36c5f0, #2eb67d 50%, #e01e5a);
+    }
+    .mark-other {
+        @apply bg-white/40;
     }
 
+    /* notices */
     .notice {
-        @apply flex items-start gap-3 rounded-xl bg-surface px-4 py-3 text-sm ring-1 ring-white/[0.07];
+        @apply flex items-start gap-3 rounded-xl border border-line bg-surface px-4 py-3 text-sm;
     }
     .notice-dot {
         @apply mt-1.5 size-2 shrink-0 rounded-full bg-current;
+    }
+
+    /* ---------- code and prose ---------- */
+    .code {
+        @apply overflow-x-auto rounded-lg border border-line bg-inset px-3.5 py-3 font-mono text-[12.5px] leading-relaxed break-words whitespace-pre-wrap text-white/85;
+    }
+    /* long output: clamped with a fade until expanded (see app.js) */
+    .clamp {
+        @apply relative max-h-64 overflow-hidden;
+    }
+    .clamp::after {
+        @apply pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-linear-to-t from-inset to-transparent content-[''];
+    }
+    .clamp[data-open] {
+        @apply max-h-none;
+    }
+    .clamp[data-open]::after,
+    .clamp[data-short]::after {
+        @apply hidden;
+    }
+    .prose-nyrus {
+        @apply text-[14.5px] leading-relaxed text-white/85;
+    }
+    .prose-nyrus > * + * {
+        @apply mt-3;
+    }
+    .prose-nyrus h1,
+    .prose-nyrus h2,
+    .prose-nyrus h3 {
+        @apply mt-5 text-base;
+    }
+    .prose-nyrus ul {
+        @apply list-disc space-y-1 pl-5 marker:text-white/30;
+    }
+    .prose-nyrus ol {
+        @apply list-decimal space-y-1 pl-5 marker:text-white/40;
+    }
+    .prose-nyrus code {
+        @apply rounded border border-line bg-inset px-1.5 py-px font-mono text-[12.5px] text-gold-light;
+    }
+    .prose-nyrus pre {
+        @apply overflow-x-auto rounded-lg border border-line bg-inset px-3.5 py-3 font-mono text-[12.5px] leading-relaxed;
+    }
+    .prose-nyrus pre code {
+        @apply border-0 bg-transparent p-0 text-white/85;
+    }
+    .prose-nyrus a {
+        @apply text-gold underline underline-offset-4 hover:text-gold-light;
+    }
+    .prose-nyrus strong {
+        @apply font-semibold text-white;
+    }
+    .prose-nyrus blockquote {
+        @apply border-l-2 border-line-strong pl-3 text-white/60;
+    }
+    .prose-nyrus table {
+        @apply w-full text-left text-sm;
+    }
+    .prose-nyrus th,
+    .prose-nyrus td {
+        @apply border-b border-line py-1.5 pr-4;
+    }
+
+    /* ---------- session timeline ---------- */
+    .timeline {
+        @apply relative;
+    }
+    .timeline::before {
+        @apply absolute top-5 bottom-5 left-[15px] w-px bg-line content-[''];
+    }
+    .timeline-item {
+        @apply relative grid grid-cols-[2rem_minmax(0,1fr)] gap-x-3 sm:gap-x-4;
+    }
+    .timeline-icon {
+        @apply relative z-10 flex size-8 items-center justify-center rounded-full border border-line-strong bg-raised text-white/60;
+    }
+
+    /* ---------- log viewer ---------- */
+    .log-row {
+        @apply grid grid-cols-[4.25rem_2.75rem_minmax(0,1fr)] gap-x-3 border-l-2 border-transparent py-px pr-3 pl-2.5 sm:grid-cols-[4.5rem_3rem_10.5rem_minmax(0,1fr)] sm:pr-4 sm:pl-3.5;
+    }
+    .log-row:hover {
+        @apply bg-white/[0.045];
+    }
+    .log-row[data-level='WARN'] {
+        @apply border-warning/70 bg-warning/[0.045];
+    }
+    .log-row[data-level='ERROR'] {
+        @apply border-danger bg-danger/[0.08];
+    }
+    .log-view[data-wrap='false'] .log-message {
+        @apply whitespace-pre;
     }
 }

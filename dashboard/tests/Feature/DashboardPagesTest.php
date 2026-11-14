@@ -328,4 +328,32 @@ class DashboardPagesTest extends TestCase
         AuditLog::record('repository.add', 'web');
         $this->get('/audit')->assertOk()->assertSee('repository.add')->assertSee('web');
     }
+
+    public function test_session_timeline_lays_out_tool_calls_output_and_result(): void
+    {
+        Http::fake([
+            'nyrus.test/api/dashboard/session*' => Http::response(['success' => true, 'data' => [
+                'session' => $this->sessionData(),
+                'entries' => [
+                    ['type' => 'assistant', 'content' => json_encode(['command' => 'npm test', 'description' => 'Run the tests']), 'toolName' => 'Bash', 'isError' => false, 'timestamp' => 1_700_000_050_000],
+                    ['type' => 'user', 'content' => '3 failing', 'toolName' => null, 'isError' => true, 'timestamp' => 1_700_000_051_000],
+                    ['type' => 'assistant', 'content' => json_encode(['file_path' => '/w/app.php', 'old_string' => 'a', 'new_string' => 'b']), 'toolName' => 'Edit', 'isError' => false, 'timestamp' => 1_700_000_052_000],
+                    ['type' => 'result', 'content' => "Fixed **two** tests.\n\n<script>alert(1)</script>", 'toolName' => null, 'isError' => false, 'timestamp' => 1_700_000_053_000],
+                ],
+            ]]),
+        ]);
+
+        $html = $this->get('/sessions/s1')->assertOk()->getContent();
+
+        // the command is the headline, its description a caption, not raw JSON
+        $this->assertMatchesRegularExpression('~<span class="text-success select-none">\$ </span>npm test</pre>~', $html);
+        $this->assertStringContainsString('Run the tests', $html);
+        $this->assertStringNotContainsString('&quot;command&quot;', $html);
+        // the failed tool output and the edit's file and change
+        $this->assertMatchesRegularExpression('~data-entry-kind="output".*?Fehler.*?3 failing~s', $html);
+        $this->assertStringContainsString('/w/app.php', $html);
+        // the result is Markdown, with HTML escaped
+        $this->assertStringContainsString('<strong>two</strong>', $html);
+        $this->assertStringNotContainsString('<script>alert(1)</script>', $html);
+    }
 }

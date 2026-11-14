@@ -142,9 +142,9 @@ class ProjectsPageTest extends TestCase
 
         preg_match('~data-repo-row="teamnovu/sayflowers".*?</a>~s', $response->getContent(), $row);
         $this->assertStringContainsString('SayFlowers', $row[0]);
-        $this->assertMatchesRegularExpression('~data-tracker-chip="jira">Jira <span[^>]*>SAY</span>~', $row[0]);
-        $this->assertMatchesRegularExpression('~data-tracker-chip="clickup">ClickUp <span[^>]*>Website</span>~', $row[0]);
-        $this->assertStringContainsString('data-tracker-chip="github">GitHub Issues', $row[0]);
+        $this->assertMatchesRegularExpression('~data-tracker-chip="jira"><span class="mark mark-jira"></span>Jira <span[^>]*>SAY</span>~', $row[0]);
+        $this->assertMatchesRegularExpression('~data-tracker-chip="clickup"><span class="mark mark-clickup"></span>ClickUp <span[^>]*>Website</span>~', $row[0]);
+        $this->assertStringContainsString('data-tracker-chip="github"><span class="mark mark-github"></span>GitHub Issues', $row[0]);
         $this->assertStringContainsString('>inBudget<', $row[0]);
         $this->assertStringContainsString('>manuell<', $row[0]);
         $this->assertStringContainsString('aktiv', $row[0]);
@@ -159,7 +159,7 @@ class ProjectsPageTest extends TestCase
         $response = $this->get('/projects')->assertOk();
         preg_match('~data-repo-row="teamnovu/intern".*?</a>~s', $response->getContent(), $row);
         $this->assertStringContainsString('P-1000 Intern (novu)', $row[0]);
-        $this->assertMatchesRegularExpression('~class="chip text-warning"[^>]*data-tracker-missing[^>]*>Jira/ClickUp fehlt<~', $row[0]);
+        $this->assertMatchesRegularExpression('~class="chip text-warning"[^>]*data-tracker-missing[^>]*>(?:\s*<svg.*?</svg>\s*)?Jira/ClickUp fehlt<~s', $row[0]);
         $this->assertStringContainsString('nicht eingerichtet', $row[0]);
 
         $detail = $this->get('/projects/teamnovu/intern')->assertOk()
@@ -181,7 +181,7 @@ class ProjectsPageTest extends TestCase
         $response = $this->get('/projects')->assertOk();
         preg_match('~data-repo-row="teamnovu/intern".*?</a>~s', $response->getContent(), $row);
         $this->assertStringContainsString('data-tracker-chip="github"', $row[0]);
-        $this->assertMatchesRegularExpression('~class="chip text-white/45"[^>]*data-tracker-missing~', $row[0]);
+        $this->assertMatchesRegularExpression('~class="chip chip-meta text-white/50"[^>]*data-tracker-missing~', $row[0]);
     }
 
     public function test_detail_page_shows_inbudget_value_read_only_and_overridden_manual_value(): void
@@ -433,7 +433,7 @@ class ProjectsPageTest extends TestCase
         $response = $this->get('/repositories')->assertOk()->assertSee('2 Repositories')->assertSee('2041 Webshop')
             ->assertDontSee('data-group-header', false)->assertDontSee('Gruppen mit mehreren Repos');
         preg_match('~data-repo-row="teamnovu/shop".*?</a>~s', $response->getContent(), $shop);
-        $this->assertMatchesRegularExpression('~data-tracker-chip="jira">Jira <span[^>]*>SHOP</span>~', $shop[0]);
+        $this->assertMatchesRegularExpression('~data-tracker-chip="jira"><span class="mark mark-jira"></span>Jira <span[^>]*>SHOP</span>~', $shop[0]);
         $this->assertStringContainsString('data-tracker-chip="github"', $shop[0]);
         preg_match('~data-repo-row="teamnovu/tools".*?</a>~s', $response->getContent(), $tools);
         $this->assertStringContainsString('Jira fehlt', $tools[0]);
@@ -470,11 +470,11 @@ class ProjectsPageTest extends TestCase
             ->assertSee('1 Repository konnte nicht geklont werden')
             ->assertSee('teamnovu/secret')
             ->assertSee('5000 Ohne Repo')
-            ->assertSee('P-1000 Intern (novu)')
+            ->assertSeeInOrder(['P-1000', 'Intern (novu)'])
             ->assertSee('Filter «Ohne Jira/ClickUp»', false)
-            ->assertSee('4200 Infos (900 bei aktiven Projekten)')
-            ->assertSee('312 erkannte Links')
-            ->assertSee('16 Repos aus Kunden-Ressourcen')
+            ->assertSeeInOrder(['Infos', '4200 (900 bei aktiven Projekten)'])
+            ->assertSeeInOrder(['Erkannte Links', '312'])
+            ->assertSeeInOrder(['Repos aus Kunden-Ressourcen', '16'])
             ->assertSee('href="'.url('/repositories?tracker=none').'"', false);
         $this->assertNoCollapsibles($report);
 
@@ -925,18 +925,18 @@ class ProjectsPageTest extends TestCase
 
         $html = $this->get('/projects')->assertOk()->getContent();
         preg_match('~data-group-header="client:10".*?</div>~s', $html, $zuriga);
-        $this->assertMatchesRegularExpression('~data-group-tracker-chip="jira"[^>]*>Jira <span[^>]*>ZUR, ZURS</span>~', $zuriga[0]);
+        $this->assertMatchesRegularExpression('~data-group-tracker-chip="jira"[^>]*><span class="mark mark-jira"></span>Jira <span[^>]*>ZUR, ZURS</span>~', $zuriga[0]);
         preg_match('~data-group-header="manual:shop".*?</div>~s', $html, $shop);
-        $this->assertMatchesRegularExpression('~data-group-tracker-chip="jira"[^>]*>Jira <span[^>]*>WEB</span>~', $shop[0]);
+        $this->assertMatchesRegularExpression('~data-group-tracker-chip="jira"[^>]*><span class="mark mark-jira"></span>Jira <span[^>]*>WEB</span>~', $shop[0]);
         $this->assertStringNotContainsString('data-group-tracker-chip="clickup"', $html);
 
         // zuriga-cms only inherits: a muted chip without keys, not "fehlt"
         preg_match('~data-repo-row="teamnovu/zuriga-cms".*?</a>~s', $html, $cms);
-        $this->assertMatchesRegularExpression('~class="chip text-white/40" data-tracker-chip="jira" data-inherited[^>]*>Jira</span>~', $cms[0]);
+        $this->assertMatchesRegularExpression('~class="chip chip-tag" data-tracker-chip="jira" data-inherited[^>]*><span class="mark mark-jira opacity-60"></span>Jira</span>~', $cms[0]);
         $this->assertStringNotContainsString('data-tracker-missing', $cms[0]);
         // zuriga-web shows its own key
         preg_match('~data-repo-row="teamnovu/zuriga-web".*?</a>~s', $html, $web);
-        $this->assertMatchesRegularExpression('~data-tracker-chip="jira">Jira <span[^>]*>ZURS</span>~', $web[0]);
+        $this->assertMatchesRegularExpression('~data-tracker-chip="jira"><span class="mark mark-jira"></span>Jira <span[^>]*>ZURS</span>~', $web[0]);
 
         // filters count inherited trackers as connected
         $this->get('/projects?tracker=jira')->assertOk()->assertSee('data-repo-row="teamnovu/zuriga-cms"', false);
@@ -958,7 +958,7 @@ class ProjectsPageTest extends TestCase
         $this->assertStringNotContainsString('data-source="inbudget"', $jira);
         // repo-level actions stay, plus the way to the group
         $this->assertMatchesRegularExpression('~data-dialog-open="link-jira" class="btn-ghost"~', $jira);
-        $this->assertMatchesRegularExpression('~data-group-level-link>Auf Gruppenebene bearbeiten<~', $jira);
+        $this->assertMatchesRegularExpression('~data-group-level-link>(?:\s*<svg.*?</svg>\s*)?Auf Gruppenebene bearbeiten<~s', $jira);
 
         // zuriga-web: its own ZURS from inBudget, ZUR inherited
         $web = $this->trackerSection($this->get('/projects/teamnovu/zuriga-web')->assertOk(), 'jira');
@@ -985,7 +985,7 @@ class ProjectsPageTest extends TestCase
         $this->fakeNyrus([], ['running' => false, 'lastSuccessAt' => '2026-11-14T10:00:00Z', 'lastFullSyncAt' => '2026-11-14T03:00:00Z',
             'lastFetch' => ['mode' => 'changes', 'requests' => 5], 'projectCount' => 1, 'repositories' => [], 'repos' => []]);
         $this->get('/projects/inbudget')->assertOk()
-            ->assertSee('Vollständig:')
-            ->assertSee('Letzter Abruf: nur Änderungen, 5 Anfragen');
+            ->assertSeeInOrder(['Vollständig', '14.11.2026'])
+            ->assertSeeInOrder(['Letzter Abruf', 'nur Änderungen, 5 Anfragen']);
     }
 }

@@ -65,10 +65,128 @@ function setupBusyForms() {
 }
 
 /**
+ * Sticky bars ([data-sticky]) get [data-stuck] while they stick under the
+ * header (a border, and on detail pages the compact title). Elements below
+ * them that stick too ([data-sticky-below]) are placed under the bar via
+ * --sticky-offset.
+ */
+function setupSticky() {
+    const header = document.querySelector('[data-site-header]');
+    const bars = [...document.querySelectorAll('[data-sticky]')];
+    const update = () => {
+        const top = header ? header.getBoundingClientRect().height : 0;
+        let offset = top;
+        bars.forEach((bar) => {
+            if (getComputedStyle(bar).position !== 'sticky') {
+                bar.removeAttribute('data-stuck');
+                return;
+            }
+            const rect = bar.getBoundingClientRect();
+            const stuck = window.scrollY > 0 && rect.top <= top + 1;
+            bar.toggleAttribute('data-stuck', stuck);
+            offset = Math.max(offset, top + rect.height);
+        });
+        document.documentElement.style.setProperty('--sticky-offset', `${offset}px`);
+    };
+    window.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    update();
+}
+
+/**
+ * Long output ([data-clamp]) shows its first lines with a fade and a button
+ * to show everything; short output stays as it is. "Alle aufklappen"
+ * ([data-expand-all]) opens or closes all of them.
+ */
+function setupClamps() {
+    const toggles = [];
+    document.querySelectorAll('[data-clamp]').forEach((box) => {
+        box.classList.add('clamp');
+        if (box.scrollHeight <= box.clientHeight + 24) {
+            box.classList.remove('clamp');
+            return;
+        }
+        const lines = (box.textContent.match(/\n/g) || []).length + 1;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-gold hover:text-gold-light';
+        const set = (open) => {
+            box.toggleAttribute('data-open', open);
+            button.textContent = open ? 'Weniger anzeigen' : `Alles anzeigen · ${lines} Zeilen`;
+        };
+        button.addEventListener('click', () => set(!box.hasAttribute('data-open')));
+        set(false);
+        box.after(button);
+        toggles.push(set);
+    });
+
+    const all = document.querySelector('[data-expand-all]');
+    if (!all) return;
+    if (toggles.length === 0) {
+        all.hidden = true;
+        return;
+    }
+    let open = false;
+    all.addEventListener('click', () => {
+        open = !open;
+        toggles.forEach((set) => set(open));
+        all.textContent = open ? 'Alle zuklappen' : 'Alle aufklappen';
+    });
+}
+
+/** [data-copy="text"] buttons copy their text and confirm with a check mark. */
+function setupCopy() {
+    const check = '<svg class="size-3.5 text-success" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clip-rule="evenodd"/></svg>';
+    document.querySelectorAll('[data-copy]').forEach((button) => {
+        button.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(button.dataset.copy);
+            } catch {
+                return;
+            }
+            const icon = button.querySelector('svg:last-of-type');
+            if (!icon) return;
+            const before = icon.outerHTML;
+            icon.outerHTML = check;
+            setTimeout(() => {
+                button.querySelector('svg:last-of-type').outerHTML = before;
+            }, 1200);
+        });
+    });
+}
+
+/** "/" focuses the page's search field; Escape leaves it. */
+function setupHotkeys() {
+    document.addEventListener('keydown', (event) => {
+        const target = event.target;
+        const typing = target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
+        if (event.key === '/' && !typing && !event.metaKey && !event.ctrlKey) {
+            const search = document.querySelector('[data-hotkey-search]');
+            if (search && !document.querySelector('dialog[open]')) {
+                event.preventDefault();
+                search.focus();
+                search.select?.();
+            }
+        } else if (event.key === 'Escape' && target instanceof HTMLInputElement && target.matches('[data-hotkey-search]')) {
+            target.blur();
+        }
+    });
+}
+
+/** Scroll areas ([data-scroll-area]) drop their bottom fade once scrolled to the end. */
+function setupScrollAreas() {
+    document.querySelectorAll('[data-scroll-area]').forEach((area) => {
+        const update = () => area.toggleAttribute('data-at-end', area.scrollTop + area.clientHeight >= area.scrollHeight - 4);
+        area.addEventListener('scroll', update, { passive: true });
+        update();
+    });
+}
+
+/**
  * Log page: appends new lines every 2 s (only what was written since the last
- * request), follows the end while the reader is at the bottom, and offers a
- * jump button with the number of new lines when they scrolled up. One scroll
- * container: the page itself.
+ * request), follows the end while the reader is at the bottom of the log
+ * window, and offers a jump button with the number of new lines when they
+ * scrolled up. Long lines wrap or scroll sideways (remembered per browser).
  */
 const LOG_POLL_MS = 2_000;
 
@@ -76,6 +194,7 @@ function setupLogView() {
     const view = document.querySelector('[data-log-view]');
     if (!view) return;
 
+    const scroller = view.querySelector('[data-log-scroll]');
     const list = view.querySelector('[data-log-lines]');
     const empty = view.querySelector('[data-log-empty]');
     const count = view.querySelector('[data-log-count]');
@@ -83,6 +202,7 @@ function setupLogView() {
     const liveButton = view.querySelector('[data-log-live]');
     const liveDot = view.querySelector('[data-log-live-dot]');
     const liveLabel = view.querySelector('[data-log-live-label]');
+    const wrapButton = view.querySelector('[data-log-wrap]');
     const jump = view.querySelector('[data-log-jump]');
     const jumpLabel = view.querySelector('[data-log-jump-label]');
     const maxLines = Number(view.dataset.lines) || 300;
@@ -93,9 +213,10 @@ function setupLogView() {
     let busy = false;
     let failed = false;
 
-    const atBottom = () =>
-        window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 80;
-    const toBottom = () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' });
+    const atBottom = () => scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 40;
+    const toBottom = () => {
+        scroller.scrollTop = scroller.scrollHeight;
+    };
 
     function updateJump() {
         jump.hidden = follow;
@@ -114,12 +235,25 @@ function setupLogView() {
         const visible = [...rows].filter((row) => !row.hidden).length;
         count.textContent = visible === rows.length ? `${rows.length} Zeilen` : `${visible} von ${rows.length} Zeilen`;
         empty.hidden = rows.length > 0;
+        empty.classList.toggle('hidden', rows.length > 0);
     }
 
     function updateLive() {
         liveButton.setAttribute('aria-pressed', String(live));
         liveLabel.textContent = !live ? 'Pausiert' : failed ? 'Getrennt' : 'Live';
-        liveDot.className = `size-2 rounded-full ${!live ? 'bg-white/30' : failed ? 'bg-danger' : 'bg-gold animate-pulse'}`;
+        liveDot.className = `size-2 rounded-full ${!live ? 'bg-white/30' : failed ? 'bg-danger' : 'bg-success animate-pulse'}`;
+    }
+
+    function setWrap(wrap) {
+        view.dataset.wrap = String(wrap);
+        wrapButton.setAttribute('aria-pressed', String(wrap));
+        wrapButton.classList.toggle('!border-gold/50', wrap);
+        try {
+            localStorage.setItem('nyrus.logs.wrap', wrap ? '1' : '0');
+        } catch {
+            // storage blocked: the choice lasts until reload
+        }
+        if (follow) toBottom();
     }
 
     async function poll() {
@@ -159,7 +293,7 @@ function setupLogView() {
         }
     }
 
-    window.addEventListener('scroll', () => {
+    scroller.addEventListener('scroll', () => {
         follow = atBottom();
         if (follow) unseen = 0;
         updateJump();
@@ -178,6 +312,8 @@ function setupLogView() {
         if (live) poll();
     });
 
+    wrapButton.addEventListener('click', () => setWrap(view.dataset.wrap !== 'true'));
+
     search.addEventListener('input', () => {
         applySearch([...list.querySelectorAll('.log-line')]);
         updateCount();
@@ -188,6 +324,13 @@ function setupLogView() {
         if (event.key === 'Enter') event.preventDefault();
     });
 
+    let savedWrap = '1';
+    try {
+        savedWrap = localStorage.getItem('nyrus.logs.wrap') ?? '1';
+    } catch {
+        // storage blocked: wrap by default
+    }
+    setWrap(savedWrap !== '0');
     document.addEventListener('visibilitychange', poll);
     setInterval(poll, LOG_POLL_MS);
     updateLive();
@@ -228,7 +371,8 @@ function setupDialogs() {
 
 /**
  * Long lists ([data-filter-scope]) with a search field ([data-filter-input]):
- * hides [data-filter-item] entries that don't contain the typed text.
+ * hides [data-filter-item] entries that don't contain the typed text and
+ * shows how many match ([data-filter-count]).
  */
 function setupFilterLists() {
     document.querySelectorAll('[data-filter-scope]').forEach((scope) => {
@@ -236,6 +380,7 @@ function setupFilterLists() {
         if (!input) return;
         const items = [...scope.querySelectorAll('[data-filter-item]')];
         const empty = scope.querySelector('[data-filter-empty]');
+        const count = scope.querySelector('[data-filter-count]');
         input.addEventListener('input', () => {
             const term = input.value.trim().toLowerCase();
             let visible = 0;
@@ -244,6 +389,8 @@ function setupFilterLists() {
                 if (!item.hidden) visible++;
             });
             empty?.classList.toggle('hidden', visible > 0);
+            if (count) count.textContent = term === '' ? String(items.length) : `${visible} / ${items.length}`;
+            scope.querySelector('[data-scroll-area]')?.dispatchEvent(new Event('scroll'));
         });
         input.addEventListener('keydown', (event) => {
             if (event.key === 'Enter') event.preventDefault();
@@ -256,5 +403,10 @@ document.addEventListener('DOMContentLoaded', () => {
     setupFilterLists();
     setupLiveRegions();
     setupBusyForms();
+    setupSticky();
+    setupClamps();
+    setupCopy();
+    setupHotkeys();
+    setupScrollAreas();
     setupLogView();
 });
