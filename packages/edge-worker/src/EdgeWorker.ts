@@ -29,6 +29,9 @@ import {
 	ConfigUpdater,
 	ensureGhTokenResolver,
 	ensureGitHubCredentialHelper,
+	SESSION_HISTORY_FILE,
+	SessionHistory,
+	summarizeSession,
 } from "cyrus-config-updater";
 import type {
 	AgentActivityCreateInput,
@@ -39,6 +42,7 @@ import type {
 	BaseBranchResolution,
 	ContentUpdateMessage,
 	CyrusAgentSession,
+	CyrusAgentSessionEntry,
 	EdgeWorkerConfig,
 	GuidanceRule,
 	IAgentRunner,
@@ -62,6 +66,7 @@ import type {
 	WebhookIssue,
 } from "cyrus-core";
 import {
+	AgentSessionStatus,
 	CLIIssueTrackerService,
 	CLIRPCServer,
 	createLogger,
@@ -273,6 +278,8 @@ export class EdgeWorker extends EventEmitter {
 	private cliRPCServer: CLIRPCServer | null = null; // CLI RPC server for CLI platform mode
 	private configUpdater: ConfigUpdater | null = null; // Single config updater for configuration updates
 	private persistenceManager: PersistenceManager;
+	/** Summaries of every session this process ran (dashboard), bounded. */
+	private sessionHistory: SessionHistory;
 	private sharedApplicationServer: SharedApplicationServer;
 	private cyrusHome: string;
 	/** Per-org GitHub App installation tokens pushed by cyrus-hosted (lazy file-backed reads) */
@@ -385,6 +392,9 @@ export class EdgeWorker extends EventEmitter {
 		this.logger = createLogger({ component: "EdgeWorker" });
 		this.persistenceManager = new PersistenceManager(
 			join(this.cyrusHome, "state"),
+		);
+		this.sessionHistory = new SessionHistory(
+			join(this.cyrusHome, "state", SESSION_HISTORY_FILE),
 		);
 
 		// Mirror Claude SDK session transcripts to the hosted control plane
@@ -947,7 +957,7 @@ export class EdgeWorker extends EventEmitter {
 			() => process.env.CYRUS_API_KEY || "",
 			// The dashboard reads sessions live, not from the state file, which
 			// is only written at a few points (e.g. a session's start).
-			() => this.serializeMappings(),
+			() => this.dashboardState(),
 		);
 
 		// Register config update routes
@@ -1144,6 +1154,25 @@ export class EdgeWorker extends EventEmitter {
 				this.webhookIpValidator.isEnabled()
 					? this.webhookIpValidator.getAllowlist("github")
 					: undefined,
+		});
+
+		// Issues and comments on issues: GitHub issues worked directly.
+		this.gitHubEventTransport.on("issue", (eventName, payload, deliveryId) => {
+			const handlers = this.trackerIntegrations.filter(
+				(integration) => integration.handleGitHubEvent,
+			);
+			for (const integration of handlers) {
+				void integration.handleGitHubEvent!(
+					eventName,
+					payload,
+					deliveryId,
+				).catch((error) =>
+					this.logger.error(
+						`GitHub ${eventName} event failed in ${integration.workspaceKey}`,
+						error,
+					),
+				);
+			}
 		});
 
 		// Listen for legacy GitHub webhook events (deprecated, kept for backward compatibility)
@@ -4218,6 +4247,8 @@ ${taskSection}`;
 				session.id,
 				`Session stopped — ${message.workItemIdentifier} was marked as Done or Canceled.`,
 			);
+			// Keep it listed on the dashboard after it is gone from the state
+			this.recordSessionHistory(session, AgentSessionStatus.Complete);
 			this.agentSessionManager.removeSession(session.id);
 		}
 
@@ -7939,6 +7970,7 @@ ${input.userComment}
 	 * Save current EdgeWorker state for all repositories
 	 */
 	private async savePersistedState(): Promise<void> {
+		this.saveSessionHistory();
 		try {
 			const state = this.serializeMappings();
 			await this.persistenceManager.saveEdgeWorkerState(state);
@@ -7948,6 +7980,126 @@ ${input.userComment}
 		} catch (error) {
 			this.logger.error(`Failed to save persisted EdgeWorker state:`, error);
 		}
+	}
+
+	/**
+	 * Where a Linear-shaped session really came from, when its id and tracker
+	 * cannot tell: Plane runs and CLI sessions look like Linear's.
+	 */
+	private linearShapedSource(session: CyrusAgentSession): string | undefined {
+		if (this.config.platform === "cli") return "cli";
+		const repoId =
+			this.sessionRepositories.get(session.id) ??
+			session.repositories[0]?.repositoryId;
+		const workspaceId = repoId
+			? this.repositories.get(repoId)?.linearWorkspaceId
+			: undefined;
+		return workspaceId?.startsWith("plane-") ? "plane" : undefined;
+	}
+
+	/**
+	 * Record a session's summary in the session history (if it changed), so
+	 * the dashboard still lists it once this process no longer holds it.
+	 */
+	private recordSessionHistory(
+		session: CyrusAgentSession,
+		finalStatus?: AgentSessionStatus,
+		entries?: CyrusAgentSessionEntry[],
+	): void {
+		try {
+			this.recordSessionSummary(session, finalStatus, entries);
+			// A final record is written at once: the session is about to go
+			if (finalStatus) this.sessionHistory.save();
+		} catch (error) {
+			this.logger.error(
+				`Failed to record session ${session.id} in the history:`,
+				error,
+			);
+		}
+	}
+
+	private recordSessionSummary(
+		session: CyrusAgentSession,
+		finalStatus?: AgentSessionStatus,
+		entries?: CyrusAgentSessionEntry[],
+	): void {
+		const sessionEntries =
+			entries ?? this.agentSessionManager.getSessionEntries(session.id);
+		const status =
+			finalStatus &&
+			session.status !== AgentSessionStatus.Error &&
+			session.status !== AgentSessionStatus.Complete
+				? finalStatus
+				: session.status;
+		if (
+			this.sessionHistory.isCurrent(
+				session.id,
+				session.updatedAt,
+				status,
+				sessionEntries.length,
+			)
+		) {
+			return;
+		}
+		const { agentRunner: _agentRunner, ...serializable } = session;
+		this.sessionHistory.record(
+			summarizeSession({ ...serializable, status }, sessionEntries, {
+				source: this.linearShapedSource(session),
+				parentSessionId:
+					this.globalSessionRegistry.getParentSessionId(session.id) ?? null,
+			}),
+		);
+	}
+
+	/** Record every session held now and write the history if it changed. */
+	private saveSessionHistory(): void {
+		try {
+			for (const session of this.agentSessionManager.getAllSessions()) {
+				this.recordSessionHistory(session);
+			}
+			for (const handler of this.activeChatSessionHandlers) {
+				const chat = handler.serializeChatState();
+				for (const session of handler.getAllChatSessions()) {
+					this.recordSessionHistory(
+						session,
+						undefined,
+						(chat.entries[session.id] ?? []) as CyrusAgentSessionEntry[],
+					);
+				}
+			}
+			this.sessionHistory.save();
+		} catch (error) {
+			this.logger.error("Failed to save the session history:", error);
+		}
+	}
+
+	/**
+	 * What the dashboard lists: the issue sessions (as in the state file),
+	 * the chat sessions (Slack, Zulip; never in the state file), the real
+	 * source of Linear-shaped sessions, and the session history.
+	 */
+	public dashboardState() {
+		this.saveSessionHistory();
+		const state = this.serializeMappings();
+		const agentSessions = { ...state.agentSessions };
+		const agentSessionEntries = { ...state.agentSessionEntries };
+		for (const handler of this.activeChatSessionHandlers) {
+			const chat = handler.serializeChatState();
+			Object.assign(agentSessions, chat.sessions);
+			Object.assign(agentSessionEntries, chat.entries);
+		}
+		const sessionSources: Record<string, string> = {};
+		for (const session of this.agentSessionManager.getAllSessions()) {
+			const source = this.linearShapedSource(session);
+			if (source) sessionSources[session.id] = source;
+		}
+		return {
+			...state,
+			agentSessions,
+			agentSessionEntries,
+			sessionSources,
+			sessionHistory: this.sessionHistory.list(),
+		};
 	}
 
 	/**

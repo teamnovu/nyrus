@@ -28,6 +28,7 @@ export {
 } from "./github/GitHubIssuesIntegration.js";
 export {
 	type CommentVerdict,
+	createGitHubIssuesHubFromEnv,
 	createGitHubIssueThreadsFromEnv,
 	DEFAULT_ALLOWED_ASSOCIATIONS,
 	GITHUB_ISSUES_WEBHOOK_PATH,

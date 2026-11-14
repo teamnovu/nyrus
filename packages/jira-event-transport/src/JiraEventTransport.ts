@@ -75,9 +75,7 @@ export class JiraEventTransport extends EventEmitter {
 		const event = normalizeWebhook(request.body as JiraWebhookPayload);
 		if (!event) {
 			const { webhookEvent } = (request.body ?? {}) as JiraWebhookPayload;
-			this.logger.debug(
-				`Ignoring Jira webhook ${webhookEvent ?? "(no event)"}`,
-			);
+			this.logger.info(`Ignoring Jira webhook ${webhookEvent ?? "(no event)"}`);
 			return;
 		}
 		this.logger.info(

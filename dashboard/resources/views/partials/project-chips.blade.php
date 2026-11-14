@@ -2,7 +2,9 @@
 @php($githubCovered = $row['trackers']['github']['covered'] ?? false)
 <div class="flex flex-wrap items-center gap-1.5" data-chips>
     @foreach ($row['trackers'] as $tracker)
-        @if ($tracker['covered'])
+        @if ($tracker['inheritedOnly'] ?? false)
+            <span class="chip text-white/40" data-tracker-chip="{{ $tracker['platform'] }}" data-inherited title="Von der Gruppe geerbt">{{ $tracker['label'] }}</span>
+        @elseif ($tracker['covered'])
             @php($summary = $tracker['summary'])
             <span class="chip text-white/75" data-tracker-chip="{{ $tracker['platform'] }}">{{ $tracker['label'] }}@if ($summary) <span class="text-white/50">{{ implode(', ', array_slice($summary, 0, 2)) }}{{ count($summary) > 2 ? ' +'.(count($summary) - 2) : '' }}</span>@endif</span>
         @endif

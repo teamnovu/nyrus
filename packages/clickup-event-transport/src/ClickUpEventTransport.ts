@@ -86,7 +86,7 @@ export class ClickUpEventTransport extends EventEmitter {
 
 		const payload = request.body as ClickUpWebhookPayload | undefined;
 		if (typeof payload?.event !== "string") {
-			this.logger.debug("Ignoring a ClickUp delivery without an event name");
+			this.logger.info("Ignoring a ClickUp delivery without an event name");
 			return;
 		}
 		this.logger.info(`Received ClickUp ${summarize(payload)}`);

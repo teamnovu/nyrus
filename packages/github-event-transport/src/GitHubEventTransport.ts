@@ -274,13 +274,39 @@ export class GitHubEventTransport extends EventEmitter {
 			return;
 		}
 
+		// Issues and comments on issues (not pull requests) are for GitHub
+		// issues worked directly (cyrus-comment-sessions), not for PR sessions.
+		const issueBody = request.body as {
+			action?: string;
+			repository?: { full_name?: string };
+			issue?: { number?: number; pull_request?: unknown };
+		};
+		if (
+			eventType === "issues" ||
+			(eventType === "issue_comment" && !issueBody?.issue?.pull_request)
+		) {
+			const where = `${issueBody?.repository?.full_name ?? "?"}#${issueBody?.issue?.number ?? "?"}`;
+			if (this.listenerCount("issue") === 0) {
+				this.logger.info(
+					`Ignoring ${eventType} ${issueBody?.action ?? ""} on ${where}: GitHub issues are not worked (no GitHub issues integration)`,
+				);
+			} else {
+				this.logger.info(
+					`Received ${eventType} ${issueBody?.action ?? ""} on ${where} (delivery: ${deliveryId})`,
+				);
+				this.emit("issue", eventType, request.body, deliveryId);
+			}
+			reply.code(200).send({ success: true });
+			return;
+		}
+
 		if (
 			eventType !== "issue_comment" &&
 			eventType !== "pull_request_review_comment" &&
 			eventType !== "pull_request_review" &&
 			eventType !== "push"
 		) {
-			this.logger.debug(`Ignoring unsupported event type: ${eventType}`);
+			this.logger.info(`Ignoring unsupported GitHub event type: ${eventType}`);
 			reply.code(200).send({ success: true, ignored: true });
 			return;
 		}

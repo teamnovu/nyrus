@@ -48,17 +48,26 @@ export function githubIssueEventHandler(
 	waitForRepository: (repo: string) => Promise<boolean> = (repo) =>
 		waitFor(() => tracker.takesIssuesOf(repo)),
 ): UnthreadedIssueListener {
-	const mention = mentionPattern(tracker.agentLogins);
+	let mention = mentionPattern(tracker.agentLogins);
 	return async (name, payload, deliveryId) => {
+		// nyrus's login may have been detected since.
+		mention = mentionPattern(tracker.agentLogins);
 		const repo = payload.repository?.full_name?.toLowerCase();
 		const issue = payload.issue as GitHubIssueData | undefined;
 		if (!repo || !issue || issue.pull_request) return;
+		const where = `${repo}#${issue.number}`;
 		if (!tracker.takesIssuesOf(repo)) {
 			// Set the repository up on demand, but only for work for nyrus.
-			if (
-				!provisioning ||
-				!engagesAgent(tracker, threads, mention, name, payload, issue)
-			) {
+			if (!engagesAgent(tracker, threads, mention, name, payload, issue)) {
+				logger.info(
+					`${where}: ${name} ${payload.action ?? ""} not for nyrus (@${tracker.agentLogins.join(", @")}), and no repository takes this repository's GitHub issues`,
+				);
+				return;
+			}
+			if (!provisioning) {
+				logger.warn(
+					`${where}: for nyrus, but no repository takes this repository's GitHub issues (configure one with linearWorkspaceId "github" and teamKeys ["${repo}"])`,
+				);
 				return;
 			}
 			logger.info(
@@ -74,7 +83,10 @@ export function githubIssueEventHandler(
 				return;
 			}
 		}
-		if (isMarked(issue.body)) return; // opened by nyrus
+		if (isMarked(issue.body)) {
+			logger.debug(`${where}: opened by nyrus, ignored`);
+			return;
+		}
 		const issueId = githubIssueId(repo, issue.number);
 		const sender = payload.sender?.login;
 		const actor = sender ? { id: `github:${sender}`, name: sender } : undefined;
@@ -85,7 +97,10 @@ export function githubIssueEventHandler(
 			if (payload.action !== "created" || !comment) return;
 			if (tracker.isAgentLogin(comment.user?.login)) return;
 			const verdict = threads.commentVerdict(comment);
-			if (verdict === "own") return;
+			if (verdict === "own") {
+				logger.debug(`${label}: comment by nyrus or a bot, ignored`);
+				return;
+			}
 			if (verdict === "not-allowed") {
 				logger.info(
 					`${label}: ignoring comment by @${comment.user?.login ?? "?"} (${comment.author_association || "no association"}): not allowed to steer nyrus`,
@@ -99,6 +114,9 @@ export function githubIssueEventHandler(
 			tracker.rememberIssue(repo, issue);
 			tracker.rememberComment(commentId, issueId);
 			const login = comment.user?.login ?? "someone";
+			logger.info(
+				`${label}: comment by @${login}${mentionsAgent ? " (mentions nyrus)" : ""} → session`,
+			);
 			await coordinator.handle({
 				kind: "comment",
 				eventId: `github:comment:${comment.id}`,
@@ -114,7 +132,12 @@ export function githubIssueEventHandler(
 		const handOver = handOverChange(tracker, payload, issue, () =>
 			host.getSessionState(sessionIdFor(tracker.platform, issueId)),
 		);
-		if (handOver === null) return;
+		if (handOver === null) {
+			logger.info(
+				`${label}: issues ${payload.action ?? ""}${payload.assignee?.login ? ` (@${payload.assignee.login})` : ""}: nothing for nyrus (@${tracker.agentLogins.join(", @")})`,
+			);
+			return;
+		}
 		tracker.rememberIssue(repo, issue);
 		const event: CommentTrackerEvent = {
 			kind: "issue",
@@ -123,8 +146,8 @@ export function githubIssueEventHandler(
 			...(deliveryId && { eventId: `github:delivery:${deliveryId}` }),
 			...(actor && { actor }),
 		};
-		logger.debug(
-			`${label}: issues ${payload.action}${handOver ? ` (hand-over ${handOver})` : ""}`,
+		logger.info(
+			`${label}: issues ${payload.action}${handOver ? ` (hand-over ${handOver})` : ""} → session`,
 		);
 		await coordinator.handle(event);
 	};
@@ -260,6 +283,12 @@ export function createGitHubIssuesIntegrationFactory(
 					`✅ GitHub issues worked directly (assign or mention @${tracker.agentLogins.join(", @")}; repositories with linearWorkspaceId "${GITHUB_WORKSPACE_KEY}")`,
 				);
 			},
+			handleGitHubEvent: (eventName, payload, deliveryId) =>
+				githubIssues.handleWebhook(
+					eventName,
+					payload as GitHubPayload,
+					deliveryId,
+				),
 			dispose: () => tracker.dispose(),
 		};
 	};

@@ -1,5 +1,6 @@
 import { createClickUpIntegration } from "cyrus-clickup-event-transport";
 import {
+	createGitHubIssuesHubFromEnv,
 	createGitHubIssuesIntegration,
 	createGitHubIssueThreadsFromEnv,
 	RepositoryProvisioning,
@@ -19,7 +20,7 @@ import { createServicedeskTriageIntegration } from "cyrus-servicedesk-triage";
 export const trackerIntegrationFactories: TrackerIntegrationFactory[] = [
 	createJiraIntegration,
 	createClickUpIntegration,
-	// GitHub issues as tickets (needs GITHUB_ISSUES_WEBHOOK_SECRET).
+	// GitHub issues as tickets (GITHUB_WEBHOOK_SECRET or GITHUB_ISSUES_WEBHOOK_SECRET).
 	createGitHubIssuesIntegration,
 	// Not a tracker: repositories and their routing from inBudget projects.
 	createInbudgetIntegration,
@@ -48,10 +49,30 @@ export function createTrackerIntegrations(
 			);
 		}
 	}
+	// GitHub issues worked directly need it even when tickets aren't mirrored
+	// (then their events come through /github-webhook).
+	let githubIssuesHub = githubIssues;
+	if (!githubIssuesHub) {
+		try {
+			githubIssuesHub = createGitHubIssuesHubFromEnv(context);
+		} catch (error) {
+			context.logger.error(
+				"GitHub issues are misconfigured and stay off",
+				error,
+			);
+		}
+	}
 	const provisioning = context.provisioning ?? new RepositoryProvisioning();
 	for (const factory of factories) {
 		try {
-			const integration = factory({ ...context, githubIssues, provisioning });
+			const integration = factory({
+				...context,
+				githubIssues:
+					factory === createGitHubIssuesIntegration
+						? githubIssuesHub
+						: githubIssues,
+				provisioning,
+			});
 			if (integration) integrations.push(integration);
 		} catch (error) {
 			logFactoryError(context.logger, factory, error);

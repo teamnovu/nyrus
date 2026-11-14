@@ -351,6 +351,14 @@ describe("ChatSessionHandler session-initiation gate", () => {
 
 		expect(createRunner).toHaveBeenCalledTimes(1);
 		expect(handler.listThreads()).toHaveLength(1);
+		// The dashboard lists it with its first prompt as title
+		const state = handler.serializeChatState();
+		expect(Object.values(state.sessions)).toMatchObject([
+			{
+				id: "slack-test-event",
+				metadata: { title: "Inspect repository configuration" },
+			},
+		]);
 	});
 
 	it("leaves no receipt acknowledgement on an ignored event", async () => {

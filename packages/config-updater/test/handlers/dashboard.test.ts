@@ -223,6 +223,71 @@ describe("dashboard handlers", () => {
 			});
 		});
 
+		it("adds recorded sessions nyrus no longer holds, also as detail", async () => {
+			writeState(state);
+			writeFileSync(
+				join(home, "state", "session-history.json"),
+				JSON.stringify({
+					version: 1,
+					sessions: [
+						{
+							id: "slack-ev-1",
+							status: "active",
+							state: "running",
+							createdAt: 40,
+							updatedAt: 50,
+							source: "slack",
+							title: "Why is CI red?",
+							entryCount: 3,
+							live: true,
+						},
+						// Still live: the live session wins
+						{ id: "old", status: "active", updatedAt: 10, live: true },
+					],
+				}),
+			);
+			const sessions = ((await handleDashboardSessions(home)) as any).data
+				.sessions;
+			expect(sessions.map((s: any) => s.id)).toEqual([
+				"slack-ev-1",
+				"new",
+				"old",
+			]);
+			expect(sessions[0]).toMatchObject({
+				source: "slack",
+				status: "stale",
+				state: "stale",
+				live: false,
+			});
+			expect(sessions[2]).toMatchObject({ status: "complete", live: true });
+
+			const detail = await handleDashboardSession({ id: "slack-ev-1" }, home);
+			expect(detail).toMatchObject({
+				success: true,
+				data: {
+					session: { title: "Why is CI red?", live: false },
+					entries: [],
+				},
+			});
+		});
+
+		it("names sources from live hints and links child sessions", async () => {
+			const live = {
+				...state,
+				sessionSources: { old: "plane" },
+				childToParentAgentSession: { new: "old" },
+			};
+			const sessions = (
+				(await handleDashboardSessions(home, () => live)) as any
+			).data.sessions;
+			expect(sessions[0]).toMatchObject({
+				id: "new",
+				source: "clickup",
+				parentSessionId: "old",
+			});
+			expect(sessions[1]).toMatchObject({ id: "old", source: "plane" });
+		});
+
 		it("rejects a missing or unknown session id", async () => {
 			writeState(state);
 			expect((await handleDashboardSession({}, home)).success).toBe(false);

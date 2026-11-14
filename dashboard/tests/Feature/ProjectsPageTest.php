@@ -811,6 +811,175 @@ class ProjectsPageTest extends TestCase
         $this->assertDatabaseHas('audit_logs', ['action' => 'repository.group', 'success' => false]);
     }
 
+    /**
+     * groupedStatus() of a nyrus with Jira/ClickUp on group level: Zuriga AG has
+     * its own Jira ZUR, zuriga-web brings ZURS from inBudget, zuriga-cms has
+     * nothing itself; the manual group Shop gets WEB from the hand-added web.
+     */
+    private function groupTrackerStatus(): array
+    {
+        $status = $this->groupedStatus();
+        $status['trackers']['clickup'] = true;
+        $status['trackerLinks'] = ['jira' => 'https://jkweb.atlassian.net/', 'clickup' => 'https://app.clickup.com/14278081'];
+        $empty = ['own' => $this->keys(), 'effective' => $this->keys()];
+        $platforms = [
+            'client:10' => ['jira' => ['own' => $this->keys(['ZUR']), 'effective' => $this->keys(['ZUR', 'ZURS'])], 'clickup' => $empty],
+            'client:22' => ['jira' => $empty, 'clickup' => $empty],
+            'manual:shop' => ['jira' => ['own' => $this->keys(), 'effective' => $this->keys(['WEB'])], 'clickup' => $empty],
+        ];
+        foreach ($status['groups'] as &$group) {
+            $group['platforms'] = $platforms[$group['key']];
+        }
+        unset($group);
+
+        $jira = fn (array $inbudget, array $inherited) => ['inbudget' => $this->keys($inbudget), 'manual' => $this->keys(), 'effective' => $this->keys($inbudget),
+            'inherited' => $this->keys($inherited), 'entryId' => 'inbudget-x-jira'];
+        $status['repos'][0]['platforms']['jira'] = $jira(['ZURS'], ['ZUR']);   // zuriga-web
+        $status['repos'][1]['platforms']['jira'] = $jira([], ['ZUR', 'ZURS']); // zuriga-cms
+        $status['repos'][3]['platforms']['jira'] = $jira([], ['WEB']);         // intern (Shop)
+
+        return $status;
+    }
+
+    public function test_group_page_shows_the_group_trackers_and_where_keys_come_from(): void
+    {
+        $this->fakeNyrus($this->groupedEntries(), $this->groupTrackerStatus());
+
+        $page = $this->get('/projects/groups/client:10')->assertOk()->assertSee('Verbindungen');
+        $this->assertNoCollapsibles($page);
+        $this->assertFormsOnlyInModals($page);
+        $html = $page->getContent();
+
+        preg_match('~data-group-tracker="jira".*?</section>~s', $html, $jira);
+        $this->assertStringContainsString('data-connection="connected">', $jira[0]);
+        $this->assertMatchesRegularExpression('~data-key="ZUR">\s*<a href="https://jkweb.atlassian.net/browse/ZUR"[^>]*>ZUR</a>\s*<span[^>]*data-key-source="group">für die Gruppe</span>~', $jira[0]);
+        $this->assertMatchesRegularExpression('~data-key="ZURS">\s*<a href="https://jkweb.atlassian.net/browse/ZURS"[^>]*>ZURS</a>\s*<span[^>]*data-key-source="inbudget">aus inBudget <a class="link" href="'.preg_quote(url('/projects/teamnovu/zuriga-web'), '~').'">zuriga-web</a>~', $jira[0]);
+        $this->assertStringContainsString('data-dialog-open="group-edit-jira"', $jira[0]);
+        $this->assertStringContainsString('data-dialog-open="group-clear-jira"', $jira[0]);
+        $this->assertStringNotContainsString('data-dialog-open="group-link-jira"', $jira[0]);
+
+        $edit = $this->modal($page, 'group-edit-jira');
+        $this->assertStringContainsString('Gilt für alle Repos der Gruppe.', $edit);
+        $this->assertStringContainsString('<input type="hidden" name="group" value="client:10">', $edit);
+        $this->assertStringContainsString('<input name="teamKeys" value="ZUR"', $edit);
+        $this->assertStringNotContainsString('name="projectKeys"', $edit);
+        $clear = $this->modal($page, 'group-clear-jira');
+        $this->assertStringContainsString('<input type="hidden" name="teamKeys" value="">', $clear);
+        $this->assertStringContainsString('<input type="hidden" name="projectKeys" value="">', $clear);
+
+        // ClickUp: nothing on the group nor its members
+        preg_match('~data-group-tracker="clickup".*?</section>~s', $html, $clickup);
+        $this->assertStringContainsString('data-connection="disconnected">Nicht verbunden<', $clickup[0]);
+        $this->assertMatchesRegularExpression('~data-dialog-open="group-link-clickup" class="btn"~', $clickup[0]);
+        $link = $this->modal($page, 'group-link-clickup');
+        $this->assertStringContainsString('<input name="teamKeys" value=""', $link);
+        $this->assertStringContainsString('<input name="projectKeys" value=""', $link);
+
+        // the members' remove buttons open a modal too
+        $this->assertStringContainsString('name="action" value="remove"', $this->modal($page, 'remove-teamnovuzuriga-cms'));
+
+        // Shop: connected only through a member set by hand
+        $shop = $this->get('/projects/groups/manual:shop')->assertOk();
+        preg_match('~data-group-tracker="jira".*?</section>~s', $shop->getContent(), $shopJira);
+        $this->assertStringContainsString('data-connection="connected">', $shopJira[0]);
+        $this->assertMatchesRegularExpression('~data-key-source="manual">von <a class="link" href="'.preg_quote(url('/projects/teamnovu/web'), '~').'">web</a>~', $shopJira[0]);
+        $this->assertStringNotContainsString('data-key-source="group"', $shopJira[0]);
+        $this->assertMatchesRegularExpression('~data-dialog-open="group-link-jira" class="btn-ghost"~', $shopJira[0]);
+        $this->assertFormsOnlyInModals($shop);
+    }
+
+    public function test_group_trackers_are_saved_with_the_group_key_and_cleared_with_empty_lists(): void
+    {
+        $this->fakeNyrus($this->groupedEntries(), $this->groupTrackerStatus());
+
+        $this->post('/projects/groups/trackers', ['group' => 'client:10', 'platform' => 'clickup', 'teamKeys' => ' 9015 ', 'projectKeys' => 'Website, Shop,', '_query' => ['q' => 'zu']])
+            ->assertRedirect('/projects/groups/client:10?q=zu')
+            ->assertSessionHas('status', 'Gespeichert. Gilt für alle Repos der Gruppe.');
+        $this->assertManualSent(['groupKey' => 'client:10', 'platform' => 'clickup', 'teamKeys' => ['9015'], 'projectKeys' => ['Website', 'Shop']]);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'group.trackers', 'subject' => 'client:10', 'success' => true]);
+
+        // Jira has no lists
+        $this->post('/projects/groups/trackers', ['group' => 'manual:shop', 'platform' => 'jira', 'teamKeys' => 'WEB, SHOP', 'projectKeys' => 'x']);
+        $this->assertManualSent(['groupKey' => 'manual:shop', 'platform' => 'jira', 'teamKeys' => ['WEB', 'SHOP'], 'projectKeys' => []]);
+
+        // "Entfernen": empty lists
+        $this->post('/projects/groups/trackers', ['group' => 'client:10', 'platform' => 'jira', 'teamKeys' => '', 'projectKeys' => ''])
+            ->assertRedirect('/projects/groups/client:10')
+            ->assertSessionHas('status', 'Jira der Gruppe entfernt.');
+        $this->assertManualSent(['groupKey' => 'client:10', 'platform' => 'jira', 'teamKeys' => [], 'projectKeys' => []]);
+    }
+
+    public function test_group_trackers_are_validated(): void
+    {
+        $this->fakeNyrus($this->groupedEntries(), $this->groupTrackerStatus());
+
+        $this->post('/projects/groups/trackers', ['group' => 'client:10', 'platform' => 'github', 'teamKeys' => 'x'])->assertSessionHasErrors('platform');
+        $this->post('/projects/groups/trackers', ['platform' => 'jira'])->assertSessionHasErrors('group');
+        $this->post('/projects/groups/trackers', ['group' => 'client:99', 'platform' => 'jira', 'teamKeys' => 'X'])->assertSessionHas('error');
+        Http::assertNotSent(fn (Request $request) => str_ends_with($request->url(), '/inbudget/manual'));
+    }
+
+    public function test_list_shows_group_trackers_in_the_header_and_inherited_ones_muted(): void
+    {
+        $this->fakeNyrus($this->groupedEntries(), $this->groupTrackerStatus());
+
+        $html = $this->get('/projects')->assertOk()->getContent();
+        preg_match('~data-group-header="client:10".*?</div>~s', $html, $zuriga);
+        $this->assertMatchesRegularExpression('~data-group-tracker-chip="jira"[^>]*>Jira <span[^>]*>ZUR, ZURS</span>~', $zuriga[0]);
+        preg_match('~data-group-header="manual:shop".*?</div>~s', $html, $shop);
+        $this->assertMatchesRegularExpression('~data-group-tracker-chip="jira"[^>]*>Jira <span[^>]*>WEB</span>~', $shop[0]);
+        $this->assertStringNotContainsString('data-group-tracker-chip="clickup"', $html);
+
+        // zuriga-cms only inherits: a muted chip without keys, not "fehlt"
+        preg_match('~data-repo-row="teamnovu/zuriga-cms".*?</a>~s', $html, $cms);
+        $this->assertMatchesRegularExpression('~class="chip text-white/40" data-tracker-chip="jira" data-inherited[^>]*>Jira</span>~', $cms[0]);
+        $this->assertStringNotContainsString('data-tracker-missing', $cms[0]);
+        // zuriga-web shows its own key
+        preg_match('~data-repo-row="teamnovu/zuriga-web".*?</a>~s', $html, $web);
+        $this->assertMatchesRegularExpression('~data-tracker-chip="jira">Jira <span[^>]*>ZURS</span>~', $web[0]);
+
+        // filters count inherited trackers as connected
+        $this->get('/projects?tracker=jira')->assertOk()->assertSee('data-repo-row="teamnovu/zuriga-cms"', false);
+    }
+
+    public function test_repository_page_shows_inherited_keys_with_the_group(): void
+    {
+        $this->fakeNyrus($this->groupedEntries(), $this->groupTrackerStatus());
+
+        $page = $this->get('/projects/teamnovu/zuriga-cms')->assertOk();
+        $this->assertFormsOnlyInModals($page);
+        $this->assertNoCollapsibles($page);
+        $jira = $this->trackerSection($page, 'jira');
+        $this->assertStringContainsString('data-connection="connected">', $jira);
+        $this->assertStringContainsString('data-source="inherited">geerbt<', $jira);
+        $this->assertMatchesRegularExpression('~von Gruppe\s*<a href="'.preg_quote(url('/projects/groups/client:10'), '~').'" class="link" data-inherited-group>Zuriga AG</a>~', $jira);
+        $this->assertStringContainsString('<a href="https://jkweb.atlassian.net/browse/ZUR" target="_blank" rel="noopener" class="link">ZUR</a>', $jira);
+        $this->assertStringContainsString('<a href="https://jkweb.atlassian.net/browse/ZURS" target="_blank" rel="noopener" class="link">ZURS</a>', $jira);
+        $this->assertStringNotContainsString('data-source="inbudget"', $jira);
+        // repo-level actions stay, plus the way to the group
+        $this->assertMatchesRegularExpression('~data-dialog-open="link-jira" class="btn-ghost"~', $jira);
+        $this->assertMatchesRegularExpression('~data-group-level-link>Auf Gruppenebene bearbeiten<~', $jira);
+
+        // zuriga-web: its own ZURS from inBudget, ZUR inherited
+        $web = $this->trackerSection($this->get('/projects/teamnovu/zuriga-web')->assertOk(), 'jira');
+        $this->assertStringContainsString('data-source="inbudget">über inBudget<', $web);
+        $this->assertMatchesRegularExpression('~data-links>.*>ZURS</a>.*data-inherited-links>.*>ZUR</a>~s', $web);
+    }
+
+    public function test_without_group_trackers_from_older_nyrus_there_is_no_group_level_ui(): void
+    {
+        $this->fakeNyrus($this->groupedEntries(), $this->groupedStatus());
+
+        $group = $this->get('/projects/groups/client:10')->assertOk()->assertDontSee('data-group-tracker=', false)->assertDontSee('Verbindungen');
+        $this->assertFormsOnlyInModals($group);
+        $this->get('/projects')->assertOk()->assertDontSee('data-group-tracker-chip', false);
+        $this->get('/projects/teamnovu/zuriga-cms')->assertOk()->assertDontSee('data-group-level-link', false)->assertDontSee('data-inherited', false);
+
+        $this->post('/projects/groups/trackers', ['group' => 'client:10', 'platform' => 'jira', 'teamKeys' => 'ZUR'])
+            ->assertSessionHas('error', 'Diese nyrus-Version kennt noch keine Tracker auf Gruppenebene.');
+        Http::assertNotSent(fn (Request $request) => str_ends_with($request->url(), '/inbudget/manual'));
+    }
+
     public function test_shows_full_and_last_fetch_of_the_inbudget_sync(): void
     {
         $this->fakeNyrus([], ['running' => false, 'lastSuccessAt' => '2026-11-14T10:00:00Z', 'lastFullSyncAt' => '2026-11-14T03:00:00Z',

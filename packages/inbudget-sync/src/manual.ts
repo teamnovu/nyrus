@@ -61,7 +61,21 @@ export interface PlatformOverview {
 	detached: boolean;
 	/** Per field: inBudget's keys, or the manual ones if inBudget has none. */
 	effective: RoutingKeys;
+	/** Keys it gets from its group (the group's own, other members') beyond its own. */
+	inherited: RoutingKeys;
 	entryId?: string;
+}
+
+/** A group's tracker keys: set on the group, and shared by all its members. */
+export interface GroupPlatformOverview {
+	own: RoutingKeys;
+	/** The group's own keys and all its members' keys: every member is routed with them. */
+	effective: RoutingKeys;
+}
+
+/** The manual store key of a group's own tracker keys. */
+export function groupManualKey(groupKey: string): string {
+	return `@group:${groupKey.toLowerCase()}`;
 }
 
 const empty = (): RoutingKeys => ({ teamKeys: [], projectKeys: [] });
@@ -207,7 +221,12 @@ export function mergeManual(
 ): {
 	desired: DesiredRepository[];
 	repos: RepoOverview[];
-	groups: Array<RepoGroup & { repos: string[] }>;
+	groups: Array<
+		RepoGroup & {
+			repos: string[];
+			platforms: Partial<Record<ManualPlatform, GroupPlatformOverview>>;
+		}
+	>;
 } {
 	const planned = plan.repositories.map((r) => ({ ...r }));
 	const repos: RepoOverview[] = [];
@@ -270,11 +289,56 @@ export function mergeManual(
 				manual: own,
 				detached,
 				effective,
+				inherited: empty(),
 			};
 		}
 		if (context.github) overview.platforms.github = {};
 		effectiveByRepo.set(key, effectives);
 		repos.push(overview);
+	}
+
+	// Per group and tracker: its own keys and its members' keys.
+	const groupKeys = new Map<
+		string,
+		Partial<Record<ManualPlatform, GroupPlatformOverview>>
+	>();
+	for (const [groupKey, list] of members) {
+		const platforms: Partial<Record<ManualPlatform, GroupPlatformOverview>> =
+			{};
+		for (const platform of ["jira", "clickup"] as const) {
+			if (!workspaces[platform]) continue;
+			const stored = manual[groupManualKey(groupKey)]?.[platform];
+			const own: RoutingKeys = stored
+				? { teamKeys: stored.teamKeys, projectKeys: stored.projectKeys }
+				: empty();
+			const effective: RoutingKeys = { ...own };
+			for (const r of list) {
+				const e = effectiveByRepo.get(r.toLowerCase())?.[platform];
+				if (!e) continue;
+				effective.teamKeys = unique([...effective.teamKeys, ...e.teamKeys]);
+				effective.projectKeys = unique([
+					...effective.projectKeys,
+					...e.projectKeys,
+				]);
+			}
+			platforms[platform] = { own, effective };
+		}
+		groupKeys.set(groupKey, platforms);
+	}
+	for (const overview of repos) {
+		for (const platform of ["jira", "clickup"] as const) {
+			const mine = overview.platforms[platform];
+			const shared = groupKeys.get(overview.group.key)?.[platform]?.effective;
+			if (!mine || !shared) continue;
+			mine.inherited = {
+				teamKeys: shared.teamKeys.filter(
+					(k) => !mine.effective.teamKeys.includes(k),
+				),
+				projectKeys: shared.projectKeys.filter(
+					(k) => !mine.effective.projectKeys.includes(k),
+				),
+			};
+		}
 	}
 
 	// Entries: per repository and tracker, the keys of its whole group.
@@ -296,13 +360,7 @@ export function mergeManual(
 		for (const platform of ["jira", "clickup"] as const) {
 			const workspaceKey = workspaces[platform];
 			if (!workspaceKey) continue;
-			const union: RoutingKeys = empty();
-			for (const r of groupRepos) {
-				const e = effectiveByRepo.get(r.toLowerCase())?.[platform];
-				if (!e) continue;
-				union.teamKeys = unique([...union.teamKeys, ...e.teamKeys]);
-				union.projectKeys = unique([...union.projectKeys, ...e.projectKeys]);
-			}
+			const union = groupKeys.get(group.key)?.[platform]?.effective ?? empty();
 			if (!union.teamKeys.length && !union.projectKeys.length) continue;
 			desired.push({
 				repo: found.repo,
@@ -329,7 +387,12 @@ export function mergeManual(
 	const groups = [...members.entries()]
 		.map(([key, list]) => {
 			const group = groupByRepo.get(list[0]!.toLowerCase())!;
-			return { ...group, key, repos: [...list].sort() };
+			return {
+				...group,
+				key,
+				repos: [...list].sort(),
+				platforms: groupKeys.get(key) ?? {},
+			};
 		})
 		.sort((a, b) => a.name.localeCompare(b.name));
 	return { desired, repos, groups };

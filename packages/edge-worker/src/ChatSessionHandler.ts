@@ -1,6 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { SDKMessage, SdkPluginConfig } from "cyrus-claude-runner";
+import { chatTitle } from "cyrus-config-updater";
 import type {
 	AgentRunnerConfig,
 	AgentSessionInfo,
@@ -368,6 +369,12 @@ export class ChatSessionHandler<TEvent> {
 				return;
 			}
 
+			// A title for the dashboard: chat sessions have no ticket
+			const title = chatTitle(taskInstructions);
+			if (title) {
+				session.metadata = { ...session.metadata, title };
+			}
+
 			// Track this thread → session mapping for follow-up messages
 			this.threadSessions.set(threadKey, sessionId);
 
@@ -499,6 +506,11 @@ export class ChatSessionHandler<TEvent> {
 	 */
 	getAllChatSessions(): CyrusAgentSession[] {
 		return this.sessionManager.getAllSessions();
+	}
+
+	/** The chat sessions with their entries, serialized (for the dashboard). */
+	serializeChatState(): ReturnType<AgentSessionManager["serializeState"]> {
+		return this.sessionManager.serializeState();
 	}
 
 	/**
@@ -677,6 +689,13 @@ export class ChatSessionHandler<TEvent> {
 		await this.sessionManager.handleClaudeMessage(sessionId, message);
 
 		if (message.type === "result") {
+			// Record the turn's outcome (session history, dashboard)
+			this.deps.onStateChange().catch((error: unknown) => {
+				this.logger.warn(
+					`Failed to save state after ${this.adapter.platformName} turn: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			});
+
 			// A `result` ends the turn, and the turn has seen every prompt
 			// injected so far — drain the whole queue, not just one entry
 			// (quick-succession messages get merged into a single turn).

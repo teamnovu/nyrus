@@ -108,7 +108,7 @@ export class CommentSessionCoordinator {
 	/** Process an event unless it was handled before; only a handled one counts. */
 	private async processOnce(event: CommentTrackerEvent): Promise<void> {
 		if (event.eventId && this.wasHandled(event.eventId)) {
-			this.logger.debug(`Dropping retried event ${event.eventId}`);
+			this.logger.info(`Dropping retried event ${event.eventId}`);
 			return;
 		}
 		await this.process(event);
@@ -166,19 +166,28 @@ export class CommentSessionCoordinator {
 		}: { known: boolean; handedOver: boolean; awaiting: boolean },
 	): Promise<void> {
 		const prompt = { commentId: event.commentId, body: event.body };
+		const label = `${issue.identifier} comment ${event.commentId}`;
 		// While the ticket is handed over every comment steers the agent;
 		// otherwise only comments that mention it, or answer its question.
 		if (known && (handedOver || event.mentionsAgent || awaiting)) {
+			this.logger.info(
+				`${label}: passed to session ${sessionId} (${handedOver ? "handed over" : event.mentionsAgent ? "mentions the agent" : "answers its question"})`,
+			);
 			await this.dispatch("prompted", issue, sessionId, event.actor, {
 				...prompt,
 				body: this.deps.store.resolveAnswer(sessionId, event.body),
 			});
 		} else if (!known && event.mentionsAgent) {
+			this.logger.info(`${label}: mentions the agent, starting ${sessionId}`);
 			this.deps.store.setStartComment(sessionId, {
 				id: event.commentId,
 				body: event.body,
 			});
 			await this.start(issue, sessionId, event.actor, prompt);
+		} else {
+			this.logger.info(
+				`${label}: ignored (${known ? "session exists, but the ticket isn't handed over and the comment neither mentions the agent nor answers it" : "no session, and the comment doesn't mention the agent"})`,
+			);
 		}
 	}
 
@@ -192,7 +201,9 @@ export class CommentSessionCoordinator {
 			handedOver,
 		}: { known: boolean; idle: boolean; handedOver: boolean },
 	): Promise<void> {
+		const label = `${issue.identifier}${event.handOver ? ` (hand-over ${event.handOver})` : ""}`;
 		if (handedOver && !known) {
+			this.logger.info(`${label}: handed to the agent, starting ${sessionId}`);
 			this.delegated.set(sessionId, Date.now());
 			await this.start(issue, sessionId, event.actor, {});
 		} else if (
@@ -200,16 +211,24 @@ export class CommentSessionCoordinator {
 			event.handOver === "added" &&
 			(idle || !this.delegatedRecently(sessionId))
 		) {
+			this.logger.info(`${label}: handed back, continuing ${sessionId}`);
 			await this.dispatch("prompted", issue, sessionId, event.actor, {
 				body: HANDED_BACK_PROMPT,
 			});
 		} else if (!handedOver && known && event.handOver === "removed") {
+			this.logger.info(
+				`${label}: taken away from the agent, stopping ${sessionId}`,
+			);
 			// A hand-over right after this one is a real one again.
 			this.delegated.delete(sessionId);
 			await this.dispatch("prompted", issue, sessionId, event.actor, {
 				body: "stop",
 				stop: true,
 			});
+		} else {
+			this.logger.info(
+				`${label}: nothing to do (${handedOver ? "handed over" : "not handed over"}, ${known ? "session exists" : "no session"})`,
+			);
 		}
 	}
 

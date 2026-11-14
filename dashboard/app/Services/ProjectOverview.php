@@ -118,14 +118,28 @@ class ProjectOverview
      * same name; names from `status.groups` win.
      *
      * @param  list<array<string, mixed>>  $rows
-     * @return array<string, array{key: string, name: string, source: string, customer: ?string, rows: list<array<string, mixed>>, size: int}>
+     *                                            `platforms` is the group's own Jira/ClickUp value and the effective one
+     *                                            (own ∪ members' keys, what every member is routed with), per ticket
+     *                                            tracker; null if nyrus doesn't send it (older nyrus: no group-level UI).
+     * @return array<string, array{key: string, name: string, source: string, customer: ?string, rows: list<array<string, mixed>>, size: int, platforms: ?array<string, array{own: array, effective: array}>}>
      */
     public static function groups(array $rows, ?array $inbudget): array
     {
         $names = [];
+        $platforms = [];
         foreach ((array) ($inbudget['groups'] ?? []) as $group) {
-            if (is_array($group) && filled($group['key'] ?? null) && filled($group['name'] ?? null)) {
+            if (! is_array($group) || ! filled($group['key'] ?? null)) {
+                continue;
+            }
+            if (filled($group['name'] ?? null)) {
                 $names[(string) $group['key']] = (string) $group['name'];
+            }
+            if (is_array($group['platforms'] ?? null)) {
+                foreach (self::TICKET_TRACKERS as $platform) {
+                    $info = is_array($group['platforms'][$platform] ?? null) ? $group['platforms'][$platform] : [];
+                    $own = self::keys($info['own'] ?? []);
+                    $platforms[(string) $group['key']][$platform] = ['own' => $own, 'effective' => self::keys($info['effective'] ?? $own)];
+                }
             }
         }
 
@@ -142,6 +156,7 @@ class ProjectOverview
                 'customer' => null,
                 'rows' => [],
                 'size' => 0,
+                'platforms' => $platforms[$group['key']] ?? null,
             ];
             $groups[$group['key']]['customer'] ??= $group['customer'];
             $groups[$group['key']]['rows'][] = $row;
@@ -303,8 +318,10 @@ class ProjectOverview
 
         $keys = [];
         foreach ($trackers as $tracker) {
-            $keys[] = implode(' ', $tracker['effective']['teamKeys'] ?? []);
-            $keys[] = implode(' ', $tracker['effective']['projectKeys'] ?? []);
+            foreach (['effective', 'inherited'] as $value) {
+                $keys[] = implode(' ', $tracker[$value]['teamKeys'] ?? []);
+                $keys[] = implode(' ', $tracker[$value]['projectKeys'] ?? []);
+            }
         }
 
         $repoGroup = $grouping ? self::rowGroup($status, $manual, $group['key'], $isRepo ? $display : $name) : null;
@@ -356,13 +373,21 @@ class ProjectOverview
 
         // detached: the manual value applies even where inBudget has one (set by "Entknüpfen")
         $detached = is_array($info) && $platform !== 'github' && ($info['detached'] ?? false) === true;
+        // inherited: the group's keys this repository doesn't have itself
+        $inherited = $empty;
         if (is_array($info) && $platform !== 'github') {
             $inbudget = self::keys($info['inbudget'] ?? $empty);
             $manual = self::keys($info['manual'] ?? $empty);
+            $inherited = self::keys($info['inherited'] ?? $empty);
             $effective = self::keys($info['effective'] ?? ($detached ? $manual : [
                 'teamKeys' => $inbudget['teamKeys'] ?: $manual['teamKeys'],
                 'projectKeys' => $inbudget['projectKeys'] ?: $manual['projectKeys'],
             ]));
+            // `effective` is the repository's own value (without what only comes from the group)
+            $effective = [
+                'teamKeys' => array_values(array_diff($effective['teamKeys'], $inherited['teamKeys'])),
+                'projectKeys' => array_values(array_diff($effective['projectKeys'], $inherited['projectKeys'])),
+            ];
         } else {
             $inbudget = $manual = null;
             $effective = $empty;
@@ -378,12 +403,9 @@ class ProjectOverview
             ? (is_array($info) && filled($info['entryId'] ?? null)) || $managedEntries
             : $effective['teamKeys'] || $effective['projectKeys'];
 
-        $summary = [];
-        if ($platform === 'jira') {
-            $summary = $effective['teamKeys'];
-        } elseif ($platform === 'clickup') {
-            $summary = $effective['projectKeys'] ?: array_map(fn ($s) => "Space {$s}", $effective['teamKeys']);
-        }
+        $hasInherited = $inherited['teamKeys'] || $inherited['projectKeys'];
+
+        $summary = self::summary($platform, $effective);
         foreach ($manualEntries as $entry) {
             $summary = array_merge($summary, $platform === 'clickup'
                 ? ((array) ($entry['projectKeys'] ?? []) ?: (array) ($entry['teamKeys'] ?? []))
@@ -403,13 +425,16 @@ class ProjectOverview
             'entryId' => is_array($info) ? ($info['entryId'] ?? null) : ($managedEntries[0]['_id'] ?? null),
             'entries' => $own,
             'manualEntries' => $manualEntries,
-            'covered' => $fromKeys || (bool) $manualEntries,
+            'inherited' => $inherited,
+            // connected only through the group's keys
+            'inheritedOnly' => $hasInherited && ! $fromKeys && ! $manualEntries,
+            'covered' => $fromKeys || (bool) $manualEntries || $hasInherited,
             'summary' => array_values(array_unique(array_map('strval', $summary))),
             'source' => match (true) {
                 $detached => 'detached',
                 $inbudget !== null && ($inbudget['teamKeys'] || $inbudget['projectKeys']) => 'inbudget',
                 $manual !== null && ($manual['teamKeys'] || $manual['projectKeys']) => 'supplement',
-                (bool) $managedEntries => 'inbudget',
+                $inbudget === null && $managedEntries => 'inbudget',
                 (bool) $manualEntries => 'manual',
                 default => null,
             },
@@ -427,25 +452,119 @@ class ProjectOverview
      */
     public static function links(array $tracker, ?string $repo, array $bases): array
     {
-        $base = fn (string $platform) => is_string($bases[$platform] ?? null) && preg_match('~^https://~', $bases[$platform]) ? rtrim($bases[$platform], '/') : null;
         $teamKeys = $tracker['effective']['teamKeys'];
         $projectKeys = $tracker['effective']['projectKeys'];
         foreach ($tracker['manualEntries'] as $entry) {
             $teamKeys = array_merge($teamKeys, array_map('strval', (array) ($entry['teamKeys'] ?? [])));
             $projectKeys = array_merge($projectKeys, array_map('strval', (array) ($entry['projectKeys'] ?? [])));
         }
-        $teamKeys = array_values(array_unique($teamKeys));
-        $projectKeys = array_values(array_unique($projectKeys));
+        if ($tracker['platform'] === 'github') {
+            return $tracker['covered'] && $repo !== null ? [['label' => $repo, 'url' => "https://github.com/{$repo}/issues"]] : [];
+        }
 
-        return match ($tracker['platform']) {
-            'jira' => array_map(fn ($key) => ['label' => $key, 'url' => ($url = $base('jira')) ? $url.'/browse/'.rawurlencode($key) : null], $teamKeys),
+        return array_map(
+            fn (array $link) => ['label' => $link['label'], 'url' => $link['url']],
+            self::keyLinks($tracker['platform'], ['teamKeys' => $teamKeys, 'projectKeys' => $projectKeys], $bases),
+        );
+    }
+
+    /**
+     * Jira projects / ClickUp Spaces and Lists as labels with links (see links()).
+     *
+     * @param  array{teamKeys: list<string>, projectKeys: list<string>}  $keys
+     * @param  array<string, mixed>  $bases
+     * @return list<array{label: string, url: ?string, field: string, key: string}>
+     */
+    public static function keyLinks(string $platform, array $keys, array $bases): array
+    {
+        $base = fn (string $platform) => is_string($bases[$platform] ?? null) && preg_match('~^https://~', $bases[$platform]) ? rtrim($bases[$platform], '/') : null;
+        $teamKeys = array_values(array_unique(array_map('strval', $keys['teamKeys'] ?? [])));
+        $projectKeys = array_values(array_unique(array_map('strval', $keys['projectKeys'] ?? [])));
+
+        return match ($platform) {
+            'jira' => array_map(fn ($key) => ['label' => $key, 'url' => ($url = $base('jira')) ? $url.'/browse/'.rawurlencode($key) : null, 'field' => 'teamKeys', 'key' => $key], $teamKeys),
             'clickup' => array_merge(
-                array_map(fn ($id) => ['label' => "Space {$id}", 'url' => ($url = $base('clickup')) && ctype_digit($id) ? $url.'/v/s/'.$id : null], $teamKeys),
-                array_map(fn ($list) => ['label' => "Liste {$list}", 'url' => null], $projectKeys),
+                array_map(fn ($id) => ['label' => "Space {$id}", 'url' => ($url = $base('clickup')) && ctype_digit($id) ? $url.'/v/s/'.$id : null, 'field' => 'teamKeys', 'key' => $id], $teamKeys),
+                array_map(fn ($list) => ['label' => "Liste {$list}", 'url' => null, 'field' => 'projectKeys', 'key' => $list], $projectKeys),
             ),
-            'github' => $tracker['covered'] && $repo !== null ? [['label' => $repo, 'url' => "https://github.com/{$repo}/issues"]] : [],
             default => [],
         };
+    }
+
+    /**
+     * Short label of a Jira/ClickUp value for chips (Jira projects; ClickUp Lists, else Spaces).
+     *
+     * @param  array{teamKeys: list<string>, projectKeys: list<string>}  $keys
+     * @return list<string>
+     */
+    public static function summary(string $platform, array $keys): array
+    {
+        return match ($platform) {
+            'jira' => $keys['teamKeys'],
+            'clickup' => $keys['projectKeys'] ?: array_map(fn ($s) => "Space {$s}", $keys['teamKeys']),
+            default => [],
+        };
+    }
+
+    /**
+     * Jira/ClickUp of a group, per configured ticket tracker: its own value,
+     * the effective one (own ∪ members' keys) as links, and where each key
+     * comes from: the group itself, or members (from inBudget or set on the
+     * repository). Empty without group-level trackers (older nyrus).
+     *
+     * @param  array<string, mixed>  $group  one of groups()
+     * @param  list<string>  $configured  configured trackers
+     * @param  array<string, mixed>  $bases  `status.trackerLinks`
+     * @return array<string, array<string, mixed>>
+     */
+    public static function groupTrackers(array $group, array $configured, array $bases): array
+    {
+        if (! is_array($group['platforms'] ?? null)) {
+            return [];
+        }
+
+        $result = [];
+        foreach (self::TICKET_TRACKERS as $platform) {
+            $own = $group['platforms'][$platform]['own'] ?? ['teamKeys' => [], 'projectKeys' => []];
+            $effective = $group['platforms'][$platform]['effective'] ?? $own;
+            $hasOwn = $own['teamKeys'] || $own['projectKeys'];
+            $connected = $effective['teamKeys'] || $effective['projectKeys'];
+            if (! $connected && ! in_array($platform, $configured, true)) {
+                continue;
+            }
+
+            $links = [];
+            foreach (self::keyLinks($platform, $effective, $bases) as $link) {
+                $sources = in_array($link['key'], $own[$link['field']], true) ? [['kind' => 'group']] : [];
+                foreach ($group['rows'] as $row) {
+                    $tracker = $row['trackers'][$platform] ?? null;
+                    if ($tracker === null) {
+                        continue;
+                    }
+                    $memberKeys = $tracker['effective'][$link['field']];
+                    foreach ($tracker['manualEntries'] as $entry) {
+                        $memberKeys = array_merge($memberKeys, array_map('strval', (array) ($entry[$link['field']] ?? [])));
+                    }
+                    if (in_array($link['key'], $memberKeys, true)) {
+                        $fromInbudget = ! $tracker['detached'] && in_array($link['key'], $tracker['inbudget'][$link['field']] ?? [], true);
+                        $sources[] = ['kind' => $fromInbudget ? 'inbudget' : 'manual', 'row' => $row];
+                    }
+                }
+                $links[] = $link + ['sources' => $sources];
+            }
+
+            $result[$platform] = [
+                'platform' => $platform,
+                'label' => self::LABELS[$platform],
+                'own' => $own,
+                'effective' => $effective,
+                'hasOwn' => (bool) $hasOwn,
+                'connected' => (bool) $connected,
+                'links' => $links,
+            ];
+        }
+
+        return $result;
     }
 
     /** @return array{teamKeys: list<string>, projectKeys: list<string>} */

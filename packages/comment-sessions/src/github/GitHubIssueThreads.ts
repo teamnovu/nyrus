@@ -79,8 +79,12 @@ export type UnthreadedIssueListener = (
 export type CommentVerdict = "allowed" | "own" | "not-allowed";
 
 export interface GitHubIssueThreadsOptions {
-	/** Secret of the GitHub webhook (HMAC-SHA256, `X-Hub-Signature-256`). */
-	webhookSecret: string;
+	/**
+	 * Secret of the GitHub webhook to `/github-issues-webhook` (HMAC-SHA256,
+	 * `X-Hub-Signature-256`). Without one, that route isn't registered and
+	 * events come from the edge worker's `/github-webhook` only.
+	 */
+	webhookSecret?: string;
 	/** Where the ticket↔issue mapping is kept; in memory without one. */
 	storePath?: string;
 	/** Author associations whose comments reach the agent. */
@@ -169,6 +173,12 @@ export class GitHubIssueThreads {
 	connect(host: TrackerIntegrationHost): void {
 		if (this.host) return;
 		this.host = host;
+		if (!this.options.webhookSecret) {
+			this.logger.info(
+				"GitHub issues: events come through /github-webhook (no GITHUB_ISSUES_WEBHOOK_SECRET for /github-issues-webhook)",
+			);
+			return;
+		}
 		host.fastify.post(
 			GITHUB_ISSUES_WEBHOOK_PATH,
 			async (request: FastifyRequest, reply: FastifyReply) => {
@@ -744,4 +754,43 @@ export interface GitHubPayload {
 		user?: { login?: string; type?: string };
 	};
 	pull_request?: GitHubPullRequest;
+}
+
+/**
+ * GitHub issues worked directly (without a ticket elsewhere) need a
+ * GitHubIssueThreads too, even when Jira/ClickUp tickets aren't mirrored
+ * into GitHub issues: on with GITHUB_ISSUES_WEBHOOK_SECRET or
+ * GITHUB_WEBHOOK_SECRET (events through `/github-webhook`), or
+ * GITHUB_ISSUES_ENABLED=true; GITHUB_ISSUES_ENABLED=false turns it off.
+ */
+export function createGitHubIssuesHubFromEnv(context: {
+	env: NodeJS.ProcessEnv;
+	cyrusHome: string;
+	logger: ILogger;
+}): GitHubIssueThreads | undefined {
+	const { env, cyrusHome, logger } = context;
+	const enabled = env.GITHUB_ISSUES_ENABLED?.trim().toLowerCase();
+	if (enabled === "false" || enabled === "0") return undefined;
+	const issuesSecret = env.GITHUB_ISSUES_WEBHOOK_SECRET?.trim();
+	if (
+		!issuesSecret &&
+		!env.GITHUB_WEBHOOK_SECRET?.trim() &&
+		enabled !== "true" &&
+		enabled !== "1"
+	) {
+		return undefined;
+	}
+	const list = (value: string | undefined) =>
+		(value ?? "")
+			.split(",")
+			.map((v) => v.trim())
+			.filter(Boolean);
+	const associations = list(env.GITHUB_ISSUES_ALLOWED_ASSOCIATIONS);
+	return new GitHubIssueThreads({
+		...(issuesSecret && { webhookSecret: issuesSecret }),
+		storePath: join(cyrusHome, "github-issue-threads.json"),
+		allowedAssociations: associations.length ? associations : undefined,
+		botLogins: list(env.GITHUB_BOT_USERNAME),
+		logger,
+	});
 }

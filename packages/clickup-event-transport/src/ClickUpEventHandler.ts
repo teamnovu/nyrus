@@ -119,7 +119,7 @@ export class ClickUpEventHandler {
 
 		const task = await this.tracker.fetchTask(taskId);
 		if (!this.tracker.inScope(task)) {
-			this.logger.debug(
+			this.logger.info(
 				`ClickUp task ${taskId} is in Space ${task.space?.id ?? "?"}, outside CLICKUP_SPACE_IDS: ignored`,
 			);
 			return;

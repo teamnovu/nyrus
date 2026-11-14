@@ -28,13 +28,15 @@ class RepositoryGroupController extends Controller
 
     public function show(Request $request, NyrusClient $nyrus, string $key): View
     {
-        [$rows, $inbudget, $error] = RepositoryController::load($nyrus);
+        [$rows, $inbudget, $error, $repositories] = RepositoryController::load($nyrus);
         $groups = $error ? [] : $this->groups($rows, $inbudget);
         $group = $groups[$key] ?? null;
         abort_if($error === null && $group === null, 404);
+        $trackerLinks = is_array($inbudget['trackerLinks'] ?? null) ? $inbudget['trackerLinks'] : [];
 
         return view('repository-group', [
             'group' => $group,
+            'trackers' => $group ? ProjectOverview::groupTrackers($group, ProjectOverview::configuredTrackers($repositories, $inbudget), $trackerLinks) : [],
             'groups' => $groups,
             'rows' => $rows,
             'error' => $error,
@@ -133,6 +135,59 @@ class RepositoryGroupController extends Controller
                 ? 'Gruppe nicht (ganz) gespeichert: '.implode(' · ', $errors)
                 : 'Gruppe gespeichert. Tickets für ein Repo der Gruppe bekommen ab jetzt alle Repos der Gruppe.',
         );
+    }
+
+    /**
+     * Set the group's own Jira project / ClickUp Space and List. Every
+     * repository of the group is routed with them (plus the members' keys).
+     * Empty lists clear the group's value. nyrus applies it locally.
+     */
+    public function saveTrackers(Request $request, NyrusClient $nyrus): RedirectResponse
+    {
+        $data = $request->validate([
+            'group' => ['required', 'string', 'max:300'],
+            'platform' => ['required', 'in:jira,clickup'],
+            'teamKeys' => ['nullable', 'string', 'max:1000'],
+            'projectKeys' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        [$rows, $inbudget, $error] = RepositoryController::load($nyrus);
+        if ($error) {
+            return back()->withInput()->with('error', $error);
+        }
+        $group = $this->groups($rows, $inbudget)[$data['group']] ?? null;
+        if ($group === null) {
+            return back()->with('error', 'Gruppe nicht gefunden. Lade die Seite neu.');
+        }
+        if (! is_array($group['platforms'])) {
+            return back()->with('error', 'Diese nyrus-Version kennt noch keine Tracker auf Gruppenebene.');
+        }
+
+        $list = fn (?string $value) => array_values(array_filter(array_map('trim', explode(',', (string) $value)), 'strlen'));
+        $payload = [
+            'groupKey' => $group['key'],
+            'platform' => $data['platform'],
+            'teamKeys' => $list($data['teamKeys'] ?? null),
+            'projectKeys' => $data['platform'] === 'clickup' ? $list($data['projectKeys'] ?? null) : [],
+        ];
+        $cleared = ! $payload['teamKeys'] && ! $payload['projectKeys'];
+
+        try {
+            $status = $nyrus->setInbudgetManual($payload);
+            if (filled($status['error'] ?? null)) {
+                throw new NyrusException($status['error']);
+            }
+        } catch (NyrusException $e) {
+            AuditLog::record('group.trackers', $group['key'], $payload + ['error' => $e->getMessage()], success: false);
+
+            return back()->withInput()->with('error', $e->getMessage());
+        }
+        AuditLog::record('group.trackers', $group['key'], $payload);
+
+        return redirect()->route('repositories.group', ['key' => $group['key']] + $this->query($request))
+            ->with('status', $cleared
+                ? ProjectOverview::LABELS[$data['platform']].' der Gruppe entfernt.'
+                : 'Gespeichert. Gilt für alle Repos der Gruppe.');
     }
 
     /**

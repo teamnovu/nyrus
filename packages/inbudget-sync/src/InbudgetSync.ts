@@ -12,6 +12,7 @@ import {
 import { type InbudgetCache, mergeById } from "./cache.js";
 import type { InbudgetClient } from "./InbudgetClient.js";
 import {
+	groupManualKey,
 	type ManualPlatform,
 	mergeManual,
 	type RepoGroup,
@@ -180,6 +181,21 @@ export class InbudgetSync {
 		for (const repo of Array.isArray(repos) ? repos : [repos]) {
 			await store.updateManual(repo, (e) => withGroup(e, group));
 		}
+		return this.sync("local");
+	}
+
+	/**
+	 * Set a group's own keys for one tracker (empty clears them): every
+	 * repository of the group gets them. Applied without asking inBudget.
+	 */
+	async setGroupKeys(
+		groupKey: string,
+		platform: ManualPlatform,
+		keys: RoutingKeys,
+	): Promise<SyncStatus> {
+		await (await this.store).updateManual(groupManualKey(groupKey), (e) =>
+			withManualKeys(e, platform, keys, false),
+		);
 		return this.sync("local");
 	}
 

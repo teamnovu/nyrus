@@ -1,6 +1,16 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getDefaultReposDir, getDefaultWorktreesDir } from "cyrus-core";
+import {
+	entryText,
+	historicalSummary,
+	SESSION_HISTORY_FILE,
+	SessionHistory,
+	type SessionSummary,
+	type StoredEntry,
+	type StoredSession,
+	summarizeSession,
+} from "../sessionSummary.js";
 import type { ApiResponse } from "../types.js";
 import { resolveEnvFilePath } from "./envPath.js";
 import { handleRepository, handleRepositoryDelete } from "./repository.js";
@@ -9,7 +19,7 @@ import { handleRepository, handleRepositoryDelete } from "./repository.js";
  * Handlers behind the nyrus dashboard (`/api/dashboard/*`).
  *
  * They read what nyrus already persists in its home directory (the session
- * state file, `config.json`, `.env`) and make small, targeted changes to the
+ * state file and history, `config.json`, `.env`) and make small, targeted changes to the
  * repository list in `config.json`. nyrus watches `config.json` and picks up
  * repository changes without a restart. Secrets are never returned: tokens
  * are stripped from repositories and only the names of `.env` variables are
@@ -18,56 +28,21 @@ import { handleRepository, handleRepositoryDelete } from "./repository.js";
 
 /** Longest entry content returned in a session detail. */
 const MAX_ENTRY_CONTENT = 4000;
-/** Pull request URLs on GitHub or GitLab, as agents post them. */
-const PR_URL =
-	/https:\/\/(?:github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+|gitlab\.com\/[\w./-]+\/-\/merge_requests\/\d+)/g;
 /** Repository fields that can hold credentials and must not leave nyrus. */
 const SECRET_REPO_FIELDS = ["linearToken", "linearRefreshToken"] as const;
 
-interface StoredEntry {
-	type?: string;
-	content?: unknown;
-	metadata?: {
-		timestamp?: number;
-		toolName?: string;
-		isError?: boolean;
-		toolResultError?: boolean;
-	};
-}
-
-interface StoredSession {
-	id: string;
-	status?: string;
-	createdAt?: number;
-	updatedAt?: number;
-	issueId?: string;
-	issue?: { id?: string; identifier?: string; title?: string };
-	issueContext?: {
-		trackerId?: string;
-		issueId?: string;
-		issueIdentifier?: string;
-	};
-	repositories?: { repositoryId?: string; branchName?: string }[];
-	workspace?: { path?: string };
-	metadata?: {
-		model?: string;
-		totalCostUsd?: number;
-		runStartedAt?: number;
-		totals?: {
-			runs?: number;
-			durationMs?: number;
-			inputTokens?: number;
-			outputTokens?: number;
-			cacheReadTokens?: number;
-			cacheCreationTokens?: number;
-			costUsd?: number;
-		};
-	} | null;
-}
-
-interface StoredState {
+/**
+ * What the dashboard reads: the edge worker's serialized sessions (issue
+ * sessions and chat sessions), plus hints only the edge worker knows and the
+ * session history (sessions it no longer holds).
+ */
+export interface StoredState {
 	agentSessions?: Record<string, StoredSession>;
 	agentSessionEntries?: Record<string, StoredEntry[]>;
+	childToParentAgentSession?: Record<string, string>;
+	/** Source of Linear-shaped sessions that are not Linear's (Plane, CLI). */
+	sessionSources?: Record<string, string>;
+	sessionHistory?: SessionSummary[];
 }
 
 type RepoConfig = Record<string, unknown> & { id?: string; name?: string };
@@ -84,116 +59,43 @@ function readState(
 		return (readLiveState() ?? {}) as StoredState;
 	}
 	const statePath = join(cyrusHome, "state", "edge-worker-state.json");
+	const history = SessionHistory.read(
+		join(cyrusHome, "state", SESSION_HISTORY_FILE),
+	);
 	if (!existsSync(statePath)) {
-		return {};
+		return { sessionHistory: history };
 	}
 	const file = readJson(statePath) as { state?: StoredState };
-	return file.state ?? {};
+	return { sessionHistory: history, ...(file.state ?? {}) };
 }
 
-function entryText(entry: StoredEntry): string {
-	return typeof entry.content === "string"
-		? entry.content
-		: JSON.stringify(entry.content ?? "");
-}
-
-function lastPullRequestUrl(entries: StoredEntry[]): string | undefined {
-	let found: string | undefined;
-	for (const entry of entries) {
-		for (const match of entryText(entry).matchAll(PR_URL)) {
-			found = match[0];
-		}
-	}
-	return found;
-}
-
-/** Trackers whose sessions run Linear-shaped: their ids are `<platform>-<issue id>`. */
-const COMMENT_TRACKERS = ["jira", "clickup"];
-
-/**
- * The session's tracker. Jira and ClickUp sessions run as Linear-shaped
- * sessions (tracker "linear"), so their id prefix names the real one.
- */
-function trackerOf(session: StoredSession): string | null {
-	const trackerId = session.issueContext?.trackerId ?? null;
-	if (trackerId === "linear") {
-		const prefix = session.id.split("-")[0] ?? "";
-		if (COMMENT_TRACKERS.includes(prefix)) {
-			return prefix;
-		}
-	}
-	return trackerId;
-}
-
-/**
- * How long the agent worked (finished runs plus the run in progress) and the
- * tokens of its finished runs.
- */
-function runtimeAndTokens(session: StoredSession, now: number) {
-	const totals = session.metadata?.totals;
-	const running = session.metadata?.runStartedAt;
-	const runtimeMs =
-		(totals?.durationMs ?? 0) +
-		(session.status === "active" && typeof running === "number"
-			? Math.max(0, now - running)
-			: 0);
-	const tokens = totals
-		? {
-				input: totals.inputTokens ?? 0,
-				output: totals.outputTokens ?? 0,
-				cacheRead: totals.cacheReadTokens ?? 0,
-				cacheCreation: totals.cacheCreationTokens ?? 0,
-				total:
-					(totals.inputTokens ?? 0) +
-					(totals.outputTokens ?? 0) +
-					(totals.cacheReadTokens ?? 0) +
-					(totals.cacheCreationTokens ?? 0),
-			}
-		: null;
-	return {
-		runtimeMs: totals || typeof running === "number" ? runtimeMs : null,
-		runs: totals?.runs ?? 0,
-		tokens,
-	};
-}
-
-function summarizeSession(
-	session: StoredSession,
-	entries: StoredEntry[],
-	now = Date.now(),
-) {
-	const timestamps = entries
-		.map((entry) => entry.metadata?.timestamp)
-		.filter((ts): ts is number => typeof ts === "number");
-	return {
-		id: session.id,
-		status: session.status ?? "unknown",
-		createdAt: session.createdAt ?? null,
-		updatedAt: session.updatedAt ?? null,
-		tracker: trackerOf(session),
-		issue: {
-			id: session.issueContext?.issueId ?? session.issue?.id ?? session.issueId,
-			identifier:
-				session.issueContext?.issueIdentifier ??
-				session.issue?.identifier ??
-				null,
-			title: session.issue?.title ?? null,
+function summarize(state: StoredState, session: StoredSession, now?: number) {
+	return summarizeSession(
+		session,
+		state.agentSessionEntries?.[session.id] ?? [],
+		{
+			now,
+			source: state.sessionSources?.[session.id],
+			parentSessionId: state.childToParentAgentSession?.[session.id] ?? null,
 		},
-		repositories: (session.repositories ?? []).map((repo) => ({
-			id: repo.repositoryId ?? null,
-			branch: repo.branchName ?? null,
-		})),
-		workspacePath: session.workspace?.path ?? null,
-		model: session.metadata?.model ?? null,
-		totalCostUsd:
-			session.metadata?.totals?.costUsd ??
-			session.metadata?.totalCostUsd ??
-			null,
-		...runtimeAndTokens(session, now),
-		entryCount: entries.length,
-		lastActivityAt: timestamps.length > 0 ? Math.max(...timestamps) : null,
-		pullRequestUrl: lastPullRequestUrl(entries) ?? null,
-	};
+	);
+}
+
+/**
+ * Every session nyrus holds, plus the recorded ones it no longer holds,
+ * newest first.
+ */
+export function listSessions(state: StoredState, now = Date.now()) {
+	const live = Object.values(state.agentSessions ?? {}).map((session) =>
+		summarize(state, session, now),
+	);
+	const liveIds = new Set(live.map((session) => session.id));
+	const past = (state.sessionHistory ?? [])
+		.filter((summary) => !liveIds.has(summary.id))
+		.map(historicalSummary);
+	const sortKey = (s: { updatedAt: number | null; createdAt: number | null }) =>
+		s.updatedAt ?? s.createdAt ?? 0;
+	return [...live, ...past].sort((a, b) => sortKey(b) - sortKey(a));
 }
 
 /** GET /api/dashboard/sessions: all known sessions, newest first. */
@@ -202,15 +104,7 @@ export async function handleDashboardSessions(
 	readLiveState?: () => unknown,
 ): Promise<ApiResponse> {
 	try {
-		const state = readState(cyrusHome, readLiveState);
-		const sessions = Object.values(state.agentSessions ?? {})
-			.map((session) =>
-				summarizeSession(
-					session,
-					state.agentSessionEntries?.[session.id] ?? [],
-				),
-			)
-			.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+		const sessions = listSessions(readState(cyrusHome, readLiveState));
 		return { success: true, message: "Sessions", data: { sessions } };
 	} catch (error) {
 		return {
@@ -221,7 +115,10 @@ export async function handleDashboardSessions(
 	}
 }
 
-/** GET /api/dashboard/session?id=…: one session with its activity log. */
+/**
+ * GET /api/dashboard/session?id=…: one session with its activity log. A
+ * session nyrus no longer holds comes from the history, without entries.
+ */
 export async function handleDashboardSession(
 	query: { id?: string },
 	cyrusHome: string,
@@ -234,14 +131,22 @@ export async function handleDashboardSession(
 		const state = readState(cyrusHome, readLiveState);
 		const session = state.agentSessions?.[query.id];
 		if (!session) {
-			return { success: false, error: `Session ${query.id} not found` };
+			const past = state.sessionHistory?.find((s) => s.id === query.id);
+			if (!past) {
+				return { success: false, error: `Session ${query.id} not found` };
+			}
+			return {
+				success: true,
+				message: "Session",
+				data: { session: historicalSummary(past), entries: [] },
+			};
 		}
 		const entries = state.agentSessionEntries?.[query.id] ?? [];
 		return {
 			success: true,
 			message: "Session",
 			data: {
-				session: summarizeSession(session, entries),
+				session: summarize(state, session),
 				entries: entries.map((entry) => {
 					const text = entryText(entry);
 					return {

@@ -492,6 +492,74 @@ describe("GitHubEventTransport", () => {
 		});
 	});
 
+	describe("GitHub issues", () => {
+		function setup() {
+			const transport = new GitHubEventTransport({
+				fastifyServer:
+					mockFastify as unknown as GitHubEventTransportConfig["fastifyServer"],
+				verificationMode: "proxy",
+				secret: testSecret,
+			});
+			transport.register();
+			const send = async (eventType: string, body: unknown) => {
+				const reply = createMockReply();
+				await mockFastify.routes["/github-webhook"]!(
+					createMockRequest(body, {
+						authorization: `Bearer ${testSecret}`,
+						"x-github-event": eventType,
+						"x-github-delivery": `d-${eventType}`,
+					}),
+					reply,
+				);
+				return reply;
+			};
+			return { transport, send };
+		}
+
+		it("passes issues events and comments on issues to the issue listeners, not to PR handling", async () => {
+			const { transport, send } = setup();
+			const issue = vi.fn();
+			const event = vi.fn();
+			transport.on("issue", issue);
+			transport.on("event", event);
+			const assigned = {
+				action: "assigned",
+				repository: { full_name: "teamnovu/web" },
+				issue: { number: 7 },
+				assignee: { login: "novu-nyrus" },
+			};
+			expect((await send("issues", assigned)).code).toHaveBeenCalledWith(200);
+			const comment = {
+				action: "created",
+				repository: { full_name: "teamnovu/web" },
+				issue: { number: 7 },
+				comment: { id: 1, body: "@novu-nyrus hi" },
+			};
+			await send("issue_comment", comment);
+			expect(issue.mock.calls).toEqual([
+				["issues", assigned, "d-issues"],
+				["issue_comment", comment, "d-issue_comment"],
+			]);
+			expect(event).not.toHaveBeenCalled();
+		});
+
+		it("keeps comments on pull requests for PR handling", async () => {
+			const { transport, send } = setup();
+			const issue = vi.fn();
+			const event = vi.fn();
+			transport.on("issue", issue);
+			transport.on("event", event);
+			await send("issue_comment", {
+				action: "created",
+				repository: { full_name: "teamnovu/web" },
+				issue: { number: 8, pull_request: { url: "u" } },
+				comment: { id: 2, body: "@novu-nyrus fix" },
+			});
+			expect(issue).not.toHaveBeenCalled();
+			expect(event).toHaveBeenCalledOnce();
+		});
+	});
+
 	describe("error handling", () => {
 		it("returns 500 when proxy webhook processing throws", async () => {
 			const config: GitHubEventTransportConfig = {
@@ -507,7 +575,7 @@ describe("GitHubEventTransport", () => {
 			// to throw when accessing request.body.action
 			const request = createMockRequest(null, {
 				authorization: `Bearer ${testSecret}`,
-				"x-github-event": "issue_comment",
+				"x-github-event": "pull_request_review",
 				"x-github-delivery": "delivery-err",
 			});
 			const reply = createMockReply();

@@ -118,7 +118,16 @@ export function planContextFromEnv(
 			// JIRA_BASE_URL is not a URL; the Jira integration reports it.
 		}
 	}
-	if (env.GITHUB_ISSUES_WEBHOOK_SECRET?.trim()) {
+	// GitHub issues worked directly: same switch as the GitHub issues integration.
+	const githubIssues = env.GITHUB_ISSUES_ENABLED?.trim().toLowerCase();
+	if (
+		githubIssues !== "false" &&
+		githubIssues !== "0" &&
+		(env.GITHUB_ISSUES_WEBHOOK_SECRET?.trim() ||
+			env.GITHUB_WEBHOOK_SECRET?.trim() ||
+			githubIssues === "true" ||
+			githubIssues === "1")
+	) {
 		context.github = { workspaceKey: "github" };
 	}
 	const clickUpToken = env.CLICKUP_API_TOKEN?.trim();
@@ -194,6 +203,31 @@ function registerRoutes(
 	fastify.post(`${INBUDGET_STATUS_PATH}/manual`, async (request, reply) => {
 		if (!authorized(request, reply)) return;
 		const body = (request.body ?? {}) as Record<string, unknown>;
+		const list = (value: unknown) =>
+			Array.isArray(value)
+				? value.filter((v): v is string => typeof v === "string")
+				: [];
+		// A group's own Jira/ClickUp keys, inherited by its repositories.
+		if (typeof body.groupKey === "string") {
+			const groupKey = body.groupKey.trim();
+			if (
+				!/^(client|manual|repo):\S+$/.test(groupKey) ||
+				(body.platform !== "jira" && body.platform !== "clickup")
+			) {
+				reply.code(400).send({
+					success: false,
+					error:
+						"groupKey (client:…, manual:… or repo:…) and platform (jira or clickup) are required",
+				});
+				return;
+			}
+			const status = await sync.setGroupKeys(groupKey, body.platform, {
+				teamKeys: list(body.teamKeys),
+				projectKeys: list(body.projectKeys),
+			});
+			reply.send({ success: true, data: { status } });
+			return;
+		}
 		const repoPattern = /^[\w.-]+\/[\w.-]+$/;
 		// A group can be set for several repositories at once.
 		const repos = Array.isArray(body.repos)
@@ -238,10 +272,6 @@ function registerRoutes(
 		if (hasGroup) {
 			await sync.setGroup(repo, body.group as string | null);
 		}
-		const list = (value: unknown) =>
-			Array.isArray(value)
-				? value.filter((v): v is string => typeof v === "string")
-				: [];
 		const running = sync.setManual(
 			repo,
 			platform as "jira" | "clickup",

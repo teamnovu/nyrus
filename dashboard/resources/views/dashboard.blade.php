@@ -1,9 +1,10 @@
 <x-app title="Übersicht">
+    @php($selectClass = 'h-9 min-w-0 rounded-lg bg-canvas px-2.5 text-sm text-white/75 ring-1 ring-white/10 outline-none ring-inset focus:ring-gold/60')
     <div class="flex flex-wrap items-end justify-between gap-4">
         <div>
             <p class="eyebrow">Live</p>
             <h1 class="page-title">Übersicht</h1>
-            <p class="muted mt-2 text-sm">Zustand von nyrus und alle Sessions, die neueste zuerst.</p>
+            <p class="muted mt-2 text-sm">Zustand von nyrus und alle Sessions aus allen Quellen, die neueste zuerst.</p>
         </div>
         <div class="flex items-center gap-4">
             <span class="muted hidden text-xs sm:inline" data-live-label>aktualisiert sich automatisch</span>
@@ -27,7 +28,7 @@
         @foreach ([
             ['Sessions', $counts['total'], 'text-white'],
             ['Laufen', $counts['active'], 'text-gold'],
-            ['Warten auf Antwort', $counts['awaiting'], 'text-white'],
+            ['Warten', $counts['awaiting'], 'text-white'],
             ['Fehler', $counts['error'], $counts['error'] > 0 ? 'text-danger' : 'text-white'],
         ] as [$label, $value, $color])
             <div class="bg-surface p-5">
@@ -44,44 +45,85 @@
         </div>
     @endif
 
-    <div class="mt-12 flex items-baseline justify-between">
+    <div class="mt-12 flex flex-wrap items-center justify-between gap-3">
         <h2 class="text-lg">Sessions</h2>
-        <span class="muted text-xs">{{ count($sessions) }} insgesamt</span>
+        <form method="GET" action="{{ route('dashboard') }}" class="flex flex-wrap items-center gap-2">
+            <select name="source" aria-label="Quelle" onchange="this.form.submit()" class="{{ $selectClass }}">
+                <option value="">Alle Quellen</option>
+                @foreach ($sources as $source => $count)
+                    <option value="{{ $source }}" @selected($filters['source'] === $source)>{{ \App\Services\SessionList::sourceLabel($source) }} ({{ $count }})</option>
+                @endforeach
+            </select>
+            <select name="status" aria-label="Status" onchange="this.form.submit()" class="{{ $selectClass }}">
+                <option value="">Alle Status</option>
+                @foreach (\App\Services\SessionList::STATES as $state => $label)
+                    <option value="{{ $state }}" @selected($filters['status'] === $state)>{{ $label }} ({{ $states[$state] ?? 0 }})</option>
+                @endforeach
+            </select>
+            <noscript><button class="btn-ghost">Filtern</button></noscript>
+            @if ($filtered)
+                <a href="{{ route('dashboard') }}" class="link text-sm">Zurücksetzen</a>
+            @endif
+        </form>
     </div>
 
-    <div class="card divided mt-3 overflow-hidden" data-live-region>
-        @forelse ($sessions as $session)
-            @php($ts = $session['lastActivityAt'] ?? $session['updatedAt'])
-            <a href="{{ route('sessions.show', $session['id']) }}"
-               class="card-row group grid grid-cols-1 items-center gap-2 px-5 py-4 sm:grid-cols-[1fr_auto_auto] sm:gap-6">
-                <div class="min-w-0">
-                    <div class="flex flex-wrap items-center gap-2">
-                        <span class="font-medium text-white">{{ $session['issue']['identifier'] ?? $session['id'] }}</span>
-                        @if ($session['issue']['title'] ?? null)
-                            <span class="muted truncate text-sm">{{ $session['issue']['title'] }}</span>
+    <div data-live-region>
+        <p class="muted mt-4 text-sm tabular-nums" data-result-count>
+            @if ($filtered)
+                {{ $matchCount }} von {{ $counts['total'] }} Sessions
+            @else
+                {{ $counts['total'] }} Sessions
+            @endif
+            @if ($sessions->lastPage() > 1)
+                · {{ $sessions->firstItem() }}–{{ $sessions->lastItem() }} angezeigt
+            @endif
+        </p>
+
+        <div class="card divided mt-3 overflow-hidden">
+            @forelse ($sessions as $session)
+                @php($ts = $session['lastActivityAt'] ?? $session['updatedAt'] ?? $session['createdAt'] ?? null)
+                @php($subtitle = \App\Services\SessionList::subtitle($session))
+                @php($engine = \App\Services\SessionList::engine($session))
+                <a href="{{ route('sessions.show', $session['id']) }}"
+                   class="card-row group grid grid-cols-1 items-center gap-2 px-5 py-4 sm:grid-cols-[1fr_auto_auto] sm:gap-6">
+                    <div class="min-w-0">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="font-medium text-white">{{ \App\Services\SessionList::heading($session) }}</span>
+                            @if ($subtitle)
+                                <span class="muted truncate text-sm">{{ $subtitle }}</span>
+                            @endif
+                        </div>
+                        <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-white/40">
+                            <span class="text-white/60">{{ \App\Services\SessionList::sourceLabel($session['_source']) }}</span>
+                            @if (($session['runtimeMs'] ?? null) !== null)<span class="tabular-nums">{{ max(1, (int) round($session['runtimeMs'] / 60000)) }} min</span>@endif
+                            @if ($engine)<span>{{ $engine }}</span>@endif
+                            <span>{{ collect($session['repositories'] ?? [])->pluck('id')->filter()->join(', ') ?: 'kein Repository' }}</span>
+                            <span>{{ $ts ? \Illuminate\Support\Carbon::createFromTimestampMs($ts)->timezone('Europe/Zurich')->diffForHumans() : '–' }}</span>
+                        </div>
+                    </div>
+                    <x-status-badge :status="$session['status'] ?? 'unknown'" class="justify-self-start sm:justify-self-auto" />
+                    <div class="flex items-center gap-4 justify-self-start sm:justify-self-end">
+                        @if ($session['pullRequestUrl'] ?? null)
+                            <span class="text-xs text-gold" title="{{ $session['pullRequestUrl'] }}">Pull Request</span>
                         @endif
+                        <svg class="hidden size-4 text-white/25 transition-colors group-hover:text-white/70 sm:block" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 0 1 .02-1.06L11.17 10 7.23 6.29a.75.75 0 1 1 1.04-1.08l4.5 4.25a.75.75 0 0 1 0 1.08l-4.5 4.25a.75.75 0 0 1-1.06-.02Z" clip-rule="evenodd"/></svg>
                     </div>
-                    <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-white/40">
-                        @if ($session['tracker'] ?? null)<span>{{ ['jira' => 'Jira', 'linear' => 'Linear', 'clickup' => 'ClickUp', 'slack' => 'Slack', 'github' => 'GitHub', 'gitlab' => 'GitLab', 'plane' => 'Plane'][$session['tracker']] ?? $session['tracker'] }}</span>@endif
-                        @if (($session['runtimeMs'] ?? null) !== null)<span class="tabular-nums">{{ max(1, (int) round($session['runtimeMs'] / 60000)) }} min</span>@endif
-                        @if ($session['model'] ?? null)<span>{{ $session['model'] }}</span>@endif
-                        <span>{{ collect($session['repositories'])->pluck('id')->filter()->join(', ') ?: 'kein Repository' }}</span>
-                        <span>{{ $ts ? \Illuminate\Support\Carbon::createFromTimestampMs($ts)->timezone('Europe/Zurich')->diffForHumans() : '–' }}</span>
-                    </div>
-                </div>
-                <x-status-badge :status="$session['status']" class="justify-self-start sm:justify-self-auto" />
-                <div class="flex items-center gap-4 justify-self-start sm:justify-self-end">
-                    @if ($session['pullRequestUrl'])
-                        <span class="text-xs text-gold" title="{{ $session['pullRequestUrl'] }}">Pull Request</span>
+                </a>
+            @empty
+                <div class="px-5 py-14 text-center">
+                    @if ($filtered)
+                        <p class="font-medium text-white">Keine Treffer.</p>
+                        <p class="muted mt-1 text-sm"><a href="{{ route('dashboard') }}" class="link">Filter zurücksetzen</a></p>
+                    @else
+                        <p class="font-medium text-white">Noch keine Sessions.</p>
+                        <p class="muted mt-1 text-sm">Sobald nyrus ein Ticket bearbeitet, erscheint es hier.</p>
                     @endif
-                    <svg class="hidden size-4 text-white/25 transition-colors group-hover:text-white/70 sm:block" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 0 1 .02-1.06L11.17 10 7.23 6.29a.75.75 0 1 1 1.04-1.08l4.5 4.25a.75.75 0 0 1 0 1.08l-4.5 4.25a.75.75 0 0 1-1.06-.02Z" clip-rule="evenodd"/></svg>
                 </div>
-            </a>
-        @empty
-            <div class="px-5 py-14 text-center">
-                <p class="font-medium text-white">Noch keine Sessions.</p>
-                <p class="muted mt-1 text-sm">Sobald nyrus ein Ticket bearbeitet, erscheint es hier.</p>
-            </div>
-        @endforelse
+            @endforelse
+        </div>
+
+        <div class="mt-6">
+            @include('partials.pagination', ['paginator' => $sessions])
+        </div>
     </div>
 </x-app>

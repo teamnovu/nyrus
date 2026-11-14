@@ -8,6 +8,7 @@
         'complete' => 'text-white/55',
         'idle' => 'text-white/80',
         'error' => 'text-danger',
+        'stale' => 'text-white/40',
         'down' => 'text-danger',
     ];
     $labels = [
@@ -16,6 +17,7 @@
         'awaitingInput' => 'wartet auf Antwort',
         'complete' => 'fertig',
         'error' => 'Fehler',
+        'stale' => 'unterbrochen',
         'idle' => 'frei',
         'busy' => 'beschäftigt',
         'down' => 'nicht erreichbar',

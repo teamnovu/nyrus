@@ -7,6 +7,7 @@ import type {
 } from "../src/github/GitHubIssuesApi.js";
 import { createGitHubIssuesIntegrationFactory } from "../src/github/GitHubIssuesIntegration.js";
 import {
+	createGitHubIssuesHubFromEnv,
 	GitHubIssueThreads,
 	type GitHubPayload,
 	type GitHubThreadSource,
@@ -71,6 +72,8 @@ function setup(
 			repo: string,
 			repos: Array<Record<string, unknown>>,
 		) => Promise<boolean>;
+		fetch?: (url: string, init?: RequestInit) => Promise<Response>;
+		env?: NodeJS.ProcessEnv;
 	} = {},
 ) {
 	const github = fakeGitHub();
@@ -122,9 +125,11 @@ function setup(
 
 	const integration = createGitHubIssuesIntegrationFactory({
 		createApi: () => github.api,
+		fetch: (options.fetch ??
+			(async () => new Response("", { status: 401 }))) as typeof fetch,
 		dispatchTiming: { promptSettleMs: 1, startPollMs: 1, startSettleMaxMs: 20 },
 	})({
-		env: {},
+		env: options.env ?? {},
 		cyrusHome: "/tmp/unused",
 		logger: host.logger,
 		githubIssues: threads,
@@ -478,6 +483,78 @@ describe("GitHub issues worked directly", () => {
 			}
 		).state;
 		expect(state.type).toBe("started");
+	});
+});
+
+describe("GitHub issues through the edge worker's /github-webhook", () => {
+	it("finds nyrus's login from its GitHub token and takes assignments to it", async () => {
+		const fetchUser = vi.fn(async () =>
+			Response.json({ login: "novu-nyrus", type: "User" }),
+		);
+		const { integration, github, dispatched, tracker } = setup({
+			fetch: fetchUser,
+		});
+		await vi.waitFor(() => expect(tracker.agentLogins).toEqual(["novu-nyrus"]));
+		expect(fetchUser).toHaveBeenCalledWith(
+			"https://api.github.com/user",
+			expect.objectContaining({
+				headers: expect.objectContaining({ Authorization: "Bearer token" }),
+			}),
+		);
+		github.issue.assignees = [{ login: "novu-nyrus" }];
+		await integration.handleGitHubEvent!(
+			"issues",
+			issuesEvent("assigned", github.issue, {
+				assignee: { login: "novu-nyrus" },
+			}),
+			"d-77",
+		);
+		expect(dispatched).toHaveLength(1);
+	});
+
+	it("keeps GITHUB_BOT_USERNAME when it is set", async () => {
+		const fetchUser = vi.fn(async () => Response.json({ login: "someone" }));
+		const { tracker } = setup({
+			fetch: fetchUser,
+			env: { GITHUB_BOT_USERNAME: "novu-nyrus" },
+		});
+		await new Promise((r) => setTimeout(r, 10));
+		expect(fetchUser).not.toHaveBeenCalled();
+		expect(tracker.agentLogins).toEqual(["novu-nyrus"]);
+	});
+});
+
+describe("GitHub issues without their own webhook secret", () => {
+	it("registers no /github-issues-webhook route; events come through the edge worker", async () => {
+		const threads = createGitHubIssuesHubFromEnv({
+			env: { GITHUB_WEBHOOK_SECRET: "s" },
+			cyrusHome: "/tmp/unused",
+			logger: { info() {}, warn() {}, error() {}, debug() {} } as never,
+		})!;
+		expect(threads).toBeDefined();
+		const fastify = Fastify();
+		threads.connect({
+			fastify,
+			logger: { info() {} },
+		} as unknown as TrackerIntegrationHost);
+		expect(
+			(await fastify.inject({ method: "POST", url: "/github-issues-webhook" }))
+				.statusCode,
+		).toBe(404);
+		expect(
+			createGitHubIssuesHubFromEnv({
+				env: { GITHUB_WEBHOOK_SECRET: "s", GITHUB_ISSUES_ENABLED: "false" },
+				cyrusHome: "/tmp/unused",
+				logger: {} as never,
+			}),
+		).toBeUndefined();
+		expect(
+			createGitHubIssuesHubFromEnv({
+				env: {},
+				cyrusHome: "/tmp/unused",
+				logger: {} as never,
+			}),
+		).toBeUndefined();
 	});
 });
 

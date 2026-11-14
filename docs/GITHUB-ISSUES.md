@@ -95,14 +95,18 @@ Comments on pull requests stay with nyrus's pull request integration ([GitHub se
 
 ### Setup
 
-1. Do the [setup](#setup) above (GitHub App with **Issues: Read and write**, webhook with **Issues** and **Issue comment** events, `GITHUB_ISSUES_WEBHOOK_SECRET`). That turns this on too.
-2. **A GitHub account for nyrus that can be assigned.** Only users can be assigned to issues, not a GitHub App's bot, and only users with access to the repository: invite the account (e.g. `nyrus`) as a **collaborator** of the repository (or member of the organization). If its login isn't `nyrus`, set it:
+1. **Webhook.** Either is enough:
+   - **The webhook nyrus already has on `/github-webhook`** (PR comments, CI; `GITHUB_WEBHOOK_SECRET`): add the events **Issues** and **Issue comments** to it. nyrus passes issue events on to this tracker. Nothing else to set.
+   - Or a webhook to `/github-issues-webhook` with `GITHUB_ISSUES_WEBHOOK_SECRET` (the [setup](#setup) above), which also mirrors Jira/ClickUp tickets into GitHub issues.
+
+   On with `GITHUB_WEBHOOK_SECRET` or `GITHUB_ISSUES_WEBHOOK_SECRET`; `GITHUB_ISSUES_ENABLED=false` turns it off.
+2. **A GitHub account for nyrus that can be assigned.** Only users can be assigned to issues, not a GitHub App's bot, and only users with access to the repository: the account (e.g. `novu-nyrus`) must be a **collaborator** of the repository or a member of the organization. nyrus finds its login from its GitHub token (`GET /user`); set it when the token is an App token or belongs to another account:
 
    ```bash
-   GITHUB_BOT_USERNAME=nyrus-bot   # assigning it hands issues over, @nyrus-bot mentions it, its comments are nyrus's own
+   GITHUB_BOT_USERNAME=novu-nyrus   # assigning it hands issues over, @novu-nyrus mentions it, its comments are nyrus's own
    ```
 
-   nyrus still writes comments and pull requests with the App's token (or `GITHUB_TOKEN`); the account only needs to be assignable.
+   The log says which login it uses: `GitHub issues: nyrus is @novu-nyrus (from its GitHub token)`.
 3. **The repository in `config.json`**, taking work from the workspace `github`, with the repository's full name, **in lowercase**, as team key:
 
    ```json
@@ -119,7 +123,7 @@ Comments on pull requests stay with nyrus's pull request integration ([GitHub se
 
    Issues of repositories without such an entry are ignored. inBudget projects with a GitHub repository get these entries from the inBudget sync.
 
-Restart. The log shows `✅ GitHub issues worked directly (assign or mention @nyrus; ...)`.
+Restart. The log shows `✅ GitHub issues worked directly (assign or mention @…)`. Every issue event is logged with what nyrus did with it (`… → session`, `nothing for nyrus`, or why it was ignored).
 
 ### Notes
 

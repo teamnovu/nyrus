@@ -29,6 +29,8 @@
             $hasKeys = fn (?array $keys) => $keys && ($keys['teamKeys'] || $keys['projectKeys']);
             $joined = fn (?array $keys, string $field) => implode(', ', $keys[$field] ?? []);
             $modals = [];
+            // the group page manages Jira/ClickUp for all repos of the group (newer nyrus only)
+            $groupUrl = $group && is_array($group['platforms'] ?? null) ? route('repositories.group', ['key' => $group['key']] + $listQuery) : null;
         @endphp
 
         {{-- header --}}
@@ -89,6 +91,29 @@
                             @endforeach
                         </ul>
                     @endif
+                    @if ($hasKeys($tracker['inherited'] ?? null))
+                        <div class="mt-3 flex flex-wrap items-center gap-2 text-sm" data-inherited>
+                            <span class="chip text-white/60" data-source="inherited">geerbt</span>
+                            <span class="muted">von Gruppe
+                                @if ($groupUrl)
+                                    <a href="{{ $groupUrl }}" class="link" data-inherited-group>{{ $group['name'] }}</a>
+                                @else
+                                    {{ $group['name'] ?? '' }}
+                                @endif
+                            </span>
+                        </div>
+                        <ul class="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-sm" data-inherited-links>
+                            @foreach (\App\Services\ProjectOverview::keyLinks($platform, $tracker['inherited'], $trackerLinks) as $link)
+                                <li>
+                                    @if ($link['url'])
+                                        <a href="{{ $link['url'] }}" target="_blank" rel="noopener" class="link">{{ $link['label'] }}</a>
+                                    @else
+                                        <span class="text-white/80">{{ $link['label'] }}</span>
+                                    @endif
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
                     @if ($tracker['detached'] && $hasKeys($tracker['inbudget']))
                         <p class="muted mt-2 text-xs" data-inbudget-hint>inBudget: <span class="font-mono">{{ implode(', ', array_merge($tracker['inbudget']['teamKeys'], $tracker['inbudget']['projectKeys'])) }}</span></p>
                     @elseif ($tracker['editable'] && ! $tracker['detached'] && $hasKeys($tracker['inbudget']) && $hasKeys($tracker['manual']))
@@ -119,7 +144,7 @@
                                 <x-modal-button for="edit-{{ $platform }}">Bearbeiten</x-modal-button>
                                 @php($modals[] = ['kind' => 'keys', 'id' => "edit-{$platform}", 'title' => "{$tracker['label']} bearbeiten", 'tracker' => $tracker, 'detached' => null, 'fields' => array_keys($fields), 'submit' => 'Speichern', 'note' => 'Leer lassen entfernt die Verknüpfung. Liefert inBudget später einen Wert, gilt dieser.'])
                             @else
-                                <x-modal-button for="link-{{ $platform }}" variant="btn">Verknüpfen</x-modal-button>
+                                <x-modal-button for="link-{{ $platform }}" :variant="$tracker['covered'] ? 'btn-ghost' : 'btn'">Verknüpfen</x-modal-button>
                                 @php($modals[] = ['kind' => 'keys', 'id' => "link-{$platform}", 'title' => "{$tracker['label']} verknüpfen", 'tracker' => $tracker, 'detached' => null, 'fields' => array_keys($fields), 'submit' => 'Verknüpfen', 'note' => 'inBudget hat keinen Wert. Liefert inBudget später einen, gilt dieser.'])
                             @endif
                         @elseif ($tracker['manualEntries'])
@@ -128,6 +153,9 @@
                             <a class="btn-ghost" href="{{ route('repositories.index', ['add' => 1, 'repository_url' => $row['githubUrl']] + $listQuery) }}">Verknüpfen</a>
                         @endif
                     </div>
+                    @if ($groupUrl && in_array($platform, \App\Services\ProjectOverview::TICKET_TRACKERS, true))
+                        <a href="{{ $groupUrl }}" class="link mt-2 text-xs" data-group-level-link>Auf Gruppenebene bearbeiten</a>
+                    @endif
                 </section>
             @empty
                 <p class="muted text-sm">nyrus hat keinen Tracker eingerichtet.</p>

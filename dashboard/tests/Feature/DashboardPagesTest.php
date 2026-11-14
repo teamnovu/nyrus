@@ -62,6 +62,75 @@ class DashboardPagesTest extends TestCase
             && $request->hasHeader('Authorization', 'Bearer secret-key'));
     }
 
+    private function fakeSessions(array $sessions): void
+    {
+        Http::fake([
+            'nyrus.test/status' => Http::response(['status' => 'busy']),
+            'nyrus.test/version' => Http::response(['cyrus_cli_version' => '0.2.78']),
+            'nyrus.test/api/dashboard/sessions' => Http::response(['success' => true, 'data' => ['sessions' => $sessions]]),
+        ]);
+    }
+
+    public function test_overview_lists_sessions_from_every_source(): void
+    {
+        $this->fakeSessions([
+            $this->sessionData(['id' => 'slack-ev-1', 'source' => 'slack', 'state' => 'running', 'tracker' => null, 'issue' => ['identifier' => null, 'title' => null], 'title' => 'Why is CI red?', 'runner' => 'codex', 'model' => 'gpt-5', 'repositories' => []]),
+            $this->sessionData(['id' => 'github-d1', 'source' => 'github-pr', 'state' => 'finished', 'status' => 'complete', 'issue' => ['identifier' => 'web#12', 'title' => 'Add login']]),
+            $this->sessionData(['id' => 'old', 'source' => 'zulip', 'state' => 'stale', 'status' => 'stale', 'live' => false, 'issue' => ['identifier' => null, 'title' => null], 'title' => 'Hello']),
+        ]);
+
+        $this->get('/')
+            ->assertOk()
+            ->assertSee('Why is CI red?')
+            ->assertSee('codex · gpt-5')
+            ->assertSee('GitHub PR')
+            ->assertSee('web#12')
+            ->assertSee('Zulip')
+            ->assertSee('unterbrochen')
+            ->assertSee('3 Sessions')
+            ->assertDontSee('<details', false);
+    }
+
+    public function test_overview_filters_by_source_and_status(): void
+    {
+        $this->fakeSessions([
+            $this->sessionData(['id' => 's1', 'source' => 'slack', 'state' => 'running', 'issue' => ['identifier' => 'SLACK-ONE']]),
+            $this->sessionData(['id' => 's2', 'source' => 'jira', 'state' => 'failed', 'status' => 'error', 'issue' => ['identifier' => 'JIRA-TWO']]),
+            $this->sessionData(['id' => 's3', 'source' => 'jira', 'state' => 'finished', 'status' => 'complete', 'issue' => ['identifier' => 'JIRA-THREE']]),
+        ]);
+
+        $this->get('/?source=jira')
+            ->assertOk()->assertSee('JIRA-TWO')->assertSee('JIRA-THREE')->assertDontSee('SLACK-ONE')->assertSee('2 von 3 Sessions');
+
+        $this->get('/?source=jira&status=failed')
+            ->assertOk()->assertSee('JIRA-TWO')->assertDontSee('JIRA-THREE')->assertDontSee('SLACK-ONE');
+
+        // unknown values are ignored
+        $this->get('/?source=nope&status=nope')->assertOk()->assertSee('SLACK-ONE')->assertSee('3 Sessions');
+    }
+
+    public function test_overview_derives_source_and_status_from_older_nyrus(): void
+    {
+        $this->fakeSessions([
+            $this->sessionData(['id' => 'a', 'tracker' => 'github', 'status' => 'awaitingInput', 'issue' => ['identifier' => 'OLD-PR']]),
+            $this->sessionData(['id' => 'b', 'tracker' => 'clickup', 'status' => 'active', 'issue' => ['identifier' => 'OLD-CU']]),
+        ]);
+
+        $this->get('/?source=github-pr&status=waiting')->assertOk()->assertSee('OLD-PR')->assertDontSee('OLD-CU');
+    }
+
+    public function test_overview_paginates_long_lists(): void
+    {
+        $sessions = [];
+        for ($i = 1; $i <= 60; $i++) {
+            $sessions[] = $this->sessionData(['id' => "s{$i}", 'issue' => ['identifier' => sprintf('T-%03d', $i)]]);
+        }
+        $this->fakeSessions($sessions);
+
+        $this->get('/')->assertOk()->assertSee('T-050')->assertDontSee('T-051')->assertSee('1–50 angezeigt');
+        $this->get('/?page=2')->assertOk()->assertSee('T-060')->assertDontSee('T-050')->assertSee('51–60 angezeigt');
+    }
+
     public function test_overview_survives_nyrus_being_down(): void
     {
         Http::fake(fn () => throw new ConnectionException('refused'));
@@ -92,6 +161,24 @@ class DashboardPagesTest extends TestCase
         $this->get('/sessions/s1')->assertOk()->assertSee('CU-42')->assertSee('Running the tests now')->assertSee('$1.25', false);
 
         Http::assertSent(fn (Request $request) => str_contains($request->url(), '/api/dashboard/session?id=s1'));
+    }
+
+    public function test_session_detail_of_a_past_session_without_entries(): void
+    {
+        Http::fake([
+            'nyrus.test/api/dashboard/session*' => Http::response(['success' => true, 'data' => [
+                'session' => $this->sessionData(['id' => 'slack-ev-1', 'source' => 'slack', 'status' => 'stale', 'live' => false, 'issue' => ['identifier' => null, 'title' => null], 'title' => 'Why is CI red?', 'parentSessionId' => 'p1']),
+                'entries' => [],
+            ]]),
+        ]);
+
+        $this->get('/sessions/slack-ev-1')
+            ->assertOk()
+            ->assertSee('Why is CI red?')
+            ->assertSee('Slack')
+            ->assertSee('unterbrochen')
+            ->assertSee('Verlauf nicht mehr gespeichert.')
+            ->assertSee('/sessions/p1', false);
     }
 
     public function test_failed_add_shows_nyrus_error_and_is_logged(): void

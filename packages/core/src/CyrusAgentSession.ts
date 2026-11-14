@@ -110,6 +110,8 @@ export interface CyrusAgentSession {
 		commentId?: string;
 		/** Chat sessions: thread position up to which this session has context */
 		lastContextTs?: string;
+		/** Chat sessions: a one-line title from the first prompt (dashboard) */
+		title?: string;
 	};
 }
 

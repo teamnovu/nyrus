@@ -30,6 +30,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/projects/groups/{key}', [RepositoryGroupController::class, 'show'])
         ->where('key', '(client|manual|repo):.+')->name('repositories.group');
     Route::post('/projects/groups', [RepositoryGroupController::class, 'update'])->name('repositories.group.update');
+    Route::post('/projects/groups/trackers', [RepositoryGroupController::class, 'saveTrackers'])->name('repositories.group.trackers');
     Route::get('/projects/{owner}/{repo}', [RepositoryController::class, 'show'])
         ->where(['owner' => '[\w.-]+', 'repo' => '[\w.-]+'])->name('repositories.show');
     Route::post('/repositories/inbudget-sync', [RepositoryController::class, 'syncInbudget'])->name('repositories.inbudget-sync');

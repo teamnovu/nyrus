@@ -421,6 +421,7 @@ describe("manual routing from the dashboard", () => {
 					manual: { teamKeys: ["SAY"], projectKeys: [] },
 					detached: false,
 					effective: { teamKeys: ["SAY"], projectKeys: [] },
+					inherited: { teamKeys: [], projectKeys: [] },
 				},
 			],
 			[
@@ -430,6 +431,7 @@ describe("manual routing from the dashboard", () => {
 					manual: { teamKeys: ["OLD"], projectKeys: [] },
 					detached: false,
 					effective: { teamKeys: ["ZOO"], projectKeys: [] },
+					inherited: { teamKeys: [], projectKeys: [] },
 				},
 			],
 		]);
@@ -603,6 +605,55 @@ describe("repository groups", () => {
 			["client:9", "novu ag", ["teamnovu/skeleton"]],
 			["client:7", "Zuriga", ["teamnovu/zuriga-cms", "teamnovu/zuriga-web"]],
 		]);
+	});
+
+	it("gives a group's own Jira/ClickUp keys to all its repositories, together with their members' keys", async () => {
+		const { dir } = home();
+		writeManual(dir, "@group:client:7", "jira", {
+			teamKeys: ["ZURG"],
+			projectKeys: [],
+		});
+		writeManual(dir, "@group:client:7", "clickup", {
+			teamKeys: ["9015"],
+			projectKeys: [],
+		});
+		const plan = await planRepositories(projects, infos, {
+			...context,
+			clickup: { teamId: "14278081", workspaceKey: "clickup-14278081" },
+		});
+		const { desired, repos, groups } = mergeManual(plan, readManual(dir), {
+			...context,
+			clickup: { teamId: "14278081", workspaceKey: "clickup-14278081" },
+		});
+		expect(
+			desired
+				.filter((d) => d.repo.startsWith("teamnovu/zuriga"))
+				.map((d) => [d.repo, d.platform, d.teamKeys]),
+		).toEqual([
+			["teamnovu/zuriga-cms", "clickup", ["9015"]],
+			["teamnovu/zuriga-cms", "jira", ["ZURG", "ZUR"]],
+			["teamnovu/zuriga-web", "clickup", ["9015"]],
+			["teamnovu/zuriga-web", "jira", ["ZURG", "ZUR"]],
+		]);
+		expect(groups.find((g) => g.key === "client:7")!.platforms.jira).toEqual({
+			own: { teamKeys: ["ZURG"], projectKeys: [] },
+			effective: { teamKeys: ["ZURG", "ZUR"], projectKeys: [] },
+		});
+		const cms = repos.find((r) => r.repo === "teamnovu/zuriga-cms")!;
+		expect(cms.platforms.jira).toMatchObject({
+			effective: { teamKeys: [] },
+			inherited: { teamKeys: ["ZURG", "ZUR"], projectKeys: [] },
+		});
+		// Cleared: only the members' keys remain.
+		writeManual(dir, "@group:client:7", "jira", {
+			teamKeys: [],
+			projectKeys: [],
+		});
+		expect(
+			mergeManual(plan, readManual(dir), context).groups.find(
+				(g) => g.key === "client:7",
+			)!.platforms.jira!.effective.teamKeys,
+		).toEqual(["ZUR"]);
 	});
 
 	it("follows the groups set in the dashboard: a name, alone, or back to the customer", async () => {
@@ -1110,6 +1161,26 @@ describe("inBudget dashboard endpoint", () => {
 				},
 			});
 			expect(bulk.statusCode).toBe(200);
+			const groupKeys = await fastify.inject({
+				method: "POST",
+				url: "/api/dashboard/inbudget/manual",
+				headers: { authorization: "Bearer key" },
+				payload: { groupKey: "client:7", platform: "jira", teamKeys: ["ZUR"] },
+			});
+			expect(groupKeys.statusCode).toBe(200);
+			expect(readManual(dir)["@group:client:7"]).toEqual({
+				jira: { teamKeys: ["ZUR"], projectKeys: [] },
+			});
+			expect(
+				(
+					await fastify.inject({
+						method: "POST",
+						url: "/api/dashboard/inbudget/manual",
+						headers: { authorization: "Bearer key" },
+						payload: { groupKey: "nope", platform: "jira" },
+					})
+				).statusCode,
+			).toBe(400);
 			expect(readManual(dir)["teamnovu/zuriga-cms"]).toEqual({
 				group: "Zuriga",
 			});

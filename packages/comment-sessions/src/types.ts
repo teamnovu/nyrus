@@ -211,6 +211,15 @@ export interface TrackerIntegration {
 	 * (Slack mrkdwn) as the reply.
 	 */
 	chatCommand?(text: string): ChatCommand | undefined;
+	/**
+	 * A verified GitHub `issues` or `issue_comment` (not on a pull request)
+	 * event that reached the edge worker's `/github-webhook`.
+	 */
+	handleGitHubEvent?(
+		eventName: string,
+		payload: unknown,
+		deliveryId?: string,
+	): Promise<void>;
 	dispose?(): void;
 }
 

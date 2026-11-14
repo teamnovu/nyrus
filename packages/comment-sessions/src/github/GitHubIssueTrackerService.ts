@@ -111,6 +111,8 @@ export interface GitHubIssueTrackerOptions {
 	/** Hand-off timing of the session coordinator (tests). */
 	dispatchTiming?: Partial<DispatchTiming>;
 	logger?: ILogger;
+	/** fetch for finding nyrus's login (tests). */
+	fetch?: typeof fetch;
 }
 
 /**
@@ -131,7 +133,8 @@ export class GitHubIssueTrackerService
 	readonly platform = GITHUB_ISSUES_PLATFORM;
 	readonly workspaceKey = GITHUB_WORKSPACE_KEY;
 	readonly sessions: CommentAgentSessions;
-	readonly agentLogins: string[];
+	/** nyrus's GitHub logins (assignment and @mention); detected from the token when not configured. */
+	agentLogins: string[];
 	private readonly logger: ILogger;
 	private host?: TrackerIntegrationHost;
 	private readonly recent = new Map<
@@ -161,6 +164,54 @@ export class GitHubIssueTrackerService
 	/** Use the edge worker's repositories and GitHub tokens. */
 	connect(host: TrackerIntegrationHost): void {
 		this.host = host;
+		if (!this.options.agentLogins?.some((l) => l.trim())) {
+			void this.detectAgentLogin();
+		}
+	}
+
+	/**
+	 * Without GITHUB_BOT_USERNAME: the login of the account nyrus's GitHub
+	 * token belongs to (a user token; an App token has no user), so assigning
+	 * an issue to that account hands it over.
+	 */
+	async detectAgentLogin(): Promise<string | undefined> {
+		try {
+			const repositoryId = this.host?.repositories?.()[0]?.id ?? "";
+			const token = await this.host?.githubToken?.(repositoryId);
+			if (!token) {
+				this.logger.info(
+					`GitHub issues: no GitHub token to find nyrus's login; assign issues to @${this.agentLogins.join(", @")} (GITHUB_BOT_USERNAME)`,
+				);
+				return undefined;
+			}
+			const response = await (this.options.fetch ?? fetch)(
+				"https://api.github.com/user",
+				{
+					headers: {
+						Authorization: `Bearer ${token}`,
+						Accept: "application/vnd.github+json",
+					},
+				},
+			);
+			const user = response.ok
+				? ((await response.json()) as { login?: string; type?: string })
+				: undefined;
+			if (user?.login) {
+				this.agentLogins = [user.login];
+				this.logger.info(
+					`GitHub issues: nyrus is @${user.login} (from its GitHub token); assign issues to it`,
+				);
+				return user.login;
+			}
+			this.logger.info(
+				`GitHub issues: the GitHub token has no user (${response.status}, e.g. an App token); assign issues to @${this.agentLogins.join(", @")} or set GITHUB_BOT_USERNAME`,
+			);
+		} catch (error) {
+			this.logger.warn(
+				`GitHub issues: could not find nyrus's login: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+		return undefined;
 	}
 
 	// ========================================================================

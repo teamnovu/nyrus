@@ -42,6 +42,11 @@ export interface GitHubEventTransportEvents {
 	message: (message: InternalMessage) => void;
 	/** Emitted when an error occurs */
 	error: (error: Error) => void;
+	/**
+	 * Emitted for `issues` events and comments on issues (not pull requests),
+	 * verified, with GitHub's event name, payload and delivery id.
+	 */
+	issue: (eventName: string, payload: unknown, deliveryId: string) => void;
 }
 
 /**
