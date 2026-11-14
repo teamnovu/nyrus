@@ -1,11 +1,16 @@
 <x-app :title="$group['name'] ?? 'Gruppe'">
-    <a href="{{ route('repositories.index', $listQuery) }}" class="link inline-flex items-center gap-1 text-sm" data-back-link>
-        <svg class="size-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M11.78 5.22a.75.75 0 0 1 0 1.06L8.06 10l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z" clip-rule="evenodd"/></svg>
-        Alle Projekte
-    </a>
+    {{-- back link stays on top; the group's name joins it once scrolled past --}}
+    <div class="sticky-bar -mt-3" data-sticky>
+        <div class="flex h-12 items-center gap-3">
+            <a href="{{ route('repositories.index', $listQuery) }}" class="back-link shrink-0" data-back-link><x-icon name="chevron-left" />Alle Projekte</a>
+            <div class="sticky-title flex items-center gap-2 border-l border-line pl-3 text-sm" aria-hidden="true">
+                <x-icon name="folder" class="size-4 text-gold/80" /><span class="truncate">{{ $group['name'] ?? 'Gruppe' }}</span>
+            </div>
+        </div>
+    </div>
 
     @if ($error)
-        <div class="notice mt-6">
+        <div class="notice mt-6 border-warning/30">
             <span class="notice-dot text-warning" aria-hidden="true"></span>
             <span>Konfiguration konnte nicht geladen werden: {{ $error }}</span>
         </div>
@@ -32,7 +37,7 @@
                 <h1 class="page-title break-words" data-group-title>{{ $group['name'] }}</h1>
             </div>
             <div class="ml-auto flex flex-wrap gap-2">
-                <x-modal-button for="group-add" variant="btn">Repo hinzufügen</x-modal-button>
+                <x-modal-button for="group-add" variant="btn"><x-icon name="plus" />Repo hinzufügen</x-modal-button>
                 <x-modal-button for="group-rename">{{ $isCustomer ? 'Als eigene Gruppe benennen' : 'Umbenennen' }}</x-modal-button>
                 @if ($group['size'] > 1)
                     <x-modal-button for="group-dissolve">Auflösen</x-modal-button>
@@ -45,27 +50,32 @@
         <div class="mt-3 flex flex-wrap items-center gap-2 text-sm">
             @include('partials.group-chips', ['group' => $group])
             @if ($group['customer'] && $group['customer'] !== $group['name'])
-                <span class="chip text-white/60">Kunde {{ $group['customer'] }}</span>
+                <span class="chip chip-meta text-white/60">Kunde {{ $group['customer'] }}</span>
             @endif
             <span class="muted">{{ $group['size'] }} {{ $group['size'] === 1 ? 'Repo' : 'Repos' }} · Tickets für ein Repo der Gruppe bekommen alle Repos der Gruppe.</span>
         </div>
 
         {{-- connections: the group's Jira/ClickUp, inherited by every repository of the group --}}
         @if ($trackers)
-            <h2 class="mt-10 text-lg">Verbindungen</h2>
+            <h2 class="section-title mt-10">Verbindungen</h2>
             <div class="mt-4 grid gap-4 md:grid-cols-2">
                 @foreach ($trackers as $platform => $tracker)
-                    <section class="card flex flex-col p-4" data-group-tracker="{{ $platform }}">
-                        <div class="flex flex-wrap items-center gap-2">
+                    <section @class(['card flex flex-col overflow-hidden', 'border-success/25' => $tracker['connected']]) data-group-tracker="{{ $platform }}">
+                        <div class="flex items-center gap-3 border-b border-line px-4 py-3">
+                            <span class="flex size-8 items-center justify-center rounded-lg border border-line bg-raised"><span class="mark mark-{{ $platform }} size-3"></span></span>
                             <h3 class="text-base">{{ $tracker['label'] }}</h3>
                             @if ($tracker['connected'])
-                                <span class="chip text-gold" data-connection="connected"><span class="chip-dot"></span>Verbunden</span>
+                                <span class="chip chip-status ml-auto text-success" data-connection="connected"><span class="chip-dot"></span>Verbunden</span>
                             @else
-                                <span class="chip text-warning" data-connection="disconnected">Nicht verbunden</span>
+                                <span class="chip chip-status ml-auto text-warning" data-connection="disconnected">Nicht verbunden</span>
                             @endif
                         </div>
+                        <div class="flex flex-1 flex-col p-4">
+                        @if (! $tracker['links'])
+                            <p class="text-sm text-white/45">Noch kein Projekt für die Gruppe.</p>
+                        @endif
                         @if ($tracker['links'])
-                            <ul class="mt-3 grid gap-1.5 text-sm" data-links>
+                            <ul class="grid gap-1.5 text-sm" data-links>
                                 @foreach ($tracker['links'] as $link)
                                     <li class="flex flex-wrap items-baseline gap-x-2" data-key="{{ $link['key'] }}">
                                         @if ($link['url'])
@@ -75,7 +85,7 @@
                                         @endif
                                         @foreach ($link['sources'] as $source)
                                             @if ($source['kind'] === 'group')
-                                                <span class="text-xs text-gold-light/80" data-key-source="group">für die Gruppe</span>
+                                                <span class="text-xs text-gold-light" data-key-source="group">für die Gruppe</span>
                                             @else
                                                 @php([$sourceOwner, $sourceRepo] = explode('/', $source['row']['key'], 2))
                                                 <span class="muted text-xs" data-key-source="{{ $source['kind'] }}">{{ $source['kind'] === 'inbudget' ? 'aus inBudget' : 'von' }} <a class="link" href="{{ route('repositories.show', ['owner' => $sourceOwner, 'repo' => $sourceRepo] + $listQuery) }}">{{ $source['row']['name'] }}</a></span>
@@ -93,18 +103,19 @@
                                 <x-modal-button for="group-link-{{ $platform }}" :variant="$tracker['connected'] ? 'btn-ghost' : 'btn'">Verknüpfen</x-modal-button>
                             @endif
                         </div>
+                        </div>
                     </section>
                 @endforeach
             </div>
         @endif
 
-        <h2 class="mt-10 text-lg">Repos</h2>
+        <h2 class="section-title mt-10">Repos <span class="count">{{ $group['size'] }}</span></h2>
         <div class="card divided mt-4 overflow-hidden">
             @foreach ($group['rows'] as $row)
                 @php([$owner, $repo] = explode('/', $row['key'], 2))
-                <div class="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-5" data-member="{{ $row['key'] }}">
-                    <a href="{{ route('repositories.show', ['owner' => $owner, 'repo' => $repo] + $listQuery) }}" class="min-w-0 flex-1 basis-56 truncate">
-                        <span class="font-medium text-white">{{ $row['name'] }}</span>@if ($row['owner']) <span class="muted text-sm">{{ $row['owner'] }}</span>@endif
+                <div class="card-row flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-5" data-member="{{ $row['key'] }}">
+                    <a href="{{ route('repositories.show', ['owner' => $owner, 'repo' => $repo] + $listQuery) }}" class="group min-w-0 flex-1 basis-56 truncate">
+                        <span class="font-medium text-white group-hover:text-gold-light">{{ $row['name'] }}</span>@if ($row['owner']) <span class="text-sm text-white/45">{{ $row['owner'] }}</span>@endif
                     </a>
                     @include('partials.project-chips', ['row' => $row])
                     @if ($group['size'] > 1)

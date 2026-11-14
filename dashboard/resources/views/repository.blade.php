@@ -1,10 +1,6 @@
 <x-app :title="$row['name'] ?? 'Projekt'">
-    <a href="{{ route('repositories.index', $listQuery) }}" class="link inline-flex items-center gap-1 text-sm" data-back-link>
-        <svg class="size-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M11.78 5.22a.75.75 0 0 1 0 1.06L8.06 10l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z" clip-rule="evenodd"/></svg>
-        Alle Projekte
-    </a>
-
     @if ($error)
+        <a href="{{ route('repositories.index', $listQuery) }}" class="back-link" data-back-link><x-icon name="chevron-left" />Alle Projekte</a>
         <div class="notice mt-6">
             <span class="notice-dot text-warning" aria-hidden="true"></span>
             <span>Konfiguration konnte nicht geladen werden: {{ $error }}</span>
@@ -20,7 +16,7 @@
                 'other' => ['teamKeys' => ['Team-Keys', 'Kommagetrennt.'], 'projectKeys' => ['Projekte', 'Kommagetrennt.']],
             ];
             $sourceLabels = [
-                'inbudget' => ['über inBudget', 'text-gold-light/80', 'Wert kommt aus inBudget'],
+                'inbudget' => ['über inBudget', 'text-gold-light', 'Wert kommt aus inBudget'],
                 'supplement' => ['manuell', 'text-white/60', 'inBudget hat keinen Wert, deiner gilt'],
                 'detached' => ['entknüpft (manuell)', 'text-warning', 'Von inBudget entknüpft: dein Wert gilt, auch wenn inBudget einen hat'],
                 'manual' => ['manuell', 'text-white/60', 'Eigener Eintrag in nyrus'],
@@ -33,141 +29,161 @@
             $groupUrl = $group && is_array($group['platforms'] ?? null) ? route('repositories.group', ['key' => $group['key']] + $listQuery) : null;
         @endphp
 
-        {{-- header --}}
-        <div class="mt-4 flex flex-wrap items-end gap-x-4 gap-y-2">
-            <div class="min-w-0">
-                <p class="eyebrow">Projekt</p>
-                <h1 class="page-title break-words">{{ $row['name'] }}@if ($row['owner']) <span class="text-xl font-normal text-white/40 sm:text-2xl">{{ $row['owner'] }}</span>@endif</h1>
+        {{-- back link and GitHub stay on top; the name joins them once scrolled past --}}
+        <div class="sticky-bar -mt-3" data-sticky>
+            <div class="flex h-12 items-center gap-3">
+                <a href="{{ route('repositories.index', $listQuery) }}" class="back-link shrink-0" data-back-link><x-icon name="chevron-left" />Alle Projekte</a>
+                <div class="sticky-title flex items-center gap-2 border-l border-line pl-3 text-sm" aria-hidden="true">
+                    <span class="truncate">{{ $row['name'] }}</span>
+                </div>
+                @if ($row['githubUrl'])
+                    <a href="{{ $row['githubUrl'] }}" target="_blank" rel="noopener" class="btn-ghost ml-auto !h-8 shrink-0" data-github-link><span class="mark mark-github"></span>GitHub<x-icon name="external" class="size-3.5 text-white/40" /></a>
+                @endif
             </div>
-            @if ($row['githubUrl'])
-                <a href="{{ $row['githubUrl'] }}" target="_blank" rel="noopener" class="btn-ghost ml-auto" data-github-link>GitHub</a>
-            @endif
+        </div>
+
+        {{-- header --}}
+        <div class="mt-4 min-w-0">
+            <p class="eyebrow">Projekt</p>
+            <h1 class="page-title break-words">{{ $row['name'] }}@if ($row['owner']) <span class="text-xl font-normal text-white/40 sm:text-2xl">{{ $row['owner'] }}</span>@endif</h1>
         </div>
         <div class="mt-3 flex flex-wrap items-center gap-2 text-sm" data-header>
             @if (! $row['hasEntries'])
-                <span class="chip text-white/40">nicht eingerichtet</span>
+                <span class="chip chip-status text-white/45"><span class="chip-dot opacity-60"></span>nicht eingerichtet</span>
             @elseif ($row['active'])
-                <span class="chip text-gold"><span class="chip-dot"></span>aktiv</span>
+                <span class="chip chip-status text-success"><span class="chip-dot"></span>aktiv</span>
             @else
-                <span class="chip text-white/50">inaktiv</span>
+                <span class="chip chip-status text-white/55"><span class="chip-dot"></span>inaktiv</span>
             @endif
-            <span @class(['chip', 'text-gold-light/80' => $row['inbudget'], 'text-white/60' => ! $row['inbudget']])>{{ $row['inbudget'] ? 'inBudget' : 'nicht in inBudget' }}</span>
+            <span @class(['chip chip-meta', 'text-gold-light' => $row['inbudget'], 'text-white/60' => ! $row['inbudget']])>{{ $row['inbudget'] ? 'inBudget' : 'nicht in inBudget' }}</span>
             @if ($group && $group['size'] > 1)
-                <a href="{{ route('repositories.group', ['key' => $group['key']] + $listQuery) }}" class="chip text-white/75 hover:text-white" data-header-group>Gruppe {{ $group['name'] }} · {{ $group['size'] }}</a>
-            @endif
-            @if ($row['projects'])
-                <span class="muted min-w-0 truncate" title="{{ implode(' · ', $row['projects']) }}">{{ implode(' · ', $row['projects']) }}</span>
+                <a href="{{ route('repositories.group', ['key' => $group['key']] + $listQuery) }}" class="chip chip-tag hover:border-white/30 hover:text-white" data-header-group><x-icon name="folder" class="size-3.5 text-gold/80" />Gruppe {{ $group['name'] }} · {{ $group['size'] }}</a>
             @endif
         </div>
+        @if ($row['projects'])
+            <ul class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-white/60" title="inBudget-Projekte">
+                @foreach ($row['projects'] as $project)
+                    <li class="flex min-w-0 items-center gap-1.5"><x-icon name="document" class="size-3.5 text-white/30" /><span class="truncate">{{ $project }}</span></li>
+                @endforeach
+            </ul>
+        @endif
 
         {{-- connections --}}
-        <h2 class="mt-10 text-lg">Verbindungen</h2>
+        <h2 class="section-title mt-10">Verbindungen</h2>
         <div class="mt-4 grid gap-4 md:grid-cols-3">
             @forelse ($row['trackers'] as $platform => $tracker)
                 @php($links = \App\Services\ProjectOverview::links($tracker, $repoName, $trackerLinks))
                 @php($source = $tracker['covered'] ? $tracker['source'] : null)
-                <section class="card flex flex-col p-4" data-tracker="{{ $platform }}">
-                    <div class="flex flex-wrap items-center gap-2">
+                <section @class(['card relative flex flex-col overflow-hidden', 'border-success/25' => $tracker['covered']]) data-tracker="{{ $platform }}">
+                    <div class="flex items-center gap-3 border-b border-line px-4 py-3">
+                        <span class="flex size-8 items-center justify-center rounded-lg border border-line bg-raised"><span class="mark mark-{{ $platform }} size-3"></span></span>
                         <h3 class="text-base">{{ $tracker['label'] }}</h3>
                         @if ($tracker['covered'])
-                            <span class="chip text-gold" data-connection="connected"><span class="chip-dot"></span>Verbunden</span>
+                            <span class="chip chip-status ml-auto text-success" data-connection="connected"><span class="chip-dot"></span>Verbunden</span>
                         @else
-                            <span @class(['chip', 'text-warning' => $platform !== 'github', 'text-white/45' => $platform === 'github']) data-connection="disconnected">Nicht verbunden</span>
+                            <span @class(['chip chip-status ml-auto', 'text-warning' => $platform !== 'github', 'text-white/50' => $platform === 'github']) data-connection="disconnected">Nicht verbunden</span>
                         @endif
                     </div>
-                    @if ($source && isset($sourceLabels[$source]))
-                        <div class="mt-2"><span class="chip {{ $sourceLabels[$source][1] }}" title="{{ $sourceLabels[$source][2] }}" data-source="{{ $source }}">{{ $sourceLabels[$source][0] }}</span></div>
-                    @endif
-                    @if ($links)
-                        <ul class="mt-3 flex flex-wrap gap-x-3 gap-y-1 font-mono text-sm" data-links>
-                            @foreach ($links as $link)
-                                <li>
-                                    @if ($link['url'])
-                                        <a href="{{ $link['url'] }}" target="_blank" rel="noopener" class="link">{{ $link['label'] }}</a>
-                                    @else
-                                        <span class="text-white/80">{{ $link['label'] }}</span>
-                                    @endif
-                                </li>
-                            @endforeach
-                        </ul>
-                    @endif
-                    @if ($hasKeys($tracker['inherited'] ?? null))
-                        <div class="mt-3 flex flex-wrap items-center gap-2 text-sm" data-inherited>
-                            <span class="chip text-white/60" data-source="inherited">geerbt</span>
-                            <span class="muted">von Gruppe
-                                @if ($groupUrl)
-                                    <a href="{{ $groupUrl }}" class="link" data-inherited-group>{{ $group['name'] }}</a>
-                                @else
-                                    {{ $group['name'] ?? '' }}
-                                @endif
-                            </span>
-                        </div>
-                        <ul class="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-sm" data-inherited-links>
-                            @foreach (\App\Services\ProjectOverview::keyLinks($platform, $tracker['inherited'], $trackerLinks) as $link)
-                                <li>
-                                    @if ($link['url'])
-                                        <a href="{{ $link['url'] }}" target="_blank" rel="noopener" class="link">{{ $link['label'] }}</a>
-                                    @else
-                                        <span class="text-white/80">{{ $link['label'] }}</span>
-                                    @endif
-                                </li>
-                            @endforeach
-                        </ul>
-                    @endif
-                    @if ($tracker['detached'] && $hasKeys($tracker['inbudget']))
-                        <p class="muted mt-2 text-xs" data-inbudget-hint>inBudget: <span class="font-mono">{{ implode(', ', array_merge($tracker['inbudget']['teamKeys'], $tracker['inbudget']['projectKeys'])) }}</span></p>
-                    @elseif ($tracker['editable'] && ! $tracker['detached'] && $hasKeys($tracker['inbudget']) && $hasKeys($tracker['manual']))
-                        @php($ignored = collect(['teamKeys', 'projectKeys'])->filter(fn ($f) => $tracker['inbudget'][$f] && $tracker['manual'][$f])->flatMap(fn ($f) => $tracker['manual'][$f])->all())
-                        @if ($ignored)
-                            <p class="muted mt-2 text-xs" data-overridden title="inBudget hat einen Wert. Entknüpfe, damit deiner gilt.">Ignoriert: <span class="font-mono line-through">{{ implode(', ', $ignored) }}</span></p>
+                    <div class="flex flex-1 flex-col p-4">
+                        @if ($source && isset($sourceLabels[$source]))
+                            <div><span class="chip chip-meta {{ $sourceLabels[$source][1] }}" title="{{ $sourceLabels[$source][2] }}" data-source="{{ $source }}">{{ $sourceLabels[$source][0] }}</span></div>
                         @endif
-                    @endif
-
-                    {{-- actions --}}
-                    <div class="mt-auto flex flex-wrap gap-2 pt-4" data-actions>
-                        @if ($tracker['editable'])
-                            @php($fields = $fieldsFor[$platform])
-                            @if ($tracker['detached'])
-                                <x-modal-button for="edit-{{ $platform }}">Bearbeiten</x-modal-button>
-                                <x-modal-button for="relink-{{ $platform }}">Wieder verknüpfen</x-modal-button>
-                                @php($modals[] = ['kind' => 'keys', 'id' => "edit-{$platform}", 'title' => "{$tracker['label']}: dein Wert", 'tracker' => $tracker, 'detached' => true, 'fields' => array_keys($fields), 'submit' => 'Speichern', 'note' => 'Bleibt entknüpft von inBudget.'])
-                                @php($modals[] = ['kind' => 'relink', 'id' => "relink-{$platform}", 'title' => "{$tracker['label']} wieder mit inBudget verknüpfen?", 'tracker' => $tracker])
-                            @elseif ($hasKeys($tracker['inbudget']))
-                                @php($open = array_values(array_filter(array_keys($fields), fn ($f) => ! $tracker['inbudget'][$f])))
-                                @if ($open)
-                                    <x-modal-button for="supplement-{{ $platform }}">Ergänzen</x-modal-button>
-                                    @php($modals[] = ['kind' => 'keys', 'id' => "supplement-{$platform}", 'title' => "{$tracker['label']} ergänzen", 'tracker' => $tracker, 'detached' => null, 'fields' => $open, 'submit' => 'Speichern', 'note' => 'Nur was inBudget nicht hat. Leer lassen entfernt die Ergänzung.'])
-                                @endif
-                                <x-modal-button for="detach-{{ $platform }}">Entknüpfen</x-modal-button>
-                                @php($modals[] = ['kind' => 'keys', 'id' => "detach-{$platform}", 'title' => "{$tracker['label']} von inBudget entknüpfen?", 'tracker' => $tracker, 'detached' => true, 'fields' => array_keys($fields), 'submit' => 'Entknüpfen', 'note' => 'Danach gilt dein Wert, auch wenn inBudget einen hat.', 'prefill' => 'inbudget'])
-                            @elseif ($hasKeys($tracker['manual']))
-                                <x-modal-button for="edit-{{ $platform }}">Bearbeiten</x-modal-button>
-                                @php($modals[] = ['kind' => 'keys', 'id' => "edit-{$platform}", 'title' => "{$tracker['label']} bearbeiten", 'tracker' => $tracker, 'detached' => null, 'fields' => array_keys($fields), 'submit' => 'Speichern', 'note' => 'Leer lassen entfernt die Verknüpfung. Liefert inBudget später einen Wert, gilt dieser.'])
-                            @else
-                                <x-modal-button for="link-{{ $platform }}" :variant="$tracker['covered'] ? 'btn-ghost' : 'btn'">Verknüpfen</x-modal-button>
-                                @php($modals[] = ['kind' => 'keys', 'id' => "link-{$platform}", 'title' => "{$tracker['label']} verknüpfen", 'tracker' => $tracker, 'detached' => null, 'fields' => array_keys($fields), 'submit' => 'Verknüpfen', 'note' => 'inBudget hat keinen Wert. Liefert inBudget später einen, gilt dieser.'])
+                        @if ($links)
+                            <ul class="mt-3 flex flex-wrap gap-x-3 gap-y-1 font-mono text-sm" data-links>
+                                @foreach ($links as $link)
+                                    <li>
+                                        @if ($link['url'])
+                                            <a href="{{ $link['url'] }}" target="_blank" rel="noopener" class="link">{{ $link['label'] }}</a>
+                                        @else
+                                            <span class="text-white/80">{{ $link['label'] }}</span>
+                                        @endif
+                                    </li>
+                                @endforeach
+                            </ul>
+                        @elseif (! $tracker['covered'] && ! $hasKeys($tracker['inherited'] ?? null))
+                            <p class="text-sm text-white/45">{{ $platform === 'github' ? 'Issues im Repository gehen nicht an nyrus.' : 'Tickets kommen noch nicht hier an.' }}</p>
+                        @endif
+                        @if ($hasKeys($tracker['inherited'] ?? null))
+                            <div class="mt-3 flex flex-wrap items-center gap-2 text-sm" data-inherited>
+                                <span class="chip chip-meta text-white/60" data-source="inherited">geerbt</span>
+                                <span class="muted">von Gruppe
+                                    @if ($groupUrl)
+                                        <a href="{{ $groupUrl }}" class="link" data-inherited-group>{{ $group['name'] }}</a>
+                                    @else
+                                        {{ $group['name'] ?? '' }}
+                                    @endif
+                                </span>
+                            </div>
+                            <ul class="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-sm" data-inherited-links>
+                                @foreach (\App\Services\ProjectOverview::keyLinks($platform, $tracker['inherited'], $trackerLinks) as $link)
+                                    <li>
+                                        @if ($link['url'])
+                                            <a href="{{ $link['url'] }}" target="_blank" rel="noopener" class="link">{{ $link['label'] }}</a>
+                                        @else
+                                            <span class="text-white/80">{{ $link['label'] }}</span>
+                                        @endif
+                                    </li>
+                                @endforeach
+                            </ul>
+                        @endif
+                        @if ($tracker['detached'] && $hasKeys($tracker['inbudget']))
+                            <p class="muted mt-2 text-xs" data-inbudget-hint>inBudget: <span class="font-mono">{{ implode(', ', array_merge($tracker['inbudget']['teamKeys'], $tracker['inbudget']['projectKeys'])) }}</span></p>
+                        @elseif ($tracker['editable'] && ! $tracker['detached'] && $hasKeys($tracker['inbudget']) && $hasKeys($tracker['manual']))
+                            @php($ignored = collect(['teamKeys', 'projectKeys'])->filter(fn ($f) => $tracker['inbudget'][$f] && $tracker['manual'][$f])->flatMap(fn ($f) => $tracker['manual'][$f])->all())
+                            @if ($ignored)
+                                <p class="muted mt-2 text-xs" data-overridden title="inBudget hat einen Wert. Entknüpfe, damit deiner gilt.">Ignoriert: <span class="font-mono line-through">{{ implode(', ', $ignored) }}</span></p>
                             @endif
-                        @elseif ($tracker['manualEntries'])
-                            <x-modal-button :for="$entryDialog($tracker['manualEntries'][0])">Bearbeiten</x-modal-button>
-                        @elseif (! $tracker['covered'] && $row['githubUrl'])
-                            <a class="btn-ghost" href="{{ route('repositories.index', ['add' => 1, 'repository_url' => $row['githubUrl']] + $listQuery) }}">Verknüpfen</a>
+                        @endif
+
+                        {{-- actions --}}
+                        <div class="mt-auto flex flex-wrap gap-2 pt-4" data-actions>
+                            @if ($tracker['editable'])
+                                @php($fields = $fieldsFor[$platform])
+                                @if ($tracker['detached'])
+                                    <x-modal-button for="edit-{{ $platform }}">Bearbeiten</x-modal-button>
+                                    <x-modal-button for="relink-{{ $platform }}">Wieder verknüpfen</x-modal-button>
+                                    @php($modals[] = ['kind' => 'keys', 'id' => "edit-{$platform}", 'title' => "{$tracker['label']}: dein Wert", 'tracker' => $tracker, 'detached' => true, 'fields' => array_keys($fields), 'submit' => 'Speichern', 'note' => 'Bleibt entknüpft von inBudget.'])
+                                    @php($modals[] = ['kind' => 'relink', 'id' => "relink-{$platform}", 'title' => "{$tracker['label']} wieder mit inBudget verknüpfen?", 'tracker' => $tracker])
+                                @elseif ($hasKeys($tracker['inbudget']))
+                                    @php($open = array_values(array_filter(array_keys($fields), fn ($f) => ! $tracker['inbudget'][$f])))
+                                    @if ($open)
+                                        <x-modal-button for="supplement-{{ $platform }}">Ergänzen</x-modal-button>
+                                        @php($modals[] = ['kind' => 'keys', 'id' => "supplement-{$platform}", 'title' => "{$tracker['label']} ergänzen", 'tracker' => $tracker, 'detached' => null, 'fields' => $open, 'submit' => 'Speichern', 'note' => 'Nur was inBudget nicht hat. Leer lassen entfernt die Ergänzung.'])
+                                    @endif
+                                    <x-modal-button for="detach-{{ $platform }}">Entknüpfen</x-modal-button>
+                                    @php($modals[] = ['kind' => 'keys', 'id' => "detach-{$platform}", 'title' => "{$tracker['label']} von inBudget entknüpfen?", 'tracker' => $tracker, 'detached' => true, 'fields' => array_keys($fields), 'submit' => 'Entknüpfen', 'note' => 'Danach gilt dein Wert, auch wenn inBudget einen hat.', 'prefill' => 'inbudget'])
+                                @elseif ($hasKeys($tracker['manual']))
+                                    <x-modal-button for="edit-{{ $platform }}">Bearbeiten</x-modal-button>
+                                    @php($modals[] = ['kind' => 'keys', 'id' => "edit-{$platform}", 'title' => "{$tracker['label']} bearbeiten", 'tracker' => $tracker, 'detached' => null, 'fields' => array_keys($fields), 'submit' => 'Speichern', 'note' => 'Leer lassen entfernt die Verknüpfung. Liefert inBudget später einen Wert, gilt dieser.'])
+                                @else
+                                    <x-modal-button for="link-{{ $platform }}" :variant="$tracker['covered'] ? 'btn-ghost' : 'btn'">Verknüpfen</x-modal-button>
+                                    @php($modals[] = ['kind' => 'keys', 'id' => "link-{$platform}", 'title' => "{$tracker['label']} verknüpfen", 'tracker' => $tracker, 'detached' => null, 'fields' => array_keys($fields), 'submit' => 'Verknüpfen', 'note' => 'inBudget hat keinen Wert. Liefert inBudget später einen, gilt dieser.'])
+                                @endif
+                            @elseif ($tracker['manualEntries'])
+                                <x-modal-button :for="$entryDialog($tracker['manualEntries'][0])">Bearbeiten</x-modal-button>
+                            @elseif (! $tracker['covered'] && $row['githubUrl'])
+                                <a class="btn-ghost" href="{{ route('repositories.index', ['add' => 1, 'repository_url' => $row['githubUrl']] + $listQuery) }}">Verknüpfen</a>
+                            @endif
+                        </div>
+                        @if ($groupUrl && in_array($platform, \App\Services\ProjectOverview::TICKET_TRACKERS, true))
+                            <a href="{{ $groupUrl }}" class="link mt-3 inline-flex items-center gap-1 text-xs" data-group-level-link><x-icon name="folder" class="size-3.5" />Auf Gruppenebene bearbeiten</a>
                         @endif
                     </div>
-                    @if ($groupUrl && in_array($platform, \App\Services\ProjectOverview::TICKET_TRACKERS, true))
-                        <a href="{{ $groupUrl }}" class="link mt-2 text-xs" data-group-level-link>Auf Gruppenebene bearbeiten</a>
-                    @endif
                 </section>
             @empty
                 <p class="muted text-sm">nyrus hat keinen Tracker eingerichtet.</p>
             @endforelse
             @foreach ($row['others'] as $other)
-                <section class="card flex flex-col p-4">
-                    <div class="flex flex-wrap items-center gap-2">
+                <section class="card flex flex-col overflow-hidden border-success/25">
+                    <div class="flex items-center gap-3 border-b border-line px-4 py-3">
+                        <span class="flex size-8 items-center justify-center rounded-lg border border-line bg-raised"><span class="mark mark-other size-3"></span></span>
                         <h3 class="text-base">{{ $other['linearWorkspaceId'] ?? 'Anderer Tracker' }}</h3>
-                        <span class="chip text-gold"><span class="chip-dot"></span>Verbunden</span>
+                        <span class="chip chip-status ml-auto text-success"><span class="chip-dot"></span>Verbunden</span>
                     </div>
-                    <div class="mt-2"><span class="chip text-white/60">manuell</span></div>
-                    <div class="mt-auto pt-4"><x-modal-button :for="$entryDialog($other)">Bearbeiten</x-modal-button></div>
+                    <div class="flex flex-1 flex-col p-4">
+                        <div><span class="chip chip-meta text-white/60">manuell</span></div>
+                        <div class="mt-auto pt-4"><x-modal-button :for="$entryDialog($other)">Bearbeiten</x-modal-button></div>
+                    </div>
                 </section>
             @endforeach
         </div>
@@ -175,8 +191,9 @@
         {{-- group --}}
         @if ($group)
             @php($others = array_values(array_filter($group['rows'], fn ($r) => $r['key'] !== $row['key'])))
-            <h2 class="mt-10 text-lg">Gruppe</h2>
-            <div class="card mt-4 flex flex-wrap items-center gap-x-4 gap-y-3 p-4" data-group-section="{{ $group['key'] }}">
+            <h2 class="section-title mt-10">Gruppe</h2>
+            <div class="card mt-4 flex flex-wrap items-center gap-x-4 gap-y-3 p-4 sm:px-5" data-group-section="{{ $group['key'] }}">
+                <span class="flex size-9 shrink-0 items-center justify-center rounded-lg border border-gold/25 bg-gold/10 text-gold"><x-icon name="folder" /></span>
                 <div class="min-w-0 flex-1 basis-64">
                     <div class="flex flex-wrap items-center gap-2">
                         <h3 class="text-base" data-group-name>{{ $group['name'] }}</h3>
@@ -202,24 +219,24 @@
         @endif
 
         {{-- settings per config entry --}}
-        <h2 class="mt-10 text-lg">Einstellungen</h2>
+        <h2 class="section-title mt-10">Einstellungen</h2>
         @if (! $row['entries'])
-            <div class="notice mt-4" data-no-entries>
+            <div class="notice mt-4 border-warning/30" data-no-entries>
                 <span class="notice-dot text-warning" aria-hidden="true"></span>
                 <span>Noch kein Eintrag in nyrus. Verknüpfe oben einen Tracker.</span>
             </div>
         @else
-            <div class="card divided mt-4">
+            <div class="card divided mt-4 overflow-hidden">
                 @foreach ($row['entries'] as $entry)
-                    <div class="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3" data-entry="{{ $entry['_id'] }}">
-                        <span class="w-32 font-medium text-white">{{ \App\Services\ProjectOverview::LABELS[$entry['_tracker']] ?? ($entry['linearWorkspaceId'] ?? 'Ohne Tracker') }}</span>
+                    <div class="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-5" data-entry="{{ $entry['_id'] }}">
+                        <span class="flex w-36 items-center gap-2 font-medium text-white"><span class="mark mark-{{ isset(\App\Services\ProjectOverview::LABELS[$entry['_tracker']]) ? $entry['_tracker'] : 'other' }}"></span>{{ \App\Services\ProjectOverview::LABELS[$entry['_tracker']] ?? ($entry['linearWorkspaceId'] ?? 'Ohne Tracker') }}</span>
                         <span class="text-sm"><span class="muted">Branch</span> <span class="font-mono text-white/80">{{ $entry['baseBranch'] ?? 'main' }}</span></span>
                         @if ($entry['_active'])
-                            <span class="chip text-gold"><span class="chip-dot"></span>aktiv</span>
+                            <span class="chip chip-status text-success"><span class="chip-dot"></span>aktiv</span>
                         @else
-                            <span class="chip text-white/50">inaktiv</span>
+                            <span class="chip chip-status text-white/55"><span class="chip-dot"></span>inaktiv</span>
                         @endif
-                        <span @class(['chip', 'text-gold-light/80' => $entry['_managed'], 'text-white/60' => ! $entry['_managed']])>{{ $entry['_managed'] ? 'von inBudget' : 'manuell' }}</span>
+                        <span @class(['chip chip-meta', 'text-gold-light' => $entry['_managed'], 'text-white/60' => ! $entry['_managed']])>{{ $entry['_managed'] ? 'von inBudget' : 'manuell' }}</span>
                         <x-modal-button :for="$entryDialog($entry)" class="ml-auto">Bearbeiten</x-modal-button>
                     </div>
                 @endforeach
@@ -306,7 +323,7 @@
                             <input type="radio" name="mode" value="existing" id="group-mode-existing" @checked($mode === 'existing') class="size-4 accent-gold">
                             <span>Bestehende Gruppe</span>
                             <select name="target" aria-label="Bestehende Gruppe" onchange="document.getElementById('group-mode-existing').checked = true"
-                                    class="h-9 w-full min-w-0 rounded-lg bg-canvas px-2.5 text-sm text-white/75 ring-1 ring-white/10 outline-none ring-inset focus:ring-gold/60">
+                                    class="select w-full">
                                 @foreach ($choices as $choice)
                                     <option value="{{ $choice['key'] }}" @selected($fromOld && old('target') === $choice['key'])>{{ $choice['name'] }} ({{ $choice['size'] }} {{ $choice['size'] === 1 ? 'Repo' : 'Repos' }}{{ $choice['source'] === 'manual' ? ', manuell' : '' }})</option>
                                 @endforeach
@@ -317,7 +334,7 @@
                         <input type="radio" name="mode" value="new" id="group-mode-new" @checked($mode === 'new') class="size-4 accent-gold">
                         <span>Neue Gruppe</span>
                         <input name="name" value="{{ $fromOld ? old('name') : '' }}" placeholder="z.B. Zuriga" aria-label="Name der neuen Gruppe" onfocus="document.getElementById('group-mode-new').checked = true"
-                               class="h-9 w-full min-w-0 rounded-lg bg-canvas px-3 text-sm text-white ring-1 ring-white/10 outline-none ring-inset placeholder:text-white/25 focus:ring-gold/60">
+                               class="input">
                     </label>
                     @if (count($group['rows']) > 1 || ! str_starts_with($group['key'], 'repo:'))
                         <label class="flex items-center gap-3 text-white/80">

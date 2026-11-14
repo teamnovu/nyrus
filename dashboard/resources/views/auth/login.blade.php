@@ -1,8 +1,12 @@
 <x-app title="Anmelden" :bare="true">
     <div class="flex min-h-screen items-center justify-center py-10">
         <div class="w-full max-w-sm">
-            <div class="flex items-center gap-2 text-xl font-semibold tracking-tight text-white">
-                <span class="size-2.5 rounded-full bg-gold" aria-hidden="true"></span>nyrus
+            <div class="flex items-center gap-2.5 text-xl font-semibold tracking-tight text-white">
+                <span class="relative flex size-3" aria-hidden="true">
+                    <span class="absolute inset-0 rounded-full bg-gold opacity-70 blur-[6px]"></span>
+                    <span class="relative size-3 rounded-full bg-gold"></span>
+                </span>
+                nyrus
             </div>
             <p class="muted mt-2 text-sm">Dashboard für den Coding-Agent.</p>
 
