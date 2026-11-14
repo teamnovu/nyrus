@@ -326,6 +326,42 @@ describe("InbudgetClient", () => {
 		]);
 	});
 
+	it("asks for JSON-LD and reads its member lists", async () => {
+		const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+			expect((init?.headers as Record<string, string>).Accept).toBe(
+				"application/ld+json, application/json;q=0.9",
+			);
+			return new Response(
+				JSON.stringify({
+					"@context": "/api/contexts/ProjectInfo",
+					"hydra:member": [
+						{
+							id: 7,
+							kind: "git",
+							url: "https://github.com/teamnovu/web",
+							project: "/api/projects/3",
+						},
+					],
+					"hydra:totalItems": 1,
+				}),
+				{ headers: { "content-type": "application/ld+json; charset=utf-8" } },
+			);
+		}) as unknown as typeof fetch;
+		const client = new InbudgetClient({
+			baseUrl: "https://inbudget.test",
+			token: "t",
+			fetch: fetchImpl,
+		});
+		expect(await client.listProjectInfos()).toEqual([
+			{
+				id: 7,
+				kind: "git",
+				url: "https://github.com/teamnovu/web",
+				project: "/api/projects/3",
+			},
+		]);
+	});
+
 	it("says when INBUDGET_URL is the web app instead of the API", async () => {
 		const client = new InbudgetClient({
 			baseUrl: "https://app.inbudget.test",

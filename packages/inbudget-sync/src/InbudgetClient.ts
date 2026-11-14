@@ -78,7 +78,8 @@ export class InbudgetClient {
 			`${this.baseUrl}${path}`,
 			{
 				headers: {
-					Accept: "application/json",
+					// Some resources (project_infos) only speak JSON-LD.
+					Accept: "application/ld+json, application/json;q=0.9",
 					Authorization: `Bearer ${this.options.token}`,
 				},
 			},
