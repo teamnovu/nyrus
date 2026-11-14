@@ -5,12 +5,13 @@ import type {
 } from "cyrus-comment-sessions";
 import type { ILogger } from "cyrus-core";
 import { InbudgetClient } from "cyrus-inbudget-sync";
-import { JiraApiClient } from "cyrus-jira-event-transport";
+import { isSigned, JiraApiClient } from "cyrus-jira-event-transport";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { createClaudeClassifier } from "./claudeClassifier.js";
+import { TRIAGE_HEADING } from "./comment.js";
 import { InbudgetTriageSource } from "./InbudgetTriageSource.js";
 import { FREE_MAIL_DOMAINS } from "./Triage.js";
-import { TriageService } from "./TriageService.js";
+import { type TriageOutcome, TriageService } from "./TriageService.js";
 
 /** Jira sends new service desk tickets here. */
 export const TRIAGE_WEBHOOK_PATH = "/jira-triage-webhook";
@@ -116,6 +117,31 @@ export function createServicedeskTriageIntegrationFactory(
 
 		return {
 			workspaceKey: "servicedesk-triage",
+			chatCommand(text) {
+				const parsed = parseTriageCommand(text);
+				if (!parsed) return undefined;
+				if (!parsed.issueKey) {
+					return {
+						name: "triage",
+						run: async () =>
+							"Write `triage NOV-123` to triage a ticket (internal comment), or `triage NOV-123 dry` to only see the result.",
+					};
+				}
+				const issueKey = parsed.issueKey;
+				return {
+					name: `triage ${issueKey}${parsed.dryRun ? " (dry run)" : ""}`,
+					run: async () =>
+						triageReply(
+							issueKey,
+							jira.issueUrl(issueKey),
+							await service.handle(issueKey, {
+								force: true,
+								dryRun: parsed.dryRun,
+							}),
+							parsed.dryRun,
+						),
+				};
+			},
 			register(host) {
 				registerRoutes(host.fastify, {
 					service,
@@ -195,6 +221,48 @@ function registerRoutes(fastify: FastifyInstance, context: RouteContext): void {
 			});
 		}
 	});
+}
+
+/**
+ * "triage NOV-123", "triage <https://site.atlassian.net/browse/NOV-123|…>",
+ * optionally with "dry" (or "test", "preview") for a dry run. Only text that
+ * starts with "triage" counts. Exported for tests.
+ */
+export function parseTriageCommand(
+	text: string,
+): { issueKey?: string; dryRun: boolean } | undefined {
+	const match = /^\s*triage\b(.*)$/is.exec(text);
+	if (!match) return undefined;
+	const rest = match[1] ?? "";
+	const key = /(?:^|[\s/<|])([A-Za-z][A-Za-z0-9_]*-\d+)(?=$|[\s>|.,!?])/.exec(
+		rest,
+	);
+	return {
+		issueKey: key?.[1]?.toUpperCase(),
+		dryRun: /\b(dry|test|preview)\b/i.test(rest),
+	};
+}
+
+/** The Slack reply (mrkdwn) for a triage run from chat. Exported for tests. */
+export function triageReply(
+	issueKey: string,
+	issueUrl: string,
+	outcome: TriageOutcome,
+	dryRun: boolean,
+): string {
+	const link = `<${issueUrl}|${issueKey}>`;
+	if (outcome.status === "skipped") {
+		return `Triage for ${link} skipped: ${outcome.reason}.`;
+	}
+	const heading = dryRun
+		? `:mag: Triage preview for ${link} (nothing posted):`
+		: `:white_check_mark: Triage for ${link}: internal comment posted${outcome.assigned ? " and assigned" : ""}.`;
+	const body = outcome.comment
+		.split("\n")
+		.filter((line) => !isSigned(line) && !line.includes(TRIAGE_HEADING))
+		.map((line) => `> ${line}`)
+		.join("\n");
+	return `${heading}\n${body}`;
 }
 
 /**

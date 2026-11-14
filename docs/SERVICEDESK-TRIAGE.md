@@ -76,6 +76,15 @@ curl -s -X POST http://127.0.0.1:3456/api/dashboard/triage \
 
 The answer shows the customer, project, people and the comment it would post.
 
+## From Slack
+
+With the Slack app set up (see the Slack section in `deploy/forge/README.md`), mention the bot:
+
+- `@nyrus triage NOV-6618` triages the ticket as if it had just come in: it posts the internal comment (and assigns with `TRIAGE_ASSIGN=true`) even if the ticket is already assigned or was triaged before, and replies in the thread with the result.
+- `@nyrus triage NOV-6618 dry` only shows the result in Slack; nothing is posted in Jira.
+
+A Jira link works instead of the key. The same Slack users may do this as may talk to the bot at all (`userAccessControl`); anything else you write to the bot still goes to a normal chat session.
+
 ## Notes
 
 - Tickets that came in before triage was on aren't touched; use the endpoint above with `"dryRun": false` for them.

@@ -203,7 +203,22 @@ export interface TrackerIntegration {
 	 * never thrown at the agent.
 	 */
 	onAgentRunFinished?(run: AgentRunSummary): void | Promise<void>;
+	/**
+	 * A command written to the bot in chat (e.g. "triage NOV-123" in a Slack
+	 * @mention, without the mention). Returns how to run it when this
+	 * integration handles the text, undefined otherwise; the edge worker then
+	 * runs it instead of starting a chat session and posts the returned text
+	 * (Slack mrkdwn) as the reply.
+	 */
+	chatCommand?(text: string): ChatCommand | undefined;
 	dispose?(): void;
+}
+
+/** A chat command an integration recognized; `run` resolves to the reply. */
+export interface ChatCommand {
+	/** Short name for logs, e.g. "triage NOV-123". */
+	name: string;
+	run(): Promise<string>;
 }
 
 /** One finished agent run, as {@link TrackerIntegration.onAgentRunFinished} gets it. */
