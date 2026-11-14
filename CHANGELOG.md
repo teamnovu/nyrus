@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 - Self-hosted with a GitHub App (`GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID` and `~/.cyrus/github-app.pem`): agent sessions now get a fresh installation token as `GH_TOKEN`, so they open pull requests as the App (`<app>[bot]`) instead of needing a GitHub user account. A private key added after the first failed attempt is now picked up without a restart. ([#7](https://github.com/teamnovu/nyrus/pull/7))
 
 ### Fixed
+- Forge docs: the sandbox needs the whole repository directory in `writablePaths` (not just `.git`) and `systemWideCert: true`; otherwise every shell command or `git push` / `gh` fails inside the sandbox.
 - Replies that pick a repository or answer the agent's question now go through user access control like any other prompt; a blocked user's reply is ignored and the agent keeps waiting. ([teamnovu/nyrus#9](https://github.com/teamnovu/nyrus/pull/9))
 - With `--env-file`, config updates (`/api/update/cyrus-env`, used by the dashboard) now go to that file instead of `~/.cyrus/.env`, and an env file that gets replaced (as Laravel Forge's Environment page does) is still reloaded.
 - A `config.json` created while Cyrus is running (e.g. the first repository added through the config API on a fresh install) is now loaded right away instead of only after a restart.
