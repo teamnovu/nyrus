@@ -11,6 +11,7 @@ export {
 export {
 	type Classifier,
 	type ClassifierOption,
+	customerLabel,
 	domainOf,
 	FREE_MAIL_DOMAINS,
 	hostOf,

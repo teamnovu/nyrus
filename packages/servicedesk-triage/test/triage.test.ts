@@ -4,6 +4,7 @@ import type { JiraIssue } from "cyrus-jira-event-transport";
 import { describe, expect, it, vi } from "vitest";
 import {
 	type Classifier,
+	customerLabel,
 	InbudgetTriageSource,
 	newIssueKey,
 	type PersonHours,
@@ -170,8 +171,8 @@ describe("triage", () => {
 		expect(clientsByDomain).not.toHaveBeenCalled();
 		expect(classify.mock.calls[0]?.[1]).toBe("customer");
 		expect(classify.mock.calls[0]?.[2]).toEqual([
-			{ id: "2", label: "SIBA" },
-			{ id: "1", label: "Zoo Zürich" },
+			{ id: "2", label: "SIBA (projects: Ombudsstelle)" },
+			{ id: "1", label: "Zoo Zürich (projects: Website, Shop)" },
 		]);
 		expect(result.match).toBe("claude");
 		expect(result.project?.id).toBe("20");
@@ -202,6 +203,24 @@ describe("triage", () => {
 		);
 		expect(result.match).toBe("none");
 		expect(result.clients).toEqual([]);
+	});
+});
+
+describe("customerLabel", () => {
+	it("lists the project names, cut after about 200 characters", () => {
+		const client = { id: "540", name: "Lumina Marketing & Branding" };
+		expect(customerLabel(client, [])).toBe("Lumina Marketing & Branding");
+		expect(
+			customerLabel(client, ["the-clinic.ch Support novu", "neuro-uro.ch"]),
+		).toBe(
+			"Lumina Marketing & Branding (projects: the-clinic.ch Support novu, neuro-uro.ch)",
+		);
+		const label = customerLabel(
+			client,
+			Array.from({ length: 30 }, (_, i) => `project-${i}.ch`),
+		);
+		expect(label.endsWith(", …)")).toBe(true);
+		expect(label.length).toBeLessThan(260);
 	});
 });
 
