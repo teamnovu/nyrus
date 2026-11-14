@@ -16,6 +16,36 @@ const AUTH_ENV_KEYS = [
 ] as const;
 
 /**
+ * Secrets of Cyrus's own integrations: webhook secrets, tracker and chat
+ * tokens, the config API key. Agent sessions never need them — the MCP
+ * servers that act on those platforms get their credentials explicitly in
+ * their own config — so they are kept out of the session env. A prompt
+ * injected through an issue then cannot read them with `env`.
+ *
+ * Not listed (sessions need them): the Claude credentials, the agent's
+ * GitHub/GitLab credentials (GH_TOKEN, GITHUB_TOKEN, GITLAB_ACCESS_TOKEN)
+ * and other runners' API keys.
+ */
+export const CYRUS_INTERNAL_SECRET_ENV_KEYS = [
+	"CYRUS_API_KEY",
+	"CLOUDFLARE_TOKEN",
+	"SLACK_BOT_TOKEN",
+	"SLACK_SIGNING_SECRET",
+	"JIRA_API_TOKEN",
+	"JIRA_WEBHOOK_SECRET",
+	"CLICKUP_API_TOKEN",
+	"CLICKUP_WEBHOOK_SECRET",
+	"GITHUB_WEBHOOK_SECRET",
+	"GITLAB_WEBHOOK_SECRET",
+	"LINEAR_CLIENT_SECRET",
+	"LINEAR_WEBHOOK_SECRET",
+	"PLANE_CLIENT_SECRET",
+	"PLANE_WEBHOOK_SECRET",
+	"ZULIP_API_KEY",
+	"ZULIP_WEBHOOK_TOKEN",
+] as const;
+
+/**
  * Cyrus-specific env vars injected into every Claude Code subprocess.
  * Both `ClaudeRunner.start()` and `EdgeWorker.warmupRecentSessions()`
  * must use the same set — keep this as the single source of truth.
@@ -38,9 +68,10 @@ export const CYRUS_SESSION_ENV = {
 /**
  * Build the base `env` object for a Claude SDK session.
  *
- * Overlays the full parent `process.env` so HOME (and other inherited vars) are
+ * Overlays the parent `process.env` so HOME (and other inherited vars) are
  * available to tools that depend on them — GPG-signed commits, `gh` CLI auth,
- * etc. claude-agent-sdk v0.2.113 reverted to no longer overlaying process.env
+ * etc. — minus Cyrus's own integration secrets
+ * ({@link CYRUS_INTERNAL_SECRET_ENV_KEYS}). claude-agent-sdk v0.2.113 reverted to no longer overlaying process.env
  * itself, so we must do it here. Then applies the shared Cyrus session flags
  * on top. Callers can spread additional vars on top (e.g., repository .env
  * for live runs).
@@ -51,6 +82,11 @@ export function buildBaseSessionEnv(
 	const env: Record<string, string> = {
 		...(process.env as Record<string, string>),
 	};
+
+	// Keep Cyrus's own integration secrets out of the agent's reach
+	for (const key of CYRUS_INTERNAL_SECRET_ENV_KEYS) {
+		delete env[key];
+	}
 
 	// Forward PATH
 	if (process.env.PATH) {
