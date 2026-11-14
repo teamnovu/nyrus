@@ -5,6 +5,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DeployHookController;
 use App\Http\Controllers\LogController;
 use App\Http\Controllers\RepositoryController;
+use App\Http\Controllers\RepositoryGroupController;
 use App\Http\Controllers\SettingsController;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Support\Facades\Route;
@@ -26,6 +27,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/projects', [RepositoryController::class, 'index'])->name('projects.index');
     Route::post('/repositories', [RepositoryController::class, 'store'])->name('repositories.store');
     Route::get('/projects/inbudget', [RepositoryController::class, 'inbudget'])->name('repositories.inbudget');
+    Route::get('/projects/groups/{key}', [RepositoryGroupController::class, 'show'])
+        ->where('key', '(client|manual|repo):.+')->name('repositories.group');
+    Route::post('/projects/groups', [RepositoryGroupController::class, 'update'])->name('repositories.group.update');
     Route::get('/projects/{owner}/{repo}', [RepositoryController::class, 'show'])
         ->where(['owner' => '[\w.-]+', 'repo' => '[\w.-]+'])->name('repositories.show');
     Route::post('/repositories/inbudget-sync', [RepositoryController::class, 'syncInbudget'])->name('repositories.inbudget-sync');

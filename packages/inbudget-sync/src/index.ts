@@ -31,13 +31,18 @@ export {
 } from "./integration.js";
 export { type ProjectLink, parseProjectLink } from "./links.js";
 export {
+	groupOf,
+	type ManualKeys,
 	type ManualPlatform,
+	type ManualRepository,
 	type ManualRouting,
 	mergeManual,
 	type PlatformOverview,
+	type RepoGroup,
 	type RepoOverview,
 	type RoutingKeys,
 	readManual,
+	writeGroup,
 	writeManual,
 } from "./manual.js";
 export {

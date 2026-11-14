@@ -346,6 +346,12 @@ export const RepositoryConfigSchema = z.object({
 	linearWorkspaceId: z.string().optional(),
 	teamKeys: z.array(z.string()).optional(),
 	routingLabels: z.array(z.string()).optional(),
+	/**
+	 * Repositories with the same group (case-insensitive) in the same
+	 * workspace are worked together: a ticket routed to one of them gets all
+	 * of them in its session (e.g. a customer's web, cms and shop).
+	 */
+	routingGroup: z.string().optional(),
 	projectKeys: z.array(z.string()).optional(),
 
 	/** @deprecated Use EdgeConfig.linearWorkspaces[workspaceId].linearToken */

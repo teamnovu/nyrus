@@ -16,6 +16,7 @@ export interface RepoEntry {
 	linearWorkspaceId?: string;
 	teamKeys?: string[];
 	projectKeys?: string[];
+	routingGroup?: string;
 	workspaceBaseDir: string;
 	isActive?: boolean;
 	appendInstruction?: string;
@@ -106,6 +107,7 @@ export async function applyPlan(
 			linearWorkspaceId: repo.workspaceKey,
 			teamKeys: repo.teamKeys,
 			projectKeys: repo.projectKeys,
+			routingGroup: repo.routingGroup,
 		};
 
 		if (index < 0) {

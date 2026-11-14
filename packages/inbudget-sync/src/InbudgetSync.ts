@@ -15,9 +15,11 @@ import type { InbudgetClient } from "./InbudgetClient.js";
 import {
 	type ManualPlatform,
 	mergeManual,
+	type RepoGroup,
 	type RepoOverview,
 	type RoutingKeys,
 	readManual,
+	writeGroup,
 	writeManual,
 } from "./manual.js";
 import {
@@ -62,8 +64,12 @@ export interface SyncStatus {
 	>;
 	/** Which trackers nyrus has configured. */
 	trackers?: { jira: boolean; clickup: boolean; github: boolean };
+	/** Base URLs for links to the trackers. */
+	trackerLinks?: { jira?: string; clickup?: string };
 	/** Every GitHub repository inBudget knows, with inBudget's and the manual routing. */
 	repos?: RepoOverview[];
+	/** Every group of repositories worked together (customer or set in the dashboard). */
+	groups?: Array<RepoGroup & { repos: string[] }>;
 	result?: ApplyResult;
 	warnings?: SyncPlan["warnings"];
 	unrouted?: string[];
@@ -114,9 +120,16 @@ export class InbudgetSync {
 		if (!this.status.repos?.some((r) => r.repo.toLowerCase() === key)) {
 			return false;
 		}
+		// The whole group: its tickets get all of its repositories.
+		const groupKey = this.status.repos?.find(
+			(r) => r.repo.toLowerCase() === key,
+		)?.group.key;
+		const group = this.status.groups?.find((g) => g.key === groupKey);
+		const wanted = (group?.repos ?? [repo]).map((r) => r.toLowerCase());
 		const requested = readGitHubRequested(cyrusHome);
-		if (!requested.includes(key)) {
-			writeGitHubRequested(cyrusHome, [...requested, key].sort());
+		const next = [...new Set([...requested, ...wanted])].sort();
+		if (next.length !== requested.length) {
+			writeGitHubRequested(cyrusHome, next);
 		}
 		await this.current;
 		const status = await this.sync();
@@ -127,6 +140,16 @@ export class InbudgetSync {
 	}
 
 	/**
+	 * Put a repository into a group (a name, "" alone, null its customer's)
+	 * and sync, after the sync running now.
+	 */
+	async setGroup(repo: string, group: string | null): Promise<SyncStatus> {
+		writeGroup(this.options.cyrusHome, repo, group);
+		await this.current;
+		return this.sync();
+	}
+
+	/**
 	 * Save a repository's manual routing for one tracker (empty keys clear
 	 * it) and sync, after the sync running now, so it takes effect.
 	 */
@@ -134,8 +157,9 @@ export class InbudgetSync {
 		repo: string,
 		platform: ManualPlatform,
 		keys: RoutingKeys,
+		detached?: boolean,
 	): Promise<SyncStatus> {
-		writeManual(this.options.cyrusHome, repo, platform, keys);
+		writeManual(this.options.cyrusHome, repo, platform, keys, detached);
 		await this.current;
 		return this.sync();
 	}
@@ -169,7 +193,7 @@ export class InbudgetSync {
 				resources,
 			);
 			const { context } = this.options;
-			const { desired, repos } = mergeManual(
+			const { desired, repos, groups } = mergeManual(
 				plan,
 				readManual(this.options.cyrusHome),
 				context,
@@ -192,11 +216,20 @@ export class InbudgetSync {
 						o.platform !== "github" &&
 						o.repo.toLowerCase() === d.repo.toLowerCase(),
 				);
-				if (
-					!tracked &&
-					!requested.has(d.repo.toLowerCase()) &&
-					!cloned(d.repo)
-				) {
+				const groupRepos = groups.find((g) =>
+					g.repos.some((r) => r.toLowerCase() === d.repo.toLowerCase()),
+				)?.repos ?? [d.repo];
+				const wanted = groupRepos.some(
+					(r) =>
+						requested.has(r.toLowerCase()) ||
+						cloned(r) ||
+						desired.some(
+							(o) =>
+								o.platform !== "github" &&
+								o.repo.toLowerCase() === r.toLowerCase(),
+						),
+				);
+				if (!tracked && !wanted) {
 					desired.splice(i, 1);
 				}
 			}
@@ -218,7 +251,14 @@ export class InbudgetSync {
 					clickup: Boolean(context.clickup),
 					github: Boolean(context.github),
 				},
+				trackerLinks: {
+					...(context.jira && { jira: `https://${context.jira.host}` }),
+					...(context.clickup?.teamId && {
+						clickup: `https://app.clickup.com/${context.clickup.teamId}`,
+					}),
+				},
 				repos: withEntryIds(repos, this.options.cyrusHome, context),
+				groups,
 				infoCount: plan.infoCount,
 				matchedInfoCount: plan.matchedInfoCount,
 				linkCount: plan.linkCount,

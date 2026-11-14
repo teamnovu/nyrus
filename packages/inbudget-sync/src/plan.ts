@@ -44,6 +44,17 @@ export interface DesiredRepository {
 	projectKeys: string[];
 	/** The inBudget projects it comes from, e.g. "2041 Webshop (Sayflowers)". */
 	projects: string[];
+	/** Worked together with the other repositories of this group (see RepositoryConfig.routingGroup). */
+	routingGroup?: string;
+}
+
+/** A GitHub repository of an active project, routed or not. */
+export interface FoundRepository {
+	repo: string;
+	branch?: string;
+	projects: string[];
+	/** The inBudget customer of its projects (the first one, if several). */
+	customer?: { key: string; name: string };
 }
 
 export interface SyncPlan {
@@ -60,7 +71,7 @@ export interface SyncPlan {
 	 * Every GitHub repository of an active project (routed or not), with its
 	 * projects and the base branch a link names.
 	 */
-	found: Array<{ repo: string; branch?: string; projects: string[] }>;
+	found: FoundRepository[];
 	/** Project infos read from inBudget (of all projects, archived ones too). */
 	infoCount: number;
 	/** Infos that belong to an active project. */
@@ -103,10 +114,7 @@ export async function planRepositories(
 	const byClient = clientLinks(resources, desiredWarnings);
 
 	const desired = new Map<string, DesiredRepository>();
-	const found = new Map<
-		string,
-		{ repo: string; branch?: string; projects: string[] }
-	>();
+	const found = new Map<string, FoundRepository>();
 	const warnings: SyncPlan["warnings"] = desiredWarnings;
 	const unrouted: string[] = [];
 
@@ -181,6 +189,16 @@ export async function planRepositories(
 			const key = link.repo.toLowerCase();
 			const entry = found.get(key) ?? { repo: link.repo, projects: [] };
 			if (link.branch && !entry.branch) entry.branch = link.branch;
+			const customerKey = clientKeyOf(project.client);
+			if (!entry.customer && customerKey) {
+				entry.customer = {
+					key: customerKey,
+					name:
+						(typeof project.client === "object"
+							? project.client?.name
+							: undefined) ?? `Kunde ${customerKey}`,
+				};
+			}
 			addUnique(entry.projects, label);
 			found.set(key, entry);
 		}

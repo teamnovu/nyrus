@@ -8,7 +8,12 @@ import { InbudgetClient } from "../src/InbudgetClient.js";
 import { InbudgetSync } from "../src/InbudgetSync.js";
 import { createInbudgetIntegrationFactory } from "../src/integration.js";
 import { parseProjectLink } from "../src/links.js";
-import { mergeManual, readManual, writeManual } from "../src/manual.js";
+import {
+	mergeManual,
+	readManual,
+	writeGroup,
+	writeManual,
+} from "../src/manual.js";
 import { type DesiredRepository, planRepositories } from "../src/plan.js";
 
 describe("parseProjectLink", () => {
@@ -414,6 +419,7 @@ describe("manual routing from the dashboard", () => {
 				{
 					inbudget: { teamKeys: [], projectKeys: [] },
 					manual: { teamKeys: ["SAY"], projectKeys: [] },
+					detached: false,
 					effective: { teamKeys: ["SAY"], projectKeys: [] },
 				},
 			],
@@ -422,6 +428,7 @@ describe("manual routing from the dashboard", () => {
 				{
 					inbudget: { teamKeys: ["ZOO"], projectKeys: [] },
 					manual: { teamKeys: ["OLD"], projectKeys: [] },
+					detached: false,
 					effective: { teamKeys: ["ZOO"], projectKeys: [] },
 				},
 			],
@@ -429,6 +436,50 @@ describe("manual routing from the dashboard", () => {
 		expect(repos[0]!.platforms.clickup).toMatchObject({
 			effective: { teamKeys: [], projectKeys: [] },
 		});
+	});
+
+	it("uses the manual keys over inBudget's only after unlinking, until linked again", async () => {
+		const { dir } = home();
+		const plan = await planRepositories(
+			[{ id: 2, nr: "3001", name: "Website" }],
+			[
+				info(2, 2, "https://github.com/teamnovu/zoo"),
+				info(3, 2, "https://novu.atlassian.net/browse/ZOO", "jira"),
+			],
+			context,
+		);
+		const keysOf = () =>
+			mergeManual(plan, readManual(dir), context).desired.map(
+				(d) => d.teamKeys,
+			);
+		writeManual(dir, "teamnovu/zoo", "jira", {
+			teamKeys: ["NEW"],
+			projectKeys: [],
+		});
+		expect(keysOf()).toEqual([["ZOO"]]);
+		writeManual(
+			dir,
+			"teamnovu/zoo",
+			"jira",
+			{ teamKeys: ["NEW"], projectKeys: [] },
+			true,
+		);
+		expect(keysOf()).toEqual([["NEW"]]);
+		expect(
+			mergeManual(plan, readManual(dir), context).repos[0]!.platforms.jira,
+		).toMatchObject({ detached: true, effective: { teamKeys: ["NEW"] } });
+		// Unlinked with no keys: no Jira for it, although inBudget has one.
+		writeManual(dir, "teamnovu/zoo", "jira", { teamKeys: [], projectKeys: [] });
+		expect(keysOf()).toEqual([]);
+		writeManual(
+			dir,
+			"teamnovu/zoo",
+			"jira",
+			{ teamKeys: [], projectKeys: [] },
+			false,
+		);
+		expect(keysOf()).toEqual([["ZOO"]]);
+		expect(readManual(dir)).toEqual({});
 	});
 
 	it("keeps manual routing per repository and tracker, empty keys clear it", () => {
@@ -511,6 +562,68 @@ describe("GitHub issues entries on demand", () => {
 		expect(read().repositories).toHaveLength(1);
 		expect(read().repositories[0]!.isActive).toBe(true);
 		expect(await sync.provideGitHub("teamnovu/unknown")).toBe(false);
+	});
+});
+
+describe("repository groups", () => {
+	const zuriga = { "@id": "/api/clients/7", name: "Zuriga" };
+	const projects = [
+		{ id: 1, nr: "1", name: "Website", client: zuriga },
+		{ id: 2, nr: "2", name: "CMS", client: zuriga },
+		{
+			id: 3,
+			nr: "3",
+			name: "Intern",
+			client: { "@id": "/api/clients/9", name: "novu ag" },
+		},
+	];
+	const infos = [
+		info(1, 1, "https://github.com/teamnovu/zuriga-web"),
+		info(2, 1, "https://novu.atlassian.net/browse/ZUR", "jira"),
+		info(3, 2, "https://github.com/teamnovu/zuriga-cms"),
+		info(4, 3, "https://github.com/teamnovu/skeleton"),
+	];
+
+	it("groups a customer's repositories, which share their tracker keys", async () => {
+		const plan = await planRepositories(projects, infos, context);
+		const { desired, repos, groups } = mergeManual(plan, {}, context);
+		expect(
+			desired.map((d) => [d.repo, d.platform, d.teamKeys, d.routingGroup]),
+		).toEqual([
+			["teamnovu/zuriga-cms", "jira", ["ZUR"], "client:7"],
+			["teamnovu/zuriga-web", "jira", ["ZUR"], "client:7"],
+		]);
+		expect(repos.find((r) => r.repo === "teamnovu/zuriga-cms")!.group).toEqual({
+			key: "client:7",
+			name: "Zuriga",
+			source: "inbudget",
+			customer: "Zuriga",
+		});
+		expect(groups.map((g) => [g.key, g.name, g.repos])).toEqual([
+			["client:9", "novu ag", ["teamnovu/skeleton"]],
+			["client:7", "Zuriga", ["teamnovu/zuriga-cms", "teamnovu/zuriga-web"]],
+		]);
+	});
+
+	it("follows the groups set in the dashboard: a name, alone, or back to the customer", async () => {
+		const { dir } = home();
+		writeGroup(dir, "teamnovu/zuriga-cms", "");
+		writeGroup(dir, "teamnovu/skeleton", "Zuriga Plattform");
+		writeGroup(dir, "teamnovu/zuriga-web", "Zuriga Plattform");
+		const plan = await planRepositories(projects, infos, context);
+		const { desired, repos } = mergeManual(plan, readManual(dir), context);
+		expect(desired.map((d) => [d.repo, d.teamKeys, d.routingGroup])).toEqual([
+			["teamnovu/skeleton", ["ZUR"], "Zuriga Plattform"],
+			["teamnovu/zuriga-web", ["ZUR"], "Zuriga Plattform"],
+		]);
+		expect(
+			repos.find((r) => r.repo === "teamnovu/zuriga-cms")!.group,
+		).toMatchObject({
+			key: "repo:teamnovu/zuriga-cms",
+			source: "manual",
+		});
+		writeGroup(dir, "teamnovu/zuriga-cms", null);
+		expect(readManual(dir)["teamnovu/zuriga-cms"]).toBeUndefined();
 	});
 });
 

@@ -12,7 +12,7 @@
             Repository hinzufügen
         </a>
     </div>
-    <p class="muted mt-2 text-sm">Ein Eintrag pro GitHub-Repository: woher nyrus Tickets dafür bekommt (Jira, ClickUp, GitHub Issues). Klicke ein Repository an, um fehlende Angaben zu ergänzen.</p>
+    <p class="muted mt-2 text-sm">Ein Eintrag pro GitHub-Repository: woher nyrus Tickets dafür bekommt (Jira, ClickUp, GitHub Issues). Klicke ein Repository an, um fehlende Angaben zu ergänzen.@if ($grouping) Repositories einer Gruppe (standardmässig pro inBudget-Kunde) stehen zusammen: Tickets für ein Repo der Gruppe bekommen alle Repos der Gruppe.@endif</p>
 
     @if ($error)
         <div class="notice mt-6">
@@ -88,8 +88,15 @@
             <option value="active" @selected($filters['status'] === 'active')>Aktiv ({{ $facets['status']['active'] }})</option>
             <option value="inactive" @selected($filters['status'] === 'inactive')>Inaktiv ({{ $facets['status']['inactive'] }})</option>
         </select>
+        @if ($grouping)
+            <select name="group" aria-label="Gruppen" onchange="this.form.submit()" class="{{ $selectClass }}">
+                <option value="">Alle Gruppen</option>
+                <option value="multi" @selected($filters['group'] === 'multi')>Gruppen mit mehreren Repos ({{ $facets['group']['multi'] }})</option>
+                <option value="single" @selected($filters['group'] === 'single')>Einzelne Repos ({{ $facets['group']['single'] }})</option>
+            </select>
+        @endif
         <select name="sort" aria-label="Sortierung" onchange="this.form.submit()" class="{{ $selectClass }}">
-            @foreach (['name' => 'Name A–Z', '-name' => 'Name Z–A', 'missing' => 'Ohne Tracker zuerst', 'status' => 'Aktive zuerst', 'source' => 'Manuelle zuerst'] as $value => $label)
+            @foreach (['name' => 'Name A–Z', '-name' => 'Name Z–A', 'missing' => 'Ohne Tracker zuerst', 'status' => 'Aktive zuerst', 'source' => 'Manuelle zuerst'] + ($grouping ? ['group' => 'Grösste Gruppen zuerst'] : []) as $value => $label)
                 <option value="{{ $value }}" @selected($filters['sort'] === $value)>{{ $label }}</option>
             @endforeach
         </select>
@@ -105,39 +112,52 @@
     </form>
 
     <p class="muted mt-4 text-sm tabular-nums" data-result-count>
-        @if ($rows->total() === $total)
+        @if ($matchCount === $total)
             {{ $total }} {{ $total === 1 ? 'Repository' : 'Repositories' }}
         @else
-            {{ $rows->total() }} von {{ $total }} Repositories
+            {{ $matchCount }} von {{ $total }} Repositories
         @endif
-        @if ($rows->lastPage() > 1)
-            · {{ $rows->firstItem() }}–{{ $rows->lastItem() }} angezeigt
+        @if ($units->lastPage() > 1)
+            · {{ $shownFrom }}–{{ $shownTo }} angezeigt
         @endif
     </p>
 
     <div class="card divided mt-3 overflow-hidden">
-        @forelse ($rows as $row)
-            @php([$owner, $repo] = explode('/', $row['key'], 2))
-            <a href="{{ route('repositories.show', ['owner' => $owner, 'repo' => $repo] + $listQuery) }}"
-               class="card-row flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3.5 sm:px-5" data-repo-row="{{ $row['key'] }}">
-                <div class="min-w-0 flex-1 basis-56">
-                    <div class="truncate"><span class="font-medium text-white" data-repo-name>{{ $row['name'] }}</span>@if ($row['owner']) <span class="muted text-sm">{{ $row['owner'] }}</span>@endif</div>
-                    <div class="muted mt-0.5 truncate text-xs">
-                        @if ($row['projects'])
-                            {{ implode(' · ', $row['projects']) }}
-                        @elseif (! $row['inbudget'])
-                            Nicht in inBudget
-                        @else
-                            Kein aktives inBudget-Projekt
-                        @endif
-                        @if ($row['branches'])
-                            · <span class="font-mono">{{ $row['branches'][0] }}</span>{{ count($row['branches']) > 1 ? ' +'.(count($row['branches']) - 1) : '' }}
-                        @endif
-                    </div>
+        @forelse ($units as $unit)
+            @php($group = $unit['group'])
+            @php($inGroup = $group && $group['size'] > 1)
+            @if ($inGroup)
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5 bg-white/[0.02] px-4 py-2.5 sm:px-5" data-group-header="{{ $group['key'] }}">
+                    <svg class="size-4 shrink-0 text-gold/70" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M3.75 3A1.75 1.75 0 0 0 2 4.75v3.26a3.235 3.235 0 0 1 1.75-.51h12.5c.644 0 1.245.188 1.75.51V6.75A1.75 1.75 0 0 0 16.25 5h-4.836a.25.25 0 0 1-.177-.073L9.823 3.513A1.75 1.75 0 0 0 8.586 3H3.75ZM3.75 9A1.75 1.75 0 0 0 2 10.75v4.5c0 .966.784 1.75 1.75 1.75h12.5A1.75 1.75 0 0 0 18 15.25v-4.5A1.75 1.75 0 0 0 16.25 9H3.75Z"/></svg>
+                    <span class="font-medium text-white" data-group-name>{{ $group['name'] }}</span>
+                    @include('partials.group-chips', ['group' => $group])
+                    <span class="muted text-xs tabular-nums">{{ $group['size'] }} Repos{{ count($unit['rows']) < $group['size'] ? ' · '.count($unit['rows']).' passen' : '' }}</span>
+                    <a href="{{ route('repositories.group', ['key' => $group['key']] + $listQuery) }}" class="link ml-auto text-sm">Gruppe bearbeiten</a>
                 </div>
-                @include('partials.project-chips', ['row' => $row])
-                <svg class="ml-auto size-4 shrink-0 text-white/35" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M8.22 5.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L11.94 10 8.22 6.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd"/></svg>
-            </a>
+            @endif
+            @foreach ($unit['rows'] as $row)
+                @php([$owner, $repo] = explode('/', $row['key'], 2))
+                <a href="{{ route('repositories.show', ['owner' => $owner, 'repo' => $repo] + $listQuery) }}"
+                   @class(['card-row flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3.5 sm:px-5', 'sm:pl-12' => $inGroup]) data-repo-row="{{ $row['key'] }}">
+                    <div class="min-w-0 flex-1 basis-56">
+                        <div class="truncate"><span class="font-medium text-white" data-repo-name>{{ $row['name'] }}</span>@if ($row['owner']) <span class="muted text-sm">{{ $row['owner'] }}</span>@endif</div>
+                        <div class="muted mt-0.5 truncate text-xs">
+                            @if ($row['projects'])
+                                {{ implode(' · ', $row['projects']) }}
+                            @elseif (! $row['inbudget'])
+                                Nicht in inBudget
+                            @else
+                                Kein aktives inBudget-Projekt
+                            @endif
+                            @if ($row['branches'])
+                                · <span class="font-mono">{{ $row['branches'][0] }}</span>{{ count($row['branches']) > 1 ? ' +'.(count($row['branches']) - 1) : '' }}
+                            @endif
+                        </div>
+                    </div>
+                    @include('partials.project-chips', ['row' => $row])
+                    <svg class="ml-auto size-4 shrink-0 text-white/35" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M8.22 5.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L11.94 10 8.22 6.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd"/></svg>
+                </a>
+            @endforeach
         @empty
             <div class="px-5 py-12 text-center">
                 @if ($total === 0)
@@ -152,7 +172,7 @@
     </div>
 
     <div class="mt-6">
-        @include('partials.pagination', ['paginator' => $rows])
+        @include('partials.pagination', ['paginator' => $units])
     </div>
 
     {{-- add a repository by hand --}}

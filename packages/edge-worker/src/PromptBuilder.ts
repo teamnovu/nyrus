@@ -635,6 +635,12 @@ export class PromptBuilder {
 				);
 			}
 
+			if (repo.routingGroup?.trim()) {
+				routingMethods.push(
+					`    - group: "${repo.routingGroup.trim()}" (worked together with the group's other repositories)`,
+				);
+			}
+
 			// Project-based routing
 			if (repo.projectKeys && repo.projectKeys.length > 0) {
 				routingMethods.push(
@@ -654,6 +660,10 @@ ${routingMethods.join("\n")}
   </repository>`;
 		});
 
+		const groupNote = workspaceRepos.some((r) => r.routingGroup?.trim())
+			? "\n\n**Routing groups:** repositories with the same group (shown as `group`) are worked together: an issue routed by label, project or team to one of them gets all of them in its session. A Description Tag selects exactly the repositories it names."
+			: "";
+
 		return `<repository_routing_context>
 <description>
 When creating sub-issues that should be handled in a DIFFERENT repository, use one of these routing methods.
@@ -671,7 +681,7 @@ The system evaluates routing methods in this strict priority order. The FIRST ma
 3. **Project Assignment (Priority 3)**: Add the issue to a project that routes to the target repository.
 4. **Team Selection (Priority 4 - Lowest)**: Create the issue in a Linear team that routes to the target repository.
 
-For reliable cross-repository routing, prefer Description Tags as they are explicit and unambiguous.
+For reliable cross-repository routing, prefer Description Tags as they are explicit and unambiguous.${groupNote}
 </description>
 
 <available_repositories>

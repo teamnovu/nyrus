@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\NovuSso;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -18,7 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // Visitors without a session go straight to novu SSO (like the
         // AI-Usage-Collector); without an OAuth client, the login page explains.
         $middleware->redirectGuestsTo(fn () => route(
-            app(\App\Services\NovuSso::class)->isConfigured() ? 'sso' : 'login'
+            app(NovuSso::class)->isConfigured() ? 'sso' : 'login'
         ));
     })
     ->withExceptions(function (Exceptions $exceptions): void {

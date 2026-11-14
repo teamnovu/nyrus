@@ -6,6 +6,7 @@ import type {
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { InbudgetClient } from "./InbudgetClient.js";
 import { InbudgetSync } from "./InbudgetSync.js";
+import { writeGroup } from "./manual.js";
 import type { DesiredRepository, PlanContext } from "./plan.js";
 
 /** Dashboard endpoint: GET the sync status, POST to sync now. */
@@ -54,7 +55,7 @@ export function createInbudgetIntegrationFactory(
 		return {
 			workspaceKey: "inbudget",
 			register(host) {
-				registerRoutes(host.fastify, sync, env);
+				registerRoutes(host.fastify, sync, env, cyrusHome);
 				const first = setTimeout(() => void sync.sync(), 5_000);
 				first.unref?.();
 				timers.push(first);
@@ -154,6 +155,7 @@ function registerRoutes(
 	fastify: Parameters<TrackerIntegration["register"]>[0]["fastify"],
 	sync: InbudgetSync,
 	env: NodeJS.ProcessEnv,
+	cyrusHome: string,
 ): void {
 	const authorized = (request: FastifyRequest, reply: FastifyReply) => {
 		const apiKey = env.CYRUS_API_KEY?.trim();
@@ -178,24 +180,48 @@ function registerRoutes(
 		const body = (request.body ?? {}) as Record<string, unknown>;
 		const repo = typeof body.repo === "string" ? body.repo.trim() : "";
 		const platform = body.platform;
+		const hasGroup =
+			"group" in body &&
+			(body.group === null || typeof body.group === "string");
 		if (
 			!/^[\w.-]+\/[\w.-]+$/.test(repo) ||
-			(platform !== "jira" && platform !== "clickup")
+			(platform !== "jira" && platform !== "clickup" && !hasGroup) ||
+			(platform !== undefined && platform !== "jira" && platform !== "clickup")
 		) {
 			reply.code(400).send({
 				success: false,
-				error: "repo (owner/name) and platform (jira or clickup) are required",
+				error:
+					'repo (owner/name) and platform (jira or clickup) or group (name, "" or null) are required',
 			});
 			return;
+		}
+		if (hasGroup && platform === undefined) {
+			const status = await Promise.race([
+				sync.setGroup(repo, body.group as string | null),
+				new Promise<undefined>((resolve) => {
+					const timer = setTimeout(() => resolve(undefined), POST_WAIT_MS);
+					timer.unref?.();
+				}),
+			]);
+			reply.send({
+				success: true,
+				data: { status: status ?? sync.getStatus() },
+			});
+			return;
+		}
+		if (hasGroup) {
+			writeGroup(cyrusHome, repo, body.group as string | null);
 		}
 		const list = (value: unknown) =>
 			Array.isArray(value)
 				? value.filter((v): v is string => typeof v === "string")
 				: [];
-		const running = sync.setManual(repo, platform, {
-			teamKeys: list(body.teamKeys),
-			projectKeys: list(body.projectKeys),
-		});
+		const running = sync.setManual(
+			repo,
+			platform as "jira" | "clickup",
+			{ teamKeys: list(body.teamKeys), projectKeys: list(body.projectKeys) },
+			typeof body.detached === "boolean" ? body.detached : undefined,
+		);
 		const status = await Promise.race([
 			running,
 			new Promise<undefined>((resolve) => {

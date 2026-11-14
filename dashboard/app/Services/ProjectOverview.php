@@ -30,6 +30,7 @@ class ProjectOverview
     public static function rows(array $repositories, ?array $inbudget): array
     {
         $configured = self::configuredTrackers($repositories, $inbudget);
+        $grouping = self::groupingEnabled($inbudget);
         $statusRepos = is_array($inbudget['repos'] ?? null) ? $inbudget['repos'] : null;
 
         $entries = [];
@@ -89,7 +90,100 @@ class ProjectOverview
             }
         }
 
-        return array_values(array_map(fn (array $group) => self::row($group, $configured, $legacyProjects[$group['key']] ?? []), $groups));
+        return array_values(array_map(fn (array $group) => self::row($group, $configured, $legacyProjects[$group['key']] ?? [], $grouping), $groups));
+    }
+
+    /**
+     * Whether nyrus groups repositories (sends `group` per repo or
+     * `status.groups`). Older nyrus versions don't; then there is no grouping UI.
+     */
+    public static function groupingEnabled(?array $inbudget): bool
+    {
+        if (is_array($inbudget['groups'] ?? null)) {
+            return true;
+        }
+        foreach ((array) ($inbudget['repos'] ?? []) as $repo) {
+            if (is_array($repo['group'] ?? null)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Effective repository groups (tickets for one repo of a group get all
+     * repos of the group), keyed by group key, sorted by name. Built from the
+     * rows so manual config entries (`routingGroup`) join manual groups of the
+     * same name; names from `status.groups` win.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return array<string, array{key: string, name: string, source: string, customer: ?string, rows: list<array<string, mixed>>, size: int}>
+     */
+    public static function groups(array $rows, ?array $inbudget): array
+    {
+        $names = [];
+        foreach ((array) ($inbudget['groups'] ?? []) as $group) {
+            if (is_array($group) && filled($group['key'] ?? null) && filled($group['name'] ?? null)) {
+                $names[(string) $group['key']] = (string) $group['name'];
+            }
+        }
+
+        $groups = [];
+        foreach ($rows as $row) {
+            $group = $row['group'] ?? null;
+            if ($group === null) {
+                continue;
+            }
+            $groups[$group['key']] ??= [
+                'key' => $group['key'],
+                'name' => $names[$group['key']] ?? $group['name'],
+                'source' => $group['source'],
+                'customer' => null,
+                'rows' => [],
+                'size' => 0,
+            ];
+            $groups[$group['key']]['customer'] ??= $group['customer'];
+            $groups[$group['key']]['rows'][] = $row;
+            $groups[$group['key']]['size']++;
+        }
+        foreach ($groups as &$group) {
+            usort($group['rows'], fn ($a, $b) => strnatcasecmp($a['name'], $b['name']) ?: strnatcasecmp((string) $a['owner'], (string) $b['owner']));
+        }
+        unset($group);
+        uasort($groups, fn ($a, $b) => strnatcasecmp($a['name'], $b['name']) ?: strcmp($a['key'], $b['key']));
+
+        return $groups;
+    }
+
+    /**
+     * The group of one repository: what nyrus reports for an inBudget
+     * repository, otherwise the `routingGroup` of its manual config entries,
+     * otherwise its own group.
+     *
+     * @param  array<string, mixed>|null  $status
+     * @param  list<array<string, mixed>>  $manualEntries
+     * @return array{key: string, name: string, source: string, customer: ?string}
+     */
+    private static function rowGroup(?array $status, array $manualEntries, string $key, string $name): array
+    {
+        $group = $status['group'] ?? null;
+        if (is_array($group) && filled($group['key'] ?? null)) {
+            return [
+                'key' => (string) $group['key'],
+                'name' => (string) ($group['name'] ?? '') ?: $name,
+                'source' => ($group['source'] ?? '') === 'manual' ? 'manual' : 'inbudget',
+                'customer' => filled($group['customer'] ?? null) ? (string) $group['customer'] : null,
+            ];
+        }
+        foreach ($manualEntries as $entry) {
+            $routingGroup = trim((string) ($entry['routingGroup'] ?? ''));
+            if ($routingGroup !== '') {
+                return ['key' => 'manual:'.mb_strtolower($routingGroup), 'name' => $routingGroup, 'source' => 'manual', 'customer' => null];
+            }
+        }
+
+        return ['key' => 'repo:'.$key, 'name' => $name, 'source' => 'manual', 'customer' => null];
     }
 
     /** Lower-case owner/name of a GitHub repository ("teamnovu/Shop", a URL or an SSH remote), or null. */
@@ -169,7 +263,7 @@ class ProjectOverview
      * @param  list<string>  $legacyProjects
      * @return array<string, mixed>
      */
-    private static function row(array $group, array $configured, array $legacyProjects): array
+    private static function row(array $group, array $configured, array $legacyProjects, bool $grouping = false): array
     {
         $status = $group['status'];
         $entries = $group['entries'];
@@ -213,9 +307,14 @@ class ProjectOverview
             $keys[] = implode(' ', $tracker['effective']['projectKeys'] ?? []);
         }
 
+        $repoGroup = $grouping ? self::rowGroup($status, $manual, $group['key'], $isRepo ? $display : $name) : null;
+
         return [
             'key' => $group['key'],
             'isRepo' => $isRepo,
+            // owner/name as inBudget spells it (for /inbudget/manual), null if inBudget doesn't know the repository
+            'statusRepo' => $status !== null ? (string) $status['repo'] : null,
+            'group' => $repoGroup,
             'owner' => $owner,
             'name' => $name,
             'githubUrl' => $isRepo ? "https://github.com/{$display}" : null,
@@ -232,7 +331,7 @@ class ProjectOverview
             'active' => (bool) array_filter($entries, fn ($e) => $e['_active']),
             'branches' => $branches,
             'search' => mb_strtolower(implode(' ', array_merge(
-                [$group['key'], $name, (string) $owner],
+                [$group['key'], $name, (string) $owner, (string) ($repoGroup['name'] ?? '')],
                 $projects,
                 $keys,
                 array_map(fn ($e) => $e['_id'].' '.$e['_name'].' '.implode(' ', array_map(fn ($f) => implode(' ', (array) ($e[$f] ?? [])), ['teamKeys', 'projectKeys', 'routingLabels'])), $entries),
@@ -255,13 +354,15 @@ class ProjectOverview
         $info = $status['platforms'][$platform] ?? null;
         $empty = ['teamKeys' => [], 'projectKeys' => []];
 
+        // detached: the manual value applies even where inBudget has one (set by "Entknüpfen")
+        $detached = is_array($info) && $platform !== 'github' && ($info['detached'] ?? false) === true;
         if (is_array($info) && $platform !== 'github') {
             $inbudget = self::keys($info['inbudget'] ?? $empty);
             $manual = self::keys($info['manual'] ?? $empty);
-            $effective = self::keys($info['effective'] ?? [
+            $effective = self::keys($info['effective'] ?? ($detached ? $manual : [
                 'teamKeys' => $inbudget['teamKeys'] ?: $manual['teamKeys'],
                 'projectKeys' => $inbudget['projectKeys'] ?: $manual['projectKeys'],
-            ]);
+            ]));
         } else {
             $inbudget = $manual = null;
             $effective = $empty;
@@ -295,6 +396,7 @@ class ProjectOverview
             'configured' => $configured,
             // the supplement form is available (nyrus knows the repository from inBudget)
             'editable' => is_array($info) && $platform !== 'github',
+            'detached' => $detached,
             'inbudget' => $inbudget,
             'manual' => $manual,
             'effective' => $effective,
@@ -304,6 +406,7 @@ class ProjectOverview
             'covered' => $fromKeys || (bool) $manualEntries,
             'summary' => array_values(array_unique(array_map('strval', $summary))),
             'source' => match (true) {
+                $detached => 'detached',
                 $inbudget !== null && ($inbudget['teamKeys'] || $inbudget['projectKeys']) => 'inbudget',
                 $manual !== null && ($manual['teamKeys'] || $manual['projectKeys']) => 'supplement',
                 (bool) $managedEntries => 'inbudget',
@@ -311,6 +414,38 @@ class ProjectOverview
                 default => null,
             },
         ];
+    }
+
+    /**
+     * What a tracker is connected to, as labels with links where the tracker
+     * has a URL for it (Jira project, ClickUp Space, GitHub issues). `$bases`
+     * are the tracker base URLs from `status.trackerLinks` (no links without).
+     *
+     * @param  array<string, mixed>  $tracker  one of a row's `trackers`
+     * @param  array<string, mixed>  $bases
+     * @return list<array{label: string, url: ?string}>
+     */
+    public static function links(array $tracker, ?string $repo, array $bases): array
+    {
+        $base = fn (string $platform) => is_string($bases[$platform] ?? null) && preg_match('~^https://~', $bases[$platform]) ? rtrim($bases[$platform], '/') : null;
+        $teamKeys = $tracker['effective']['teamKeys'];
+        $projectKeys = $tracker['effective']['projectKeys'];
+        foreach ($tracker['manualEntries'] as $entry) {
+            $teamKeys = array_merge($teamKeys, array_map('strval', (array) ($entry['teamKeys'] ?? [])));
+            $projectKeys = array_merge($projectKeys, array_map('strval', (array) ($entry['projectKeys'] ?? [])));
+        }
+        $teamKeys = array_values(array_unique($teamKeys));
+        $projectKeys = array_values(array_unique($projectKeys));
+
+        return match ($tracker['platform']) {
+            'jira' => array_map(fn ($key) => ['label' => $key, 'url' => ($url = $base('jira')) ? $url.'/browse/'.rawurlencode($key) : null], $teamKeys),
+            'clickup' => array_merge(
+                array_map(fn ($id) => ['label' => "Space {$id}", 'url' => ($url = $base('clickup')) && ctype_digit($id) ? $url.'/v/s/'.$id : null], $teamKeys),
+                array_map(fn ($list) => ['label' => "Liste {$list}", 'url' => null], $projectKeys),
+            ),
+            'github' => $tracker['covered'] && $repo !== null ? [['label' => $repo, 'url' => "https://github.com/{$repo}/issues"]] : [],
+            default => [],
+        };
     }
 
     /** @return array{teamKeys: list<string>, projectKeys: list<string>} */

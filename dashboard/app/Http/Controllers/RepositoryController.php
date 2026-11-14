@@ -20,35 +20,55 @@ class RepositoryController extends Controller
     private const NAME = 'regex:/^[\w.-]+$/';
 
     /** Query parameters the list understands (kept across pages and after saving). */
-    public const LIST_PARAMS = ['q', 'source', 'tracker', 'status', 'sort', 'per_page', 'page'];
+    public const LIST_PARAMS = ['q', 'source', 'tracker', 'status', 'group', 'sort', 'per_page', 'page'];
 
     private const PER_PAGE = [25, 50, 100, 200];
 
-    private const SORTS = ['name', '-name', 'status', 'source', 'missing'];
+    private const SORTS = ['name', '-name', 'status', 'source', 'missing', 'group'];
 
     public function index(Request $request, NyrusClient $nyrus): View
     {
-        [$rows, $inbudget, $error, $repositories] = $this->load($nyrus);
-        $filters = $this->filters($request);
-        $matches = $this->sort($this->filter($rows, $filters), $filters['sort']);
+        [$rows, $inbudget, $error, $repositories] = self::load($nyrus);
+        $groups = ProjectOverview::groupingEnabled($inbudget) ? ProjectOverview::groups($rows, $inbudget) : [];
+        $filters = $this->filters($request, (bool) $groups);
+        $matches = $this->sort($this->filter($rows, $filters, $groups), $filters['sort']);
+
+        // the list is paginated by units: a group with its matching repositories, or one repository
+        $units = [];
+        foreach ($matches as $row) {
+            $key = $groups ? $row['group']['key'] : $row['key'];
+            $units[$key] ??= ['group' => $groups[$key] ?? null, 'rows' => []];
+            $units[$key]['rows'][] = $row;
+        }
+        $units = array_values($units);
+        if ($groups && $filters['sort'] === 'group') {
+            usort($units, fn ($a, $b) => $b['group']['size'] <=> $a['group']['size'] ?: strnatcasecmp($a['group']['name'], $b['group']['name']));
+        }
 
         $page = LengthAwarePaginator::resolveCurrentPage();
+        $offset = ($page - 1) * $filters['per_page'];
         $paginator = (new LengthAwarePaginator(
-            array_slice($matches, ($page - 1) * $filters['per_page'], $filters['per_page']),
-            count($matches),
+            array_slice($units, $offset, $filters['per_page']),
+            count($units),
             $filters['per_page'],
             $page,
             ['path' => $request->url(), 'pageName' => 'page'],
         ))->withQueryString();
+        $before = array_sum(array_map(fn (array $unit) => count($unit['rows']), array_slice($units, 0, $offset)));
+        $shown = array_sum(array_map(fn (array $unit) => count($unit['rows']), $paginator->items()));
 
         return view('repositories', [
-            'rows' => $paginator,
+            'units' => $paginator,
+            'matchCount' => count($matches),
+            'shownFrom' => $shown ? $before + 1 : 0,
+            'shownTo' => $before + $shown,
             'total' => count($rows),
+            'grouping' => (bool) $groups,
             'filters' => $filters,
-            'filtered' => $filters['q'] !== '' || $filters['source'] !== '' || $filters['tracker'] !== '' || $filters['status'] !== '',
-            'facets' => $this->facets($rows),
+            'filtered' => $filters['q'] !== '' || $filters['source'] !== '' || $filters['tracker'] !== '' || $filters['status'] !== '' || $filters['group'] !== '',
+            'facets' => $this->facets($rows, $groups),
             'perPageOptions' => self::PER_PAGE,
-            'listQuery' => $this->listQuery($request),
+            'listQuery' => self::listQuery($request),
             'error' => $error,
             'inbudget' => $inbudget,
             'workspaces' => $this->workspaces($repositories, $inbudget),
@@ -58,20 +78,25 @@ class RepositoryController extends Controller
     /** One repository: its trackers (inBudget value, manual supplement) and its entries in nyrus. */
     public function show(Request $request, NyrusClient $nyrus, string $owner, string $repo): View
     {
-        [$rows, $inbudget, $error] = $this->load($nyrus);
+        [$rows, $inbudget, $error] = self::load($nyrus);
         if ($error) {
-            return view('repository', ['row' => null, 'error' => $error, 'listQuery' => $this->listQuery($request), 'inbudget' => null]);
+            return view('repository', ['row' => null, 'error' => $error, 'listQuery' => self::listQuery($request), 'inbudget' => null, 'trackerLinks' => [], 'group' => null, 'groups' => []]);
         }
 
         $key = $owner === '-' ? "-/{$repo}" : strtolower("{$owner}/{$repo}");
         $row = collect($rows)->first(fn (array $row) => $row['key'] === $key);
         abort_if($row === null, 404);
 
+        $groups = ProjectOverview::groupingEnabled($inbudget) ? ProjectOverview::groups($rows, $inbudget) : [];
+
         return view('repository', [
             'row' => $row,
             'error' => null,
-            'listQuery' => $this->listQuery($request),
+            'listQuery' => self::listQuery($request),
             'inbudget' => $inbudget,
+            'trackerLinks' => is_array($inbudget['trackerLinks'] ?? null) ? $inbudget['trackerLinks'] : [],
+            'group' => $groups[$row['group']['key'] ?? ''] ?? null,
+            'groups' => $groups,
         ]);
     }
 
@@ -80,7 +105,7 @@ class RepositoryController extends Controller
     {
         return view('inbudget', [
             'inbudget' => $nyrus->inbudget(),
-            'listQuery' => $this->listQuery($request),
+            'listQuery' => self::listQuery($request),
         ]);
     }
 
@@ -90,7 +115,7 @@ class RepositoryController extends Controller
      *
      * @return array{0: list<array<string, mixed>>, 1: ?array<string, mixed>, 2: ?string, 3: list<array<string, mixed>>}
      */
-    private function load(NyrusClient $nyrus): array
+    public static function load(NyrusClient $nyrus): array
     {
         try {
             $repositories = array_values($nyrus->config()['repositories'] ?? []);
@@ -107,7 +132,7 @@ class RepositoryController extends Controller
      *
      * @return array<string, string>
      */
-    private function listQuery(Request $request): array
+    public static function listQuery(Request $request): array
     {
         return array_filter(
             array_map(fn ($v) => is_scalar($v) ? (string) $v : '', $request->only(self::LIST_PARAMS)),
@@ -137,9 +162,9 @@ class RepositoryController extends Controller
     /**
      * Normalised filters from the query string; unknown values fall back to "all".
      *
-     * @return array{q: string, source: string, tracker: string, status: string, sort: string, per_page: int}
+     * @return array{q: string, source: string, tracker: string, status: string, group: string, sort: string, per_page: int}
      */
-    private function filters(Request $request): array
+    private function filters(Request $request, bool $grouping): array
     {
         $pick = fn (string $key, array $allowed, string $default = '') => in_array($value = (string) $request->query($key, $default), $allowed, true) ? $value : $default;
         $perPage = (int) $request->query('per_page', 50);
@@ -149,7 +174,8 @@ class RepositoryController extends Controller
             'source' => $pick('source', ['inbudget', 'manual']),
             'tracker' => $pick('tracker', ['jira', 'clickup', 'github', 'none']),
             'status' => $pick('status', ['active', 'inactive']),
-            'sort' => $pick('sort', self::SORTS, 'name'),
+            'group' => $grouping ? $pick('group', ['multi', 'single']) : '',
+            'sort' => $grouping || $request->query('sort') !== 'group' ? $pick('sort', self::SORTS, 'name') : 'name',
             'per_page' => in_array($perPage, self::PER_PAGE, true) ? $perPage : 50,
         ];
     }
@@ -163,13 +189,17 @@ class RepositoryController extends Controller
     /**
      * @param  list<array<string, mixed>>  $rows
      * @param  array<string, mixed>  $filters
+     * @param  array<string, array<string, mixed>>  $groups
      * @return list<array<string, mixed>>
      */
-    private function filter(array $rows, array $filters): array
+    private function filter(array $rows, array $filters, array $groups): array
     {
         $terms = array_filter(preg_split('/\s+/', mb_strtolower($filters['q'])) ?: []);
 
-        return array_values(array_filter($rows, function (array $row) use ($filters, $terms) {
+        return array_values(array_filter($rows, function (array $row) use ($filters, $terms, $groups) {
+            if ($filters['group'] !== '' && (($groups[$row['group']['key'] ?? '']['size'] ?? 1) > 1) !== ($filters['group'] === 'multi')) {
+                return false;
+            }
             if ($filters['source'] !== '' && ! $row[$filters['source']]) {
                 return false;
             }
@@ -211,11 +241,13 @@ class RepositoryController extends Controller
      * How many repositories each filter option matches (over all repositories).
      *
      * @param  list<array<string, mixed>>  $rows
+     * @param  array<string, array<string, mixed>>  $groups
      * @return array<string, array<string, int>>
      */
-    private function facets(array $rows): array
+    private function facets(array $rows, array $groups): array
     {
         $facets = [
+            'group' => ['multi' => 0, 'single' => 0],
             'source' => ['inbudget' => 0, 'manual' => 0],
             'tracker' => ['jira' => 0, 'clickup' => 0, 'github' => 0, 'none' => 0],
             'status' => ['active' => 0, 'inactive' => 0],
@@ -228,6 +260,7 @@ class RepositoryController extends Controller
                 $facets['tracker'][$tracker] += $this->hasTracker($row, $tracker) ? 1 : 0;
             }
             $facets['status'][$row['active'] ? 'active' : 'inactive']++;
+            $facets['group'][($groups[$row['group']['key'] ?? '']['size'] ?? 1) > 1 ? 'multi' : 'single']++;
         }
 
         return $facets;
@@ -244,9 +277,12 @@ class RepositoryController extends Controller
             'platform' => ['required', 'in:jira,clickup'],
             'teamKeys' => ['nullable', 'string', 'max:1000'],
             'projectKeys' => ['nullable', 'string', 'max:1000'],
+            // "Entknüpfen" (true: the manual value applies even where inBudget has one) / "Wieder verknüpfen" (false)
+            'detached' => ['nullable', 'boolean'],
         ]);
         $payload = ['repo' => $data['repo'], 'platform' => $data['platform']]
-            + $this->lists(['teamKeys' => $data['teamKeys'] ?? '', 'projectKeys' => $data['projectKeys'] ?? '']);
+            + $this->lists(['teamKeys' => $data['teamKeys'] ?? '', 'projectKeys' => $data['projectKeys'] ?? ''])
+            + ($request->has('detached') && $data['detached'] !== null ? ['detached' => (bool) $data['detached']] : []);
 
         try {
             $status = $nyrus->setInbudgetManual($payload);
@@ -259,11 +295,13 @@ class RepositoryController extends Controller
         $failed = filled($status['error'] ?? null);
         AuditLog::record('inbudget.manual', $data['repo'], $payload + array_filter(['error' => $status['error'] ?? null]), success: ! $failed);
 
-        return $this->toList($request)->with(
+        return self::toList($request)->with(
             $failed ? 'error' : 'status',
             match (true) {
                 $failed => 'Gespeichert, aber der inBudget-Abgleich ist fehlgeschlagen: '.$status['error'],
                 (bool) ($status['running'] ?? false) => 'Gespeichert. Der Abgleich läuft noch (Repository wird geklont). Lade die Seite gleich neu.',
+                ($payload['detached'] ?? null) === true => 'Von inBudget entknüpft. Dein Wert gilt jetzt.',
+                ($payload['detached'] ?? null) === false => 'Wieder mit inBudget verknüpft.',
                 default => 'Gespeichert und mit inBudget abgeglichen.',
             },
         );
@@ -286,7 +324,7 @@ class RepositoryController extends Controller
             'result' => $status['result'] ?? null,
         ]), success: ! $failed);
 
-        return $this->toList($request)->with(
+        return self::toList($request)->with(
             $failed ? 'error' : 'status',
             match (true) {
                 $failed => 'inBudget-Abgleich fehlgeschlagen: '.$status['error'],
@@ -399,14 +437,14 @@ class RepositoryController extends Controller
 
         AuditLog::record($action, $subject, $details);
 
-        return $this->toList($request)->with('status', $success);
+        return self::toList($request)->with('status', $success);
     }
 
     /**
      * Back to the list (or to the repository page in `_detail`, "owner/name"),
      * with the filters the form was sent from.
      */
-    private function toList(Request $request): RedirectResponse
+    public static function toList(Request $request): RedirectResponse
     {
         $query = $request->input('_query');
         $query = is_array($query) ? array_filter(

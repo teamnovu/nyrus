@@ -153,6 +153,62 @@ export class RepositoryRouter {
 		webhook: AgentSessionCreatedWebhook | AgentSessionPromptedWebhook,
 		repos: RepositoryConfig[],
 	): Promise<RepositoryRoutingResult> {
+		const result = await this.routeWebhook(webhook, repos);
+		if (
+			result.type !== "selected" ||
+			result.routingMethod === "description-tag"
+		) {
+			return result; // an explicit [repo=...] choice is taken as is
+		}
+		const expanded = this.withRoutingGroups(
+			result.repositories,
+			repos,
+			webhook.organizationId,
+		);
+		if (expanded.length > result.repositories.length) {
+			this.logger.info(
+				`Repositories selected: [${expanded.map((r) => r.name).join(", ")}] (with their routing group)`,
+			);
+		}
+		return { ...result, repositories: expanded };
+	}
+
+	/**
+	 * The selected repositories plus every active repository of the same
+	 * routing group (case-insensitive) in the same workspace, so a ticket for
+	 * one of a customer's repositories can change all of them.
+	 */
+	private withRoutingGroups(
+		selected: RepositoryConfig[],
+		repos: RepositoryConfig[],
+		workspaceId: string | undefined,
+	): RepositoryConfig[] {
+		const groups = new Set(
+			selected
+				.map((r) => r.routingGroup?.trim().toLowerCase())
+				.filter((g): g is string => Boolean(g)),
+		);
+		if (groups.size === 0) return selected;
+		const result = [...selected];
+		for (const repo of repos) {
+			const group = repo.routingGroup?.trim().toLowerCase();
+			if (
+				group &&
+				groups.has(group) &&
+				repo.isActive !== false &&
+				(!workspaceId || repo.linearWorkspaceId === workspaceId) &&
+				!result.some((r) => r.id === repo.id)
+			) {
+				result.push(repo);
+			}
+		}
+		return result;
+	}
+
+	private async routeWebhook(
+		webhook: AgentSessionCreatedWebhook | AgentSessionPromptedWebhook,
+		repos: RepositoryConfig[],
+	): Promise<RepositoryRoutingResult> {
 		const workspaceId = webhook.organizationId;
 		if (!workspaceId) {
 			return repos[0]

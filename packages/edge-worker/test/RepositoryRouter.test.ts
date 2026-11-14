@@ -358,6 +358,99 @@ describe("RepositoryRouter", () => {
 		});
 	});
 
+	describe("Routing groups", () => {
+		it("adds the other active repositories of the selected repository's group in the same workspace", async () => {
+			const web = {
+				...env
+					.repository("repo-web", "zuriga-web")
+					.inWorkspace("jira-novu")
+					.withTeams("ZUR")
+					.build(),
+				routingGroup: "client:7",
+			};
+			const cms = {
+				...env
+					.repository("repo-cms", "zuriga-cms")
+					.inWorkspace("jira-novu")
+					.withTeams("ZUR")
+					.build(),
+				routingGroup: "Client:7",
+			};
+			const off = {
+				...env
+					.repository("repo-off", "zuriga-old")
+					.inWorkspace("jira-novu")
+					.build(),
+				routingGroup: "client:7",
+				isActive: false,
+			};
+			const elsewhere = {
+				...env
+					.repository("repo-gh", "zuriga-shop")
+					.inWorkspace("github")
+					.build(),
+				routingGroup: "client:7",
+			};
+			const other = env
+				.repository("repo-x", "other")
+				.inWorkspace("jira-novu")
+				.withTeams("OTH")
+				.build();
+			const webhook = env
+				.webhook()
+				.inWorkspace("jira-novu")
+				.forIssue("issue-1", "ZUR-1")
+				.inTeam("ZUR")
+				.build();
+
+			const result = await env.router.determineRepositoryForWebhook(webhook, [
+				other,
+				web,
+				cms,
+				off,
+				elsewhere,
+			]);
+			expect(result.type).toBe("selected");
+			if (result.type !== "selected") return;
+			expect(result.repositories.map((r) => r.id)).toEqual([
+				"repo-web",
+				"repo-cms",
+			]);
+			expect(result.routingMethod).toBe("team-based");
+		});
+
+		it("leaves an explicit [repo=...] choice alone", async () => {
+			const web = {
+				...env
+					.repository("repo-web", "zuriga-web")
+					.inWorkspace("jira-novu")
+					.withTeams("ZUR")
+					.build(),
+				routingGroup: "g",
+			};
+			const cms = {
+				...env
+					.repository("repo-cms", "zuriga-cms")
+					.inWorkspace("jira-novu")
+					.build(),
+				routingGroup: "g",
+			};
+			const webhook = env
+				.webhook()
+				.inWorkspace("jira-novu")
+				.forIssue("issue-2", "ZUR-2")
+				.inTeam("ZUR")
+				.build();
+			env.issueHasDescription("issue-2", "Fix it [repo=zuriga-web]");
+			const result = await env.router.determineRepositoryForWebhook(webhook, [
+				web,
+				cms,
+			]);
+			if (result.type !== "selected") throw new Error(result.type);
+			expect(result.repositories.map((r) => r.id)).toEqual(["repo-web"]);
+		});
+	});
+
 	// ========================================================================
 	// Cache Management Tests
 	// ========================================================================

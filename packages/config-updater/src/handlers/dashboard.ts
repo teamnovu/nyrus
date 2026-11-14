@@ -377,6 +377,7 @@ export interface DashboardRepositoryPayload {
 	teamKeys?: string[];
 	projectKeys?: string[];
 	routingLabels?: string[];
+	routingGroup?: string;
 	isActive?: boolean;
 }
 
@@ -387,6 +388,7 @@ const ROUTING_FIELDS = [
 	"teamKeys",
 	"projectKeys",
 	"routingLabels",
+	"routingGroup",
 	"isActive",
 ] as const;
 
