@@ -10,6 +10,7 @@ import type {
 	TrackerIntegrationHost,
 } from "../types.js";
 import {
+	type GitHubIssueData,
 	type GitHubIssuesApi,
 	GitHubRestIssuesApi,
 	parseGitHubRepo,
@@ -63,6 +64,20 @@ export interface GitHubThreadSource extends CommentTracker {
 	moveToStage?(issueId: string, stage: "review" | "done"): Promise<void>;
 }
 
+/**
+ * Gets the `issues` and `issue_comment` events of GitHub issues that are no
+ * ticket's thread (not on pull requests): the issues nyrus works directly
+ * (see GitHubIssueTrackerService).
+ */
+export type UnthreadedIssueListener = (
+	name: "issues" | "issue_comment",
+	payload: GitHubPayload,
+	deliveryId?: string,
+) => Promise<void>;
+
+/** Whether a GitHub comment may reach the agent. */
+export type CommentVerdict = "allowed" | "own" | "not-allowed";
+
 export interface GitHubIssueThreadsOptions {
 	/** Secret of the GitHub webhook (HMAC-SHA256, `X-Hub-Signature-256`). */
 	webhookSecret: string;
@@ -94,6 +109,7 @@ export class GitHubIssueThreads {
 	private readonly allowedAssociations: Set<string>;
 	private readonly botLogins: Set<string>;
 	private host?: TrackerIntegrationHost;
+	private unthreadedListener?: UnthreadedIssueListener;
 
 	constructor(private readonly options: GitHubIssueThreadsOptions) {
 		this.logger =
@@ -116,7 +132,40 @@ export class GitHubIssueThreads {
 		return tracker;
 	}
 
-	/** Register the webhook route; the first tracker's registration does it. */
+	/**
+	 * Hand events of issues that are no ticket's thread to a listener (the
+	 * tracker that works GitHub issues directly). There is one listener.
+	 */
+	onUnthreadedIssueEvent(listener: UnthreadedIssueListener): void {
+		this.unthreadedListener = listener;
+	}
+
+	/**
+	 * Whether a comment may reach the agent: not nyrus's own (a bot, a
+	 * configured bot login, or marked as nyrus's), and by someone whose
+	 * association with the repository is allowed.
+	 */
+	commentVerdict(
+		comment: NonNullable<GitHubPayload["comment"]>,
+	): CommentVerdict {
+		const login = comment.user?.login ?? "";
+		if (
+			comment.user?.type === "Bot" ||
+			this.botLogins.has(login.toLowerCase()) ||
+			isMarked(comment.body)
+		) {
+			return "own";
+		}
+		const association = (comment.author_association ?? "").toUpperCase();
+		return this.allowedAssociations.has(association)
+			? "allowed"
+			: "not-allowed";
+	}
+
+	/**
+	 * Register the webhook route, once: the first tracker's registration
+	 * does it (a ticket tracker's, or the one working GitHub issues directly).
+	 */
 	connect(host: TrackerIntegrationHost): void {
 		if (this.host) return;
 		this.host = host;
@@ -129,16 +178,18 @@ export class GitHubIssueThreads {
 				}
 				reply.code(200).send({ ok: true });
 				const name = request.headers["x-github-event"];
+				const delivery = request.headers["x-github-delivery"];
 				void this.handleWebhook(
 					typeof name === "string" ? name : "",
 					request.body as GitHubPayload,
+					typeof delivery === "string" ? delivery : undefined,
 				).catch((error) =>
 					this.logger.error("GitHub issues webhook failed", error),
 				);
 			},
 		);
 		this.logger.info(
-			`✅ Tickets are worked in GitHub issues (webhook POST ${GITHUB_ISSUES_WEBHOOK_PATH})`,
+			`✅ GitHub issues webhook registered (POST ${GITHUB_ISSUES_WEBHOOK_PATH})`,
 		);
 	}
 
@@ -154,44 +205,53 @@ export class GitHubIssueThreads {
 	}
 
 	/** Handle a verified GitHub webhook. Public for tests. */
-	async handleWebhook(name: string, payload: GitHubPayload): Promise<void> {
+	/**
+	 * Handle a verified GitHub webhook. Events of issues that are a ticket's
+	 * thread are handled here; other issues' events go to the
+	 * {@link onUnthreadedIssueEvent} listener. Public for tests.
+	 */
+	async handleWebhook(
+		name: string,
+		payload: GitHubPayload,
+		deliveryId?: string,
+	): Promise<void> {
 		const repo = payload?.repository?.full_name;
 		if (!repo) return;
-		if (name === "issue_comment") {
-			await this.onIssueComment(repo, payload);
-		} else if (name === "pull_request") {
+		if (name === "pull_request") {
 			await this.onPullRequest(repo, payload);
-		} else if (name === "issues") {
-			if (
-				payload.action === "closed" &&
-				payload.issue &&
-				payload.issue.state_reason !== "not_planned"
-			) {
-				const thread = this.store.forGitHubIssue(repo, payload.issue.number);
-				if (thread) await this.moveTo(thread, "done");
-			}
+			return;
+		}
+		if (name !== "issues" && name !== "issue_comment") return;
+		const issue = payload.issue;
+		// Comments on pull requests are the edge worker's GitHub transport's.
+		if (!issue || issue.pull_request) return;
+		const thread = this.store.forGitHubIssue(repo, issue.number);
+		if (!thread) {
+			await this.unthreadedListener?.(name, payload, deliveryId);
+			return;
+		}
+		if (name === "issue_comment") {
+			await this.onIssueComment(repo, thread, payload);
+		} else if (
+			payload.action === "closed" &&
+			issue.state_reason !== "not_planned"
+		) {
+			await this.moveTo(thread, "done");
 		}
 	}
 
 	private async onIssueComment(
 		repo: string,
+		thread: GitHubThread,
 		payload: GitHubPayload,
 	): Promise<void> {
 		const { issue, comment } = payload;
 		if (payload.action !== "created" || !issue || !comment) return;
-		if (issue.pull_request) return; // comments on pull requests are the edge worker's
-		const thread = this.store.forGitHubIssue(repo, issue.number);
-		if (!thread) return;
 		const login = comment.user?.login ?? "";
-		if (
-			comment.user?.type === "Bot" ||
-			this.botLogins.has(login.toLowerCase()) ||
-			isMarked(comment.body)
-		) {
-			return;
-		}
-		const association = (comment.author_association ?? "").toUpperCase();
-		if (!this.allowedAssociations.has(association)) {
+		const verdict = this.commentVerdict(comment);
+		if (verdict === "own") return;
+		if (verdict === "not-allowed") {
+			const association = (comment.author_association ?? "").toUpperCase();
 			this.logger.info(
 				`${repo}#${issue.number}: ignoring comment by @${login} (${association || "no association"}): not allowed to steer nyrus`,
 			);
@@ -670,7 +730,13 @@ export interface GitHubPayload {
 		number: number;
 		state_reason?: string | null;
 		pull_request?: unknown;
-	};
+	} & Partial<
+		Omit<GitHubIssueData, "number" | "state_reason" | "pull_request">
+	>;
+	/** `assigned` / `unassigned`: who was (un)assigned. */
+	assignee?: { login?: string } | null;
+	/** Who caused the event. */
+	sender?: { login?: string; type?: string };
 	comment?: {
 		id: number;
 		body?: string | null;

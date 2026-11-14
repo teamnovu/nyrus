@@ -1,6 +1,6 @@
 # cyrus-comment-sessions
 
-Agent sessions over plain ticket comments, for trackers that have no built-in agent sessions (ClickUp, Jira).
+Agent sessions over plain ticket comments, for trackers that have no built-in agent sessions (ClickUp, Jira, GitHub issues).
 
 Linear and Plane start an *agent session* when the agent is assigned or mentioned, and show its thoughts, questions and answers in that session. ClickUp and Jira only have tickets and comments, so this package plays the session part, and the rest of Cyrus (EdgeWorker, runners, prompts) runs unchanged:
 
@@ -99,3 +99,13 @@ const target = tracker.githubThread?.wrapCoordinator(coordinator, host) ?? coord
 ```
 
 `decorateIssue` opens the GitHub issue the first time the edge worker reads a ticket that got an event and has a repository on GitHub (`host.repositoryForIssue`), and adds the issue and the clarify-first instructions to the description the agent sees. From then on the session's comments go to GitHub (ids prefixed `gh:`), responses and errors also go to the ticket, and the wrapped coordinator copies the ticket's comments to GitHub. `/github-issues-webhook` turns replies there into comment events for the ticket's session, and pull requests / closed issues into `attachPullRequest` / `moveToStage`.
+
+## GitHub issues as the tracker
+
+`src/github/GitHubIssueTrackerService.ts` is a tracker of its own (workspace key `github`): GitHub issues worked directly, without a ticket elsewhere ([docs/GITHUB-ISSUES.md](../../docs/GITHUB-ISSUES.md#working-github-issues-directly)). `createGitHubIssuesIntegration` (in the edge worker's list) is on whenever `GitHubIssueThreads` is (`GITHUB_ISSUES_WEBHOOK_SECRET`) and shares its webhook: `GitHubIssueThreads.handleWebhook` keeps the events of issues that are a ticket's thread (in its `ThreadStore`) and hands every other `issues` / `issue_comment` event (not on pull requests) to the listener registered with `onUnthreadedIssueEvent`. The integration's `register` registers that listener and calls `connect`, so the route exists without any Jira/ClickUp integration.
+
+- **Hand-over:** nyrus's account (`GITHUB_BOT_USERNAME`, default `nyrus`) among the open issue's assignees. `assigned` / `unassigned` of that account report `handOver: "added" | "removed"`; `closed` stops a session only while it works or waits for an answer.
+- **Comments:** `@<login>` mentions; authors checked with `GitHubIssueThreads.commentVerdict` (allowed associations, bots, bot logins, `<!-- nyrus -->` marker).
+- **Ids:** issue id `owner/repo#12` (lowercase), identifier `<repo name>-12` (`[a-z0-9-]`, the worktree directory and branch prefix), team key `owner/repo`, so repositories with `linearWorkspaceId: "github"` and `teamKeys: ["owner/repo"]` take the issues through the edge worker's normal team routing. Session ids are `gh-issues-<issue id>` (not `github-`, which the edge worker reserves for its pull request sessions).
+- Issues of GitHub repositories no configured repository takes are ignored; the host's `repositories()` tells which (and which repository's GitHub token to use).
+- The description the agent sees ends with `directIssueInstructions`: where the conversation is, clarify first, and that the pull request must say `Closes #<number>`.

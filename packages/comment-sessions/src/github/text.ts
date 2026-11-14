@@ -114,6 +114,30 @@ How to work this ticket:
 }
 
 /**
+ * What the agent is told about a GitHub issue it works directly (no ticket
+ * elsewhere): where the conversation is, to clear things up first, and that
+ * its pull request closes the issue. Added to the issue's description as
+ * the agent sees it.
+ */
+export function directIssueInstructions(issue: {
+	repo: string;
+	number: number;
+	url: string;
+}): string {
+	const gh = `--repo ${issue.repo}`;
+	return `<github_issue repository="${issue.repo}" number="${issue.number}" url="${issue.url}">
+This is GitHub issue ${issue.repo}#${issue.number} (${issue.url}), and it is the whole ticket: there is no Linear, Jira or ClickUp issue for it. nyrus posts your questions, your progress and your final answer as comments on it, and replies there come back to you.
+
+How to work this issue:
+1. Clarify first. Before you change any file, read the issue with all its comments (\`gh issue view ${issue.number} ${gh} --comments\`) and the code involved. Work out what has to change, how you will verify it, and whether you can do it.
+2. Ask, don't guess. If anything you need is missing or ambiguous, ask with the AskUserQuestion tool: all open questions at once, each one concrete. Your questions are posted on the issue and the answers come back to you.
+3. Then implement it. If the issue can't or shouldn't be done, stop and explain why in your final answer instead of opening a pull request.
+4. The pull request's body must contain \`Closes #${issue.number}\`, so that merging it closes this issue.
+5. Don't comment on, label, assign or close the issue yourself: nyrus posts your answer there. If you must comment with \`gh\`, start the comment with the line \`${OWN_MARKER}\`.
+</github_issue>`;
+}
+
+/**
  * The issues a pull request's body says it closes ("Closes #12",
  * "fixes owner/repo#12", or an issue URL), as `owner/name` and number.
  * `#12` means an issue of the pull request's own repository.

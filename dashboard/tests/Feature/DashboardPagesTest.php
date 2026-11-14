@@ -485,6 +485,29 @@ class DashboardPagesTest extends TestCase
             ->assertSee('inBudget hat weder Projekt-Infos noch Repositories von Kunden-Ressourcen geliefert – sieht der Token-User sie?');
     }
 
+    public function test_adding_a_repository_for_github_issues_routes_it_by_owner_and_name(): void
+    {
+        Http::fake([
+            'nyrus.test/api/dashboard/config' => Http::response(['success' => true, 'data' => ['repositories' => [
+                ['id' => 'inbudget-shop-github', 'name' => 'inbudget-shop-github', 'linearWorkspaceId' => 'github', 'teamKeys' => ['teamnovu/shop'], 'repositoryPath' => '/r/shop'],
+            ], 'settingKeys' => []]]),
+            'nyrus.test/api/dashboard/repository' => Http::response(['success' => true, 'message' => 'ok', 'data' => []]),
+        ]);
+
+        $this->get('/repositories?tracker=github')->assertOk()
+            ->assertSee('GitHub Issues (1)')
+            ->assertSee('inbudget-shop-github');
+
+        $this->post('/repositories', [
+            'repository_url' => 'git@github.com:teamnovu/Web.git',
+            'linearWorkspaceId' => 'github',
+        ])->assertRedirect('/repositories');
+
+        Http::assertSent(fn (Request $request) => $request->url() === 'http://nyrus.test/api/dashboard/repository'
+            && $request['linearWorkspaceId'] === 'github'
+            && $request['teamKeys'] === ['teamnovu/web']);
+    }
+
     public function test_inbudget_panel_counts_repositories_from_client_resources(): void
     {
         $this->fakeRepositories([], self::SYNCED + ['infoCount' => 0, 'linkCount' => 0, 'resourceCount' => 2067, 'resourceRepoCount' => 16]);

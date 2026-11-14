@@ -78,6 +78,7 @@ class RepositoryController extends Controller
             array_map(fn (array $repo) => (string) ($repo['linearWorkspaceId'] ?? ''), $repositories),
             array_map(fn (array $entry) => (string) ($entry['workspaceKey'] ?? ''), $inbudget['repositories'] ?? []),
         );
+        $keys[] = 'github'; // GitHub issues (GITHUB_ISSUES_WEBHOOK_SECRET)
         $keys = array_values(array_unique(array_filter($keys)));
         sort($keys);
 
@@ -97,7 +98,7 @@ class RepositoryController extends Controller
         return [
             'q' => trim(mb_substr((string) $request->query('q', ''), 0, 200)),
             'source' => $pick('source', ['inbudget', 'manual']),
-            'tracker' => $pick('tracker', ['jira', 'clickup', 'other']),
+            'tracker' => $pick('tracker', ['jira', 'clickup', 'github', 'other']),
             'status' => $pick('status', ['active', 'inactive']),
             'sort' => $pick('sort', self::SORTS, 'name'),
             'per_page' => in_array($perPage, self::PER_PAGE, true) ? $perPage : 50,
@@ -136,10 +137,10 @@ class RepositoryController extends Controller
         ];
     }
 
-    /** Jira, ClickUp or something else (Linear, ...), from the managed id or the workspace key. */
+    /** Jira, ClickUp, GitHub issues or something else (Linear, ...), from the managed id or the workspace key. */
     private function tracker(string $id, string $workspace): string
     {
-        foreach (['jira', 'clickup'] as $tracker) {
+        foreach (['jira', 'clickup', 'github'] as $tracker) {
             if (($id !== '' && str_starts_with($id, 'inbudget-') && str_ends_with($id, "-{$tracker}"))
                 || $workspace === $tracker || str_starts_with($workspace, "{$tracker}-")) {
                 return $tracker;
@@ -205,7 +206,7 @@ class RepositoryController extends Controller
     {
         $facets = [
             'source' => ['inbudget' => 0, 'manual' => 0],
-            'tracker' => ['jira' => 0, 'clickup' => 0, 'other' => 0],
+            'tracker' => ['jira' => 0, 'clickup' => 0, 'github' => 0, 'other' => 0],
             'status' => ['active' => 0, 'inactive' => 0],
         ];
         foreach ($rows as $row) {
@@ -291,6 +292,11 @@ class RepositoryController extends Controller
             'baseBranch' => $data['baseBranch'] ?? null,
             'linearWorkspaceId' => isset($data['linearWorkspaceId']) ? trim($data['linearWorkspaceId']) : null,
         ]) + $this->lists($data);
+        // GitHub issues route by the repository's owner/name as team key.
+        if (($payload['linearWorkspaceId'] ?? null) === 'github' && empty($payload['teamKeys'])
+            && preg_match('~github\.com[:/]([\w.-]+)/([\w.-]+?)(?:\.git)?/?$~i', $payload['repository_url'], $m)) {
+            $payload['teamKeys'] = [strtolower("{$m[1]}/{$m[2]}")];
+        }
 
         return $this->run(
             $request,

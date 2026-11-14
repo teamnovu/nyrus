@@ -110,7 +110,13 @@ export async function applyPlan(
 
 		if (index < 0) {
 			try {
-				const cloned = await options.clone(repo, name);
+				// Another entry of the same repository (e.g. its Jira one) shares its clone.
+				const sibling = repos.find(
+					(r) => r.repositoryPath && sameGitHubRepo(r.githubUrl, githubUrl),
+				);
+				const cloned = sibling
+					? { path: sibling.repositoryPath, defaultBranch: sibling.baseBranch }
+					: await options.clone(repo, name);
 				const entry: RepoEntry = {
 					id,
 					name: id,

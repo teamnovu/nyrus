@@ -325,6 +325,39 @@ describe("RepositoryRouter", () => {
 		env = new RoutingTestEnvironment();
 	});
 
+	describe("GitHub issues worked directly", () => {
+		it("routes by the repository full name as team key, in the github workspace only", async () => {
+			const sayflowers = env
+				.repository("repo-sf", "sayflowers")
+				.inWorkspace("github")
+				.withTeams("teamnovu/sayflowers")
+				.build();
+			const other = env
+				.repository("repo-other", "other")
+				.inWorkspace("github")
+				.withTeams("teamnovu/other")
+				.build();
+			const jira = env
+				.repository("repo-jira", "jira")
+				.inWorkspace("jira-novu")
+				.build();
+
+			const webhook = env
+				.webhook()
+				.inWorkspace("github")
+				.forIssue("teamnovu/sayflowers#12", "sayflowers-12")
+				.inTeam("teamnovu/sayflowers")
+				.build();
+
+			const result = await env.router.determineRepositoryForWebhook(webhook, [
+				jira,
+				other,
+				sayflowers,
+			]);
+			expectRouting(result).shouldSelectRepositoryVia(sayflowers, "team-based");
+		});
+	});
+
 	// ========================================================================
 	// Cache Management Tests
 	// ========================================================================

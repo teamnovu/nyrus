@@ -1,5 +1,10 @@
 # Working tickets in GitHub issues
 
+There are two ways nyrus works with GitHub issues; both use the same GitHub App, webhook and secret ([Setup](#setup)):
+
+- **Tickets from Jira/ClickUp, discussed in a GitHub issue** (this page's first part): nyrus opens a GitHub issue for the ticket and talks there.
+- **GitHub issues as the tickets** ([Working GitHub issues directly](#working-github-issues-directly)): a project without Jira or ClickUp. Someone opens an issue in the repository and assigns it to nyrus.
+
 With this turned on, nyrus works Jira issues and ClickUp tasks in a **GitHub issue** in the ticket's repository. The ticket stays where work is planned; the GitHub issue is where nyrus and the team talk about it, next to the code.
 
 ## How a ticket goes
@@ -51,7 +56,7 @@ GITHUB_ISSUES_WEBHOOK_SECRET=...           # the webhook secret from step 1; tur
 # CLICKUP_DONE_STATUS=complete
 ```
 
-Restart. The log shows `✅ Tickets are worked in GitHub issues (webhook POST /github-issues-webhook)`.
+Restart. The log shows `✅ GitHub issues webhook registered (POST /github-issues-webhook)`.
 
 Repositories need `githubUrl` in `config.json` (e.g. `https://github.com/acme/web`); that's where the issue is opened. Their `appendInstruction` should no longer tell the agent to comment on or move the ticket: see the examples in [JIRA.md](JIRA.md) and [CLICKUP.md](CLICKUP.md).
 
@@ -62,3 +67,62 @@ Which ticket belongs to which GitHub issue is kept in `<cyrus-home>/github-issue
 - Access control (`userAccessControl`) matches people by tracker account or email. GitHub commenters have neither (their id is `github:<login>`), so with an allow list they are blocked; use `GITHUB_ISSUES_ALLOWED_ASSOCIATIONS` to limit who can steer nyrus on GitHub.
 - A pull request also counts as the ticket's if its branch is named after the ticket (`say-12-…`), even without `Closes`.
 - Tickets nyrus worked on before this was turned on keep working on the ticket until they get a new event.
+
+## Working GitHub issues directly
+
+A project doesn't need Jira or ClickUp: nyrus can work the issues of its GitHub repository directly. The GitHub issue is the ticket.
+
+### How an issue goes
+
+1. **Hand-over.** Assign the issue to nyrus's GitHub account (`GITHUB_BOT_USERNAME`, default `nyrus`), or open it with nyrus already assigned. nyrus works the whole issue, like a Jira issue handed to it.
+2. **Questions, progress, answer.** Like with tickets: the agent reads the issue and its comments first and asks on the issue if something is unclear; its progress ("⏳ Working on it") and its final answer are comments on the issue. nyrus's comments carry a hidden `<!-- nyrus -->` marker, so they never count as replies.
+3. **Pull request.** The agent's pull request says `Closes #<number>`, so merging it closes the issue. nyrus tells the agent so; no repository instructions needed.
+
+| On the issue | nyrus does |
+|---|---|
+| nyrus assigned (or issue opened with nyrus assigned) | Starts working the issue |
+| nyrus assigned again after its session ended, or the issue reopened while assigned | Continues that session ("handed to you again") |
+| nyrus unassigned | Stops the session |
+| Issue closed while nyrus is still working or waiting for an answer | Stops the session |
+| Comment mentioning `@nyrus`, issue not assigned to nyrus | Starts a conversation on that comment |
+| Comment while the issue is assigned to nyrus | Passed to the session |
+| Comment after that | Only if it mentions `@nyrus` or answers its question |
+| `stop` (or `@nyrus stop`) | Stops the session |
+
+Who can steer nyrus: comments count only from authors whose association with the repository is in `GITHUB_ISSUES_ALLOWED_ASSOCIATIONS` (default `OWNER,MEMBER,COLLABORATOR`); others, bots and nyrus's own comments are ignored. Assignments aren't checked again: GitHub only lets people with triage or write access to the repository assign issues.
+
+Comments on pull requests stay with nyrus's pull request integration ([GitHub setup](../deploy/forge/README.md)); issues nyrus opened for Jira/ClickUp tickets stay with those tickets.
+
+### Setup
+
+1. Do the [setup](#setup) above (GitHub App with **Issues: Read and write**, webhook with **Issues** and **Issue comment** events, `GITHUB_ISSUES_WEBHOOK_SECRET`). That turns this on too.
+2. **A GitHub account for nyrus that can be assigned.** Only users can be assigned to issues, not a GitHub App's bot, and only users with access to the repository: invite the account (e.g. `nyrus`) as a **collaborator** of the repository (or member of the organization). If its login isn't `nyrus`, set it:
+
+   ```bash
+   GITHUB_BOT_USERNAME=nyrus-bot   # assigning it hands issues over, @nyrus-bot mentions it, its comments are nyrus's own
+   ```
+
+   nyrus still writes comments and pull requests with the App's token (or `GITHUB_TOKEN`); the account only needs to be assignable.
+3. **The repository in `config.json`**, taking work from the workspace `github`, with the repository's full name, **in lowercase**, as team key:
+
+   ```json
+   {
+     "id": "sayflowers",
+     "name": "sayflowers",
+     "repositoryPath": "/home/nyrus/repos/sayflowers",
+     "baseBranch": "main",
+     "githubUrl": "https://github.com/teamnovu/sayflowers",
+     "linearWorkspaceId": "github",
+     "teamKeys": ["teamnovu/sayflowers"]
+   }
+   ```
+
+   Issues of repositories without such an entry are ignored. inBudget projects with a GitHub repository get these entries from the inBudget sync.
+
+Restart. The log shows `✅ GitHub issues worked directly (assign or mention @nyrus; ...)`.
+
+### Notes
+
+- An issue `teamnovu/sayflowers#12` is `sayflowers-12` in nyrus: its worktree directory, and the start of its branch (`sayflowers-12-<title>`). Its session is kept per issue, so comments continue it, also after a restart.
+- `userAccessControl` matches GitHub people as `github:<login>`; with an allow list, add them that way or rely on `GITHUB_ISSUES_ALLOWED_ASSOCIATIONS`.
+- Labels of the issue are labels in nyrus (e.g. for label-based prompts). A `[repo=...]` tag in the issue body can still route it to another repository of the `github` workspace.

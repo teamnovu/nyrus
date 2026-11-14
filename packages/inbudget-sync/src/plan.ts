@@ -20,7 +20,15 @@ export interface PlanContext {
 	clickup?: { teamId?: string; workspaceKey: string };
 	/** A ClickUp List's name (repositories route Lists by name). */
 	listName?: (listId: string) => Promise<string | undefined>;
+	/**
+	 * GitHub issues as a tracker (GITHUB_ISSUES_WEBHOOK_SECRET): every
+	 * repository also takes the issues opened in it, routed by its
+	 * `owner/name` as team key, so a project works without Jira or ClickUp.
+	 */
+	github?: { workspaceKey: string };
 }
+
+export type TrackerPlatform = "jira" | "clickup" | "github";
 
 /** A repository nyrus should have for one tracker workspace. */
 export interface DesiredRepository {
@@ -28,9 +36,9 @@ export interface DesiredRepository {
 	repo: string;
 	/** Base branch, if a link names one (`…/tree/<branch>`). */
 	branch?: string;
-	platform: "jira" | "clickup";
+	platform: TrackerPlatform;
 	workspaceKey: string;
-	/** Jira project keys / ClickUp Space ids */
+	/** Jira project keys / ClickUp Space ids / `owner/name` for GitHub issues */
 	teamKeys: string[];
 	/** ClickUp List names */
 	projectKeys: string[];
@@ -42,7 +50,10 @@ export interface SyncPlan {
 	repositories: DesiredRepository[];
 	/** Projects whose links nyrus can't use, and why. */
 	warnings: Array<{ project: string; message: string }>;
-	/** Projects with a GitHub repository but no Jira or ClickUp link. */
+	/**
+	 * Projects with a GitHub repository but no Jira or ClickUp link (with
+	 * GitHub issues on, they still get their repository for GitHub issues).
+	 */
 	unrouted: string[];
 	projectCount: number;
 	/** Project infos read from inBudget (of all projects, archived ones too). */
@@ -122,7 +133,7 @@ export async function planRepositories(
 			(l) => l.repo.toLowerCase(),
 		);
 		const targets: Array<{
-			platform: "jira" | "clickup";
+			platform: TrackerPlatform;
 			workspaceKey: string;
 			teamKey?: string;
 			projectKey?: string;
@@ -168,11 +179,21 @@ export async function planRepositories(
 		}
 		if (targets.length === 0) {
 			if (!links.some((l) => l.type !== "github")) unrouted.push(label);
-			continue;
+			if (!context.github) continue;
 		}
 
 		for (const link of repos) {
-			for (const target of targets) {
+			const repoTargets = context.github
+				? [
+						...targets,
+						{
+							platform: "github" as const,
+							workspaceKey: context.github.workspaceKey,
+							teamKey: link.repo.toLowerCase(),
+						},
+					]
+				: targets;
+			for (const target of repoTargets) {
 				const key = `${link.repo.toLowerCase()}|${target.workspaceKey}`;
 				const entry =
 					desired.get(key) ??

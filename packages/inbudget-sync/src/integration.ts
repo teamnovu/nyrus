@@ -92,6 +92,9 @@ export function planContextFromEnv(
 			// JIRA_BASE_URL is not a URL; the Jira integration reports it.
 		}
 	}
+	if (env.GITHUB_ISSUES_WEBHOOK_SECRET?.trim()) {
+		context.github = { workspaceKey: "github" };
+	}
 	const clickUpToken = env.CLICKUP_API_TOKEN?.trim();
 	if (env.CLICKUP_WEBHOOK_SECRET?.trim() && clickUpToken) {
 		const teamId = env.CLICKUP_TEAM_ID?.trim() || undefined;
@@ -130,6 +133,9 @@ export function defaultInstructions(
 	githubIssues: boolean,
 ): string {
 	const intro = `This repository belongs to the inBudget project${repo.projects.length > 1 ? "s" : ""} ${repo.projects.join(", ")}.`;
+	if (repo.platform === "github") {
+		return `Your name is nyrus, novu's coding agent. ${intro} Your work comes from GitHub issues in this repository: read the issue with \`gh issue view\`, and close it from your pull request (\`Closes #<number>\`).`;
+	}
 	if (repo.platform === "jira") {
 		return `Your name is Nyrus, novu's coding agent. ${intro} Your work comes from Jira: use the mcp__jira__* tools (not Linear's) to read the issue${githubIssues ? " and download its attachments" : ", comment on it, attach your pull request and change its status"}.`;
 	}

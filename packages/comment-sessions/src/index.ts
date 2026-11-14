@@ -14,11 +14,20 @@ export {
 	HANDED_BACK_PROMPT,
 } from "./CommentSessionCoordinator.js";
 export {
+	type GitHubCommentData,
+	type GitHubIssueData,
+	type GitHubIssueReadApi,
 	type GitHubIssuesApi,
 	GitHubRestIssuesApi,
 	parseGitHubRepo,
 } from "./github/GitHubIssuesApi.js";
 export {
+	createGitHubIssuesIntegration,
+	createGitHubIssuesIntegrationFactory,
+	githubIssueEventHandler,
+} from "./github/GitHubIssuesIntegration.js";
+export {
+	type CommentVerdict,
 	createGitHubIssueThreadsFromEnv,
 	DEFAULT_ALLOWED_ASSOCIATIONS,
 	GITHUB_ISSUES_WEBHOOK_PATH,
@@ -28,10 +37,22 @@ export {
 	GitHubThreadedTracker,
 	type GitHubThreadSource,
 	type PullRequestRef,
+	type UnthreadedIssueListener,
 } from "./github/GitHubIssueThreads.js";
+export {
+	DEFAULT_AGENT_LOGIN,
+	GITHUB_ISSUES_PLATFORM,
+	GITHUB_WORKSPACE_KEY,
+	type GitHubIssueTrackerOptions,
+	GitHubIssueTrackerService,
+	githubIssueId,
+	githubIssueIdentifier,
+	parseGitHubIssueId,
+} from "./github/GitHubIssueTrackerService.js";
 export { type GitHubThread, ThreadStore } from "./github/ThreadStore.js";
 export {
 	closingReferences,
+	directIssueInstructions,
 	OWN_MARKER,
 	type TicketComment,
 	workflowInstructions,

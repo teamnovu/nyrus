@@ -34,7 +34,7 @@
             <div class="flex flex-wrap items-start gap-4">
                 <div class="min-w-0 flex-1 basis-72">
                     <h2 class="text-lg">inBudget</h2>
-                    <p class="muted mt-1 text-sm">Repositories und Routing kommen aus inBudget: der Git-Link eines Projekts (oder das Repository einer Ressource seines Kunden) plus ein Jira- oder ClickUp-Link. Ein Repository, das du hier selbst für denselben Tracker einrichtest, hat Vorrang.</p>
+                    <p class="muted mt-1 text-sm">Repositories und Routing kommen aus inBudget: der Git-Link eines Projekts (oder das Repository einer Ressource seines Kunden) plus ein Jira- oder ClickUp-Link. Sind GitHub-Issues eingeschaltet, nimmt jedes Repository zusätzlich die Issues in seinem GitHub-Repo an, die dem nyrus-Account zugewiesen werden, auch ohne Jira oder ClickUp. Ein Repository, das du hier selbst für denselben Tracker einrichtest, hat Vorrang.</p>
                 </div>
                 <form method="POST" action="{{ route('repositories.inbudget-sync') }}" data-busy-form>
                     @csrf
@@ -139,6 +139,7 @@
             <option value="">Alle Tracker</option>
             <option value="jira" @selected($filters['tracker'] === 'jira')>Jira ({{ $facets['tracker']['jira'] }})</option>
             <option value="clickup" @selected($filters['tracker'] === 'clickup')>ClickUp ({{ $facets['tracker']['clickup'] }})</option>
+            <option value="github" @selected($filters['tracker'] === 'github')>GitHub Issues ({{ $facets['tracker']['github'] }})</option>
             <option value="other" @selected($filters['tracker'] === 'other')>Andere ({{ $facets['tracker']['other'] }})</option>
         </select>
         <select name="status" aria-label="Status" onchange="this.form.submit()" class="{{ $selectClass }}">
@@ -185,7 +186,7 @@
                     </div>
                     <div class="flex flex-wrap items-center gap-2">
                         @if ($repo['_tracker'] !== 'other')
-                            <span class="chip text-white/60">{{ ['jira' => 'Jira', 'clickup' => 'ClickUp'][$repo['_tracker']] }}</span>
+                            <span class="chip text-white/60">{{ ['jira' => 'Jira', 'clickup' => 'ClickUp', 'github' => 'GitHub Issues'][$repo['_tracker']] }}</span>
                         @endif
                         @if ($managed)
                             <span class="chip text-white/70">inBudget</span>
@@ -314,7 +315,7 @@
                     <input name="baseBranch" value="{{ old('_form') === 'add' ? old('baseBranch', 'main') : 'main' }}" class="field font-mono">
                 </label>
                 <label class="label sm:col-span-2">Tracker-Workspace (woher die Tickets kommen)
-                    <input name="linearWorkspaceId" list="tracker-workspaces" value="{{ old('_form') === 'add' ? old('linearWorkspaceId') : ($workspaces[0] ?? '') }}" placeholder="z.B. jira-novu" class="field font-mono">
+                    <input name="linearWorkspaceId" list="tracker-workspaces" value="{{ old('_form') === 'add' ? old('linearWorkspaceId') : ($workspaces[0] ?? '') }}" placeholder="z.B. jira-novu oder github" class="field font-mono">
                     <datalist id="tracker-workspaces">
                         @foreach ($workspaces as $workspace)
                             <option value="{{ $workspace }}"></option>

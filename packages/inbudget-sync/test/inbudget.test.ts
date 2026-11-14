@@ -337,6 +337,47 @@ describe("planRepositories with client resources", () => {
 	});
 });
 
+describe("planRepositories with GitHub issues", () => {
+	const github = { ...context, github: { workspaceKey: "github" } };
+
+	it("gives every repository a GitHub issues entry, also without Jira or ClickUp", async () => {
+		const plan = await planRepositories(
+			[
+				{ id: 1, nr: "2041", name: "Webshop" },
+				{ id: 2, nr: "4000", name: "Intern" },
+			],
+			[
+				info(1, 1, "https://github.com/teamnovu/Sayflowers"),
+				info(2, 1, "https://novu.atlassian.net/browse/SAY", "jira"),
+				info(3, 2, "https://github.com/teamnovu/intern"),
+			],
+			github,
+		);
+		expect(
+			plan.repositories.map((r) => [
+				r.repo,
+				r.platform,
+				r.workspaceKey,
+				r.teamKeys,
+			]),
+		).toEqual([
+			["teamnovu/intern", "github", "github", ["teamnovu/intern"]],
+			["teamnovu/Sayflowers", "github", "github", ["teamnovu/sayflowers"]],
+			["teamnovu/Sayflowers", "jira", "jira-novu", ["SAY"]],
+		]);
+		expect(plan.unrouted).toEqual(["4000 Intern"]);
+	});
+
+	it("without GitHub issues, a repository without tracker link gets no entry", async () => {
+		const plan = await planRepositories(
+			[{ id: 2, nr: "4000", name: "Intern" }],
+			[info(3, 2, "https://github.com/teamnovu/intern")],
+			context,
+		);
+		expect(plan.repositories).toEqual([]);
+	});
+});
+
 function home(repositories: RepoEntry[] = []) {
 	const dir = mkdtempSync(join(tmpdir(), "inbudget-sync-"));
 	writeFileSync(
@@ -362,6 +403,36 @@ const desired = (over: Partial<DesiredRepository> = {}): DesiredRepository => ({
 });
 
 describe("applyPlan", () => {
+	it("shares the clone between a repository's entries", async () => {
+		const { dir, read } = home();
+		const clone = vi.fn(async (_repo: DesiredRepository, name: string) => ({
+			path: `/repos/${name}`,
+			defaultBranch: "staging",
+		}));
+		const result = await applyPlan(
+			[
+				desired(),
+				desired({
+					platform: "github",
+					workspaceKey: "github",
+					teamKeys: ["teamnovu/sayflowers"],
+				}),
+			],
+			{ cyrusHome: dir, clone },
+		);
+		expect(result.added).toEqual([
+			"inbudget-sayflowers-jira",
+			"inbudget-sayflowers-github",
+		]);
+		expect(clone).toHaveBeenCalledTimes(1);
+		expect(read().repositories[1]).toMatchObject({
+			repositoryPath: "/repos/sayflowers",
+			baseBranch: "staging",
+			linearWorkspaceId: "github",
+			teamKeys: ["teamnovu/sayflowers"],
+		});
+	});
+
 	it("clones and adds a managed repository, then keeps its routing in line", async () => {
 		const { dir, read } = home();
 		const clone = vi.fn(async (_repo: DesiredRepository, name: string) => ({

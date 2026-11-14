@@ -1,5 +1,6 @@
 import { createClickUpIntegration } from "cyrus-clickup-event-transport";
 import {
+	createGitHubIssuesIntegration,
 	createGitHubIssueThreadsFromEnv,
 	type TrackerIntegration,
 	type TrackerIntegrationFactory,
@@ -10,13 +11,15 @@ import { createJiraIntegration } from "cyrus-jira-event-transport";
 import { createServicedeskTriageIntegration } from "cyrus-servicedesk-triage";
 
 /**
- * Trackers without built-in agent sessions (ClickUp, Jira), built on
- * cyrus-comment-sessions. Each factory returns null unless its environment
+ * Trackers without built-in agent sessions (ClickUp, Jira, GitHub issues
+ * worked directly), built on cyrus-comment-sessions. Each factory returns null unless its environment
  * variables are set. Add a tracker by appending its factory here.
  */
 export const trackerIntegrationFactories: TrackerIntegrationFactory[] = [
 	createJiraIntegration,
 	createClickUpIntegration,
+	// GitHub issues as tickets (needs GITHUB_ISSUES_WEBHOOK_SECRET).
+	createGitHubIssuesIntegration,
 	// Not a tracker: repositories and their routing from inBudget projects.
 	createInbudgetIntegration,
 	// Not a tracker: suggests project and assignee for new service desk tickets.

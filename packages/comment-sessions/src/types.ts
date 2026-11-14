@@ -165,6 +165,8 @@ export interface TrackerIntegrationHost {
 	repositoryForIssue?: (issueId: string) => HostRepository | undefined;
 	/** A GitHub token for API calls on a repository (App, stored or PAT). */
 	githubToken?: (repositoryId: string) => Promise<string | undefined>;
+	/** The configured repositories, read live (they change on a config reload). */
+	repositories?: () => HostRepository[];
 }
 
 /** A configured repository, as far as tracker integrations need it. */
@@ -172,6 +174,10 @@ export interface HostRepository {
 	id: string;
 	name: string;
 	githubUrl?: string;
+	/** Its `linearWorkspaceId`: the tracker workspace it takes work from. */
+	workspaceKey?: string;
+	/** Its `teamKeys`: the teams it takes work from. */
+	teamKeys?: string[];
 }
 
 /**

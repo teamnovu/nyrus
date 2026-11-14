@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	addGitConfigToEnv,
 	GITHUB_HTTPS_GIT_CONFIG,
-	useGitHubHttpsGit,
+	shouldUseGitHubHttpsGit,
 } from "../src/githubHttpsGit.js";
 
 describe("githubHttpsGit", () => {
@@ -15,7 +15,7 @@ describe("githubHttpsGit", () => {
 			GIT_CONFIG_VALUE_0: "input",
 		};
 
-		expect(useGitHubHttpsGit(env)).toBe(true);
+		expect(shouldUseGitHubHttpsGit(env)).toBe(true);
 		expect(addGitConfigToEnv(env, GITHUB_HTTPS_GIT_CONFIG)).toBe(false);
 
 		expect(env.GIT_CONFIG_COUNT).toBe("4");
@@ -27,7 +27,7 @@ describe("githubHttpsGit", () => {
 
 	it("leaves git alone without a GitHub token", () => {
 		const env: NodeJS.ProcessEnv = {};
-		expect(useGitHubHttpsGit(env)).toBe(false);
+		expect(shouldUseGitHubHttpsGit(env)).toBe(false);
 		expect(env.GIT_CONFIG_COUNT).toBeUndefined();
 	});
 
@@ -40,7 +40,7 @@ describe("githubHttpsGit", () => {
 			HOME: "/nonexistent",
 		};
 		delete env.GIT_CONFIG_COUNT;
-		useGitHubHttpsGit(env);
+		shouldUseGitHubHttpsGit(env);
 
 		const rewritten = execFileSync(
 			"git",

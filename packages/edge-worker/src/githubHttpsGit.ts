@@ -32,7 +32,9 @@ export function addGitConfigToEnv(
 	const count = Number.parseInt(env.GIT_CONFIG_COUNT ?? "0", 10) || 0;
 	const existing = new Set<string>();
 	for (let i = 0; i < count; i++) {
-		existing.add(`${env[`GIT_CONFIG_KEY_${i}`]}=${env[`GIT_CONFIG_VALUE_${i}`]}`);
+		existing.add(
+			`${env[`GIT_CONFIG_KEY_${i}`]}=${env[`GIT_CONFIG_VALUE_${i}`]}`,
+		);
 	}
 	let next = count;
 	for (const [key, value] of entries) {
@@ -51,7 +53,7 @@ export function addGitConfigToEnv(
  * GH_TOKEN), make git use HTTPS with that token for GitHub. Returns whether
  * it applied (false without a token: git keeps its own setup).
  */
-export function useGitHubHttpsGit(env: NodeJS.ProcessEnv): boolean {
+export function shouldUseGitHubHttpsGit(env: NodeJS.ProcessEnv): boolean {
 	if (!env.GITHUB_TOKEN?.trim() && !env.GH_TOKEN?.trim()) {
 		return false;
 	}
