@@ -6036,6 +6036,13 @@ ${taskSection}`;
 			return;
 		}
 		const session = this.agentSessionManager.getSession(sessionId);
+		// Only the tracker's own sessions: comment trackers (Jira, ClickUp) run
+		// Linear-shaped ("linear"). A GitHub/GitLab session on a PR of the same
+		// repository (e.g. an @mention in a PR comment) is no ticket of theirs.
+		const trackerId = session?.issueContext?.trackerId;
+		if (trackerId && trackerId !== "linear") {
+			return;
+		}
 		const issueId = session?.issueContext?.issueId ?? session?.issueId;
 		if (!issueId) {
 			return;
