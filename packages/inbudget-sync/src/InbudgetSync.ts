@@ -1,9 +1,25 @@
 import { execFile } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import { handleRepository } from "cyrus-config-updater";
 import { createLogger, type ILogger } from "cyrus-core";
-import { type ApplyResult, applyPlan, clonePath } from "./ConfigSync.js";
+import {
+	type ApplyResult,
+	applyPlan,
+	clonePath,
+	readRepositories,
+	sameGitHubRepo,
+} from "./ConfigSync.js";
 import type { InbudgetClient } from "./InbudgetClient.js";
+import {
+	type ManualPlatform,
+	mergeManual,
+	type RepoOverview,
+	type RoutingKeys,
+	readManual,
+	writeManual,
+} from "./manual.js";
 import {
 	type DesiredRepository,
 	type PlanContext,
@@ -44,6 +60,10 @@ export interface SyncStatus {
 			| "branch"
 		>
 	>;
+	/** Which trackers nyrus has configured. */
+	trackers?: { jira: boolean; clickup: boolean; github: boolean };
+	/** Every GitHub repository inBudget knows, with inBudget's and the manual routing. */
+	repos?: RepoOverview[];
 	result?: ApplyResult;
 	warnings?: SyncPlan["warnings"];
 	unrouted?: string[];
@@ -79,6 +99,47 @@ export class InbudgetSync {
 		return this.status;
 	}
 
+	/**
+	 * Set a repository up for GitHub issues on demand (the first issue
+	 * assigned in it): if inBudget knows it, it is cloned and gets its
+	 * `github` entry, now and on every later sync. True once the entry is
+	 * in config.json.
+	 */
+	async provideGitHub(repo: string): Promise<boolean> {
+		const { context, cyrusHome } = this.options;
+		if (!context.github) return false;
+		await this.current;
+		if (!this.status.repos) await this.sync();
+		const key = repo.toLowerCase();
+		if (!this.status.repos?.some((r) => r.repo.toLowerCase() === key)) {
+			return false;
+		}
+		const requested = readGitHubRequested(cyrusHome);
+		if (!requested.includes(key)) {
+			writeGitHubRequested(cyrusHome, [...requested, key].sort());
+		}
+		await this.current;
+		const status = await this.sync();
+		return Boolean(
+			status.repos?.find((r) => r.repo.toLowerCase() === key)?.platforms.github
+				?.entryId,
+		);
+	}
+
+	/**
+	 * Save a repository's manual routing for one tracker (empty keys clear
+	 * it) and sync, after the sync running now, so it takes effect.
+	 */
+	async setManual(
+		repo: string,
+		platform: ManualPlatform,
+		keys: RoutingKeys,
+	): Promise<SyncStatus> {
+		writeManual(this.options.cyrusHome, repo, platform, keys);
+		await this.current;
+		return this.sync();
+	}
+
 	/** Run a sync, or join the one running. Never throws: errors end up in the status. */
 	sync(): Promise<SyncStatus> {
 		this.current ??= this.run().finally(() => {
@@ -107,7 +168,39 @@ export class InbudgetSync {
 				this.options.context,
 				resources,
 			);
-			const result = await applyPlan(plan.repositories, {
+			const { context } = this.options;
+			const { desired, repos } = mergeManual(
+				plan,
+				readManual(this.options.cyrusHome),
+				context,
+			);
+			// GitHub issues entries are cloned on demand: only for repositories
+			// already cloned (e.g. for Jira) or asked for by a first issue.
+			const requested = new Set(readGitHubRequested(this.options.cyrusHome));
+			const configured = readRepositories(this.options.cyrusHome);
+			const cloned = (repo: string) =>
+				configured.some(
+					(e) =>
+						e.repositoryPath &&
+						sameGitHubRepo(e.githubUrl, `https://github.com/${repo}`),
+				);
+			for (let i = desired.length - 1; i >= 0; i--) {
+				const d = desired[i]!;
+				if (d.platform !== "github") continue;
+				const tracked = desired.some(
+					(o) =>
+						o.platform !== "github" &&
+						o.repo.toLowerCase() === d.repo.toLowerCase(),
+				);
+				if (
+					!tracked &&
+					!requested.has(d.repo.toLowerCase()) &&
+					!cloned(d.repo)
+				) {
+					desired.splice(i, 1);
+				}
+			}
+			const result = await applyPlan(desired, {
 				cyrusHome: this.options.cyrusHome,
 				clone:
 					this.options.clone ??
@@ -120,12 +213,18 @@ export class InbudgetSync {
 				lastSuccessAt: new Date().toISOString(),
 				durationMs: Date.now() - started,
 				projectCount: plan.projectCount,
+				trackers: {
+					jira: Boolean(context.jira),
+					clickup: Boolean(context.clickup),
+					github: Boolean(context.github),
+				},
+				repos: withEntryIds(repos, this.options.cyrusHome, context),
 				infoCount: plan.infoCount,
 				matchedInfoCount: plan.matchedInfoCount,
 				linkCount: plan.linkCount,
 				resourceCount: plan.resourceCount,
 				resourceRepoCount: plan.resourceRepoCount,
-				repositories: plan.repositories,
+				repositories: desired,
 				result,
 				warnings: plan.warnings,
 				unrouted: plan.unrouted,
@@ -137,7 +236,7 @@ export class InbudgetSync {
 				result.deactivated.length && `${result.deactivated.length} turned off`,
 			].filter(Boolean);
 			this.logger.info(
-				`inBudget sync: ${plan.repositories.length} repositories from ${plan.projectCount} projects (${plan.infoCount} infos, ${plan.linkCount} links, ${plan.resourceRepoCount} repositories from client resources)${changes.length ? ` (${changes.join(", ")})` : ", no changes"}${plan.warnings.length ? `, ${plan.warnings.length} warnings` : ""}`,
+				`inBudget sync: ${desired.length} repositories from ${plan.projectCount} projects (${plan.infoCount} infos, ${plan.linkCount} links, ${plan.resourceRepoCount} repositories from client resources)${changes.length ? ` (${changes.join(", ")})` : ", no changes"}${plan.warnings.length ? `, ${plan.warnings.length} warnings` : ""}`,
 			);
 			for (const error of result.errors) {
 				this.logger.warn(
@@ -157,6 +256,64 @@ export class InbudgetSync {
 		}
 		return this.status;
 	}
+}
+
+function githubRequestedPath(cyrusHome: string): string {
+	return join(cyrusHome, "inbudget-github.json");
+}
+
+/** Repositories set up for GitHub issues on demand (`owner/name`, lowercase). */
+function readGitHubRequested(cyrusHome: string): string[] {
+	try {
+		const list = JSON.parse(
+			readFileSync(githubRequestedPath(cyrusHome), "utf8"),
+		);
+		return Array.isArray(list)
+			? list.filter((r): r is string => typeof r === "string")
+			: [];
+	} catch {
+		return [];
+	}
+}
+
+function writeGitHubRequested(cyrusHome: string, repos: string[]): void {
+	writeFileSync(
+		githubRequestedPath(cyrusHome),
+		`${JSON.stringify(repos, null, 2)}\n`,
+	);
+}
+
+/** The managed config entry of each repository and tracker, for the dashboard. */
+function withEntryIds(
+	repos: RepoOverview[],
+	cyrusHome: string,
+	context: InbudgetSyncOptions["context"],
+): RepoOverview[] {
+	const entries = readRepositories(cyrusHome).filter(
+		(e) => e.id.startsWith("inbudget-") && e.isActive !== false,
+	);
+	const entryId = (repo: string, workspaceKey: string | undefined) =>
+		workspaceKey
+			? entries.find(
+					(e) =>
+						e.linearWorkspaceId === workspaceKey &&
+						sameGitHubRepo(e.githubUrl, `https://github.com/${repo}`),
+				)?.id
+			: undefined;
+	return repos.map((r) => {
+		const platforms = { ...r.platforms };
+		for (const platform of ["jira", "clickup"] as const) {
+			const current = platforms[platform];
+			if (!current) continue;
+			const id = entryId(r.repo, context[platform]?.workspaceKey);
+			platforms[platform] = { ...current, ...(id && { entryId: id }) };
+		}
+		if (platforms.github) {
+			const id = entryId(r.repo, context.github?.workspaceKey);
+			platforms.github = id ? { entryId: id } : {};
+		}
+		return { ...r, platforms };
+	});
 }
 
 /**

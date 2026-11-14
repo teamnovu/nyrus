@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Exceptions\NyrusException;
 use App\Models\AuditLog;
 use App\Services\NyrusClient;
+use App\Services\ProjectOverview;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -23,24 +24,12 @@ class RepositoryController extends Controller
 
     private const PER_PAGE = [25, 50, 100, 200];
 
-    private const SORTS = ['name', '-name', 'status', 'source'];
+    private const SORTS = ['name', '-name', 'status', 'source', 'missing'];
 
     public function index(Request $request, NyrusClient $nyrus): View
     {
-        $repositories = [];
-        $error = null;
-
-        try {
-            $repositories = $nyrus->config()['repositories'] ?? [];
-        } catch (NyrusException $e) {
-            $error = $e->getMessage();
-        }
-        $inbudget = $error ? null : $nyrus->inbudget();
-        $inbudgetProjects = $this->inbudgetProjects($repositories, $inbudget);
-
-        $rows = array_map(fn (array $repo) => $this->row($repo, $inbudgetProjects), array_values($repositories));
+        [$rows, $inbudget, $error, $repositories] = $this->load($nyrus);
         $filters = $this->filters($request);
-        $facets = $this->facets($rows);
         $matches = $this->sort($this->filter($rows, $filters), $filters['sort']);
 
         $page = LengthAwarePaginator::resolveCurrentPage();
@@ -53,17 +42,77 @@ class RepositoryController extends Controller
         ))->withQueryString();
 
         return view('repositories', [
-            'repositories' => $paginator,
+            'rows' => $paginator,
             'total' => count($rows),
             'filters' => $filters,
             'filtered' => $filters['q'] !== '' || $filters['source'] !== '' || $filters['tracker'] !== '' || $filters['status'] !== '',
-            'facets' => $facets,
+            'facets' => $this->facets($rows),
             'perPageOptions' => self::PER_PAGE,
-            'listQuery' => $request->only(self::LIST_PARAMS),
+            'listQuery' => $this->listQuery($request),
             'error' => $error,
             'inbudget' => $inbudget,
             'workspaces' => $this->workspaces($repositories, $inbudget),
         ]);
+    }
+
+    /** One repository: its trackers (inBudget value, manual supplement) and its entries in nyrus. */
+    public function show(Request $request, NyrusClient $nyrus, string $owner, string $repo): View
+    {
+        [$rows, $inbudget, $error] = $this->load($nyrus);
+        if ($error) {
+            return view('repository', ['row' => null, 'error' => $error, 'listQuery' => $this->listQuery($request), 'inbudget' => null]);
+        }
+
+        $key = $owner === '-' ? "-/{$repo}" : strtolower("{$owner}/{$repo}");
+        $row = collect($rows)->first(fn (array $row) => $row['key'] === $key);
+        abort_if($row === null, 404);
+
+        return view('repository', [
+            'row' => $row,
+            'error' => null,
+            'listQuery' => $this->listQuery($request),
+            'inbudget' => $inbudget,
+        ]);
+    }
+
+    /** Everything the last inBudget sync reported: clone errors, unusable links, projects without tracker. */
+    public function inbudget(Request $request, NyrusClient $nyrus): View
+    {
+        return view('inbudget', [
+            'inbudget' => $nyrus->inbudget(),
+            'listQuery' => $this->listQuery($request),
+        ]);
+    }
+
+    /**
+     * Rows for the list (one per GitHub repository), the inBudget status, a
+     * load error and the raw config entries.
+     *
+     * @return array{0: list<array<string, mixed>>, 1: ?array<string, mixed>, 2: ?string, 3: list<array<string, mixed>>}
+     */
+    private function load(NyrusClient $nyrus): array
+    {
+        try {
+            $repositories = array_values($nyrus->config()['repositories'] ?? []);
+        } catch (NyrusException $e) {
+            return [[], null, $e->getMessage(), []];
+        }
+        $inbudget = $nyrus->inbudget();
+
+        return [ProjectOverview::rows($repositories, $inbudget), $inbudget, null, $repositories];
+    }
+
+    /**
+     * The list's query parameters of this request (so links and forms keep them).
+     *
+     * @return array<string, string>
+     */
+    private function listQuery(Request $request): array
+    {
+        return array_filter(
+            array_map(fn ($v) => is_scalar($v) ? (string) $v : '', $request->only(self::LIST_PARAMS)),
+            fn (string $value) => $value !== '',
+        );
     }
 
     /**
@@ -98,56 +147,17 @@ class RepositoryController extends Controller
         return [
             'q' => trim(mb_substr((string) $request->query('q', ''), 0, 200)),
             'source' => $pick('source', ['inbudget', 'manual']),
-            'tracker' => $pick('tracker', ['jira', 'clickup', 'github', 'other']),
+            'tracker' => $pick('tracker', ['jira', 'clickup', 'github', 'none']),
             'status' => $pick('status', ['active', 'inactive']),
             'sort' => $pick('sort', self::SORTS, 'name'),
             'per_page' => in_array($perPage, self::PER_PAGE, true) ? $perPage : 50,
         ];
     }
 
-    /**
-     * A repository from config.json plus what the list needs to filter, sort and show it.
-     *
-     * @param  array<string, mixed>  $repo
-     * @param  array<string, list<string>>  $inbudgetProjects
-     * @return array<string, mixed>
-     */
-    private function row(array $repo, array $inbudgetProjects): array
+    /** Whether a row has a working tracker of this kind ('none': neither Jira nor ClickUp). */
+    private function hasTracker(array $row, string $tracker): bool
     {
-        $id = (string) ($repo['id'] ?? '');
-        $name = (string) ($repo['name'] ?? $id);
-        $managed = str_starts_with($id, 'inbudget-');
-        $projects = $inbudgetProjects[$id] ?? [];
-
-        return $repo + [
-            '_name' => $name,
-            '_managed' => $managed,
-            '_tracker' => $this->tracker($id, (string) ($repo['linearWorkspaceId'] ?? '')),
-            '_active' => ($repo['isActive'] ?? true) !== false,
-            '_projects' => $projects,
-            '_search' => mb_strtolower(implode(' ', [
-                $name,
-                $id,
-                (string) ($repo['githubUrl'] ?? ''),
-                implode(' ', (array) ($repo['teamKeys'] ?? [])),
-                implode(' ', (array) ($repo['projectKeys'] ?? [])),
-                implode(' ', (array) ($repo['routingLabels'] ?? [])),
-                implode(' ', $projects),
-            ])),
-        ];
-    }
-
-    /** Jira, ClickUp, GitHub issues or something else (Linear, ...), from the managed id or the workspace key. */
-    private function tracker(string $id, string $workspace): string
-    {
-        foreach (['jira', 'clickup', 'github'] as $tracker) {
-            if (($id !== '' && str_starts_with($id, 'inbudget-') && str_ends_with($id, "-{$tracker}"))
-                || $workspace === $tracker || str_starts_with($workspace, "{$tracker}-")) {
-                return $tracker;
-            }
-        }
-
-        return 'other';
+        return $tracker === 'none' ? ! $row['hasTicketTracker'] : (bool) ($row['trackers'][$tracker]['covered'] ?? false);
     }
 
     /**
@@ -160,17 +170,17 @@ class RepositoryController extends Controller
         $terms = array_filter(preg_split('/\s+/', mb_strtolower($filters['q'])) ?: []);
 
         return array_values(array_filter($rows, function (array $row) use ($filters, $terms) {
-            if ($filters['source'] !== '' && $row['_managed'] !== ($filters['source'] === 'inbudget')) {
+            if ($filters['source'] !== '' && ! $row[$filters['source']]) {
                 return false;
             }
-            if ($filters['tracker'] !== '' && $row['_tracker'] !== $filters['tracker']) {
+            if ($filters['tracker'] !== '' && ! $this->hasTracker($row, $filters['tracker'])) {
                 return false;
             }
-            if ($filters['status'] !== '' && $row['_active'] !== ($filters['status'] === 'active')) {
+            if ($filters['status'] !== '' && $row['active'] !== ($filters['status'] === 'active')) {
                 return false;
             }
             foreach ($terms as $term) {
-                if (! str_contains($row['_search'], $term)) {
+                if (! str_contains($row['search'], $term)) {
                     return false;
                 }
             }
@@ -185,11 +195,12 @@ class RepositoryController extends Controller
      */
     private function sort(array $rows, string $sort): array
     {
-        $byName = fn (array $a, array $b) => strnatcasecmp($a['_name'], $b['_name']);
+        $byName = fn (array $a, array $b) => strnatcasecmp($a['name'], $b['name']) ?: strnatcasecmp((string) $a['owner'], (string) $b['owner']);
         usort($rows, match ($sort) {
             '-name' => fn ($a, $b) => $byName($b, $a),
-            'status' => fn ($a, $b) => $b['_active'] <=> $a['_active'] ?: $byName($a, $b),
-            'source' => fn ($a, $b) => $a['_managed'] <=> $b['_managed'] ?: $byName($a, $b),
+            'status' => fn ($a, $b) => $b['active'] <=> $a['active'] ?: $byName($a, $b),
+            'source' => fn ($a, $b) => $b['manual'] <=> $a['manual'] ?: $byName($a, $b),
+            'missing' => fn ($a, $b) => $a['hasTicketTracker'] <=> $b['hasTicketTracker'] ?: $byName($a, $b),
             default => $byName,
         });
 
@@ -206,45 +217,56 @@ class RepositoryController extends Controller
     {
         $facets = [
             'source' => ['inbudget' => 0, 'manual' => 0],
-            'tracker' => ['jira' => 0, 'clickup' => 0, 'github' => 0, 'other' => 0],
+            'tracker' => ['jira' => 0, 'clickup' => 0, 'github' => 0, 'none' => 0],
             'status' => ['active' => 0, 'inactive' => 0],
         ];
         foreach ($rows as $row) {
-            $facets['source'][$row['_managed'] ? 'inbudget' : 'manual']++;
-            $facets['tracker'][$row['_tracker']]++;
-            $facets['status'][$row['_active'] ? 'active' : 'inactive']++;
+            foreach (['inbudget', 'manual'] as $source) {
+                $facets['source'][$source] += $row[$source] ? 1 : 0;
+            }
+            foreach (array_keys($facets['tracker']) as $tracker) {
+                $facets['tracker'][$tracker] += $this->hasTracker($row, $tracker) ? 1 : 0;
+            }
+            $facets['status'][$row['active'] ? 'active' : 'inactive']++;
         }
 
         return $facets;
     }
 
     /**
-     * The inBudget projects behind each managed repository, by repository id.
-     *
-     * @param  list<array<string, mixed>>  $repositories
-     * @param  array<string, mixed>|null  $inbudget
-     * @return array<string, list<string>>
+     * Save the manual Jira project / ClickUp Space and List for a repository
+     * inBudget knows. inBudget's own value wins wherever it has one.
      */
-    private function inbudgetProjects(array $repositories, ?array $inbudget): array
+    public function saveManual(Request $request, NyrusClient $nyrus): RedirectResponse
     {
-        $wanted = [];
-        foreach ($inbudget['repositories'] ?? [] as $entry) {
-            $key = 'https://github.com/'.strtolower((string) ($entry['repo'] ?? '')).'|'.($entry['workspaceKey'] ?? '');
-            $wanted[$key] = $entry['projects'] ?? [];
+        $data = $request->validate([
+            'repo' => ['required', 'string', 'max:200', 'regex:/^[\w.-]+\/[\w.-]+$/'],
+            'platform' => ['required', 'in:jira,clickup'],
+            'teamKeys' => ['nullable', 'string', 'max:1000'],
+            'projectKeys' => ['nullable', 'string', 'max:1000'],
+        ]);
+        $payload = ['repo' => $data['repo'], 'platform' => $data['platform']]
+            + $this->lists(['teamKeys' => $data['teamKeys'] ?? '', 'projectKeys' => $data['projectKeys'] ?? '']);
+
+        try {
+            $status = $nyrus->setInbudgetManual($payload);
+        } catch (NyrusException $e) {
+            AuditLog::record('inbudget.manual', $data['repo'], $payload + ['error' => $e->getMessage()], success: false);
+
+            return back()->withInput()->with('error', $e->getMessage());
         }
 
-        $projects = [];
-        foreach ($repositories as $repo) {
-            if (! str_starts_with((string) ($repo['id'] ?? ''), 'inbudget-')) {
-                continue;
-            }
-            $key = strtolower(rtrim((string) ($repo['githubUrl'] ?? ''), '/')).'|'.($repo['linearWorkspaceId'] ?? '');
-            if (isset($wanted[$key])) {
-                $projects[$repo['id']] = $wanted[$key];
-            }
-        }
+        $failed = filled($status['error'] ?? null);
+        AuditLog::record('inbudget.manual', $data['repo'], $payload + array_filter(['error' => $status['error'] ?? null]), success: ! $failed);
 
-        return $projects;
+        return $this->toList($request)->with(
+            $failed ? 'error' : 'status',
+            match (true) {
+                $failed => 'Gespeichert, aber der inBudget-Abgleich ist fehlgeschlagen: '.$status['error'],
+                (bool) ($status['running'] ?? false) => 'Gespeichert. Der Abgleich läuft noch (Repository wird geklont). Lade die Seite gleich neu.',
+                default => 'Gespeichert und mit inBudget abgeglichen.',
+            },
+        );
     }
 
     /** Sync repositories from inBudget now. */
@@ -328,7 +350,7 @@ class RepositoryController extends Controller
             'repository.routing',
             $name,
             $payload,
-            'Routing gespeichert.',
+            'Einstellungen gespeichert.',
         );
     }
 
@@ -380,7 +402,10 @@ class RepositoryController extends Controller
         return $this->toList($request)->with('status', $success);
     }
 
-    /** Back to the list, on the page and with the filters the form was sent from. */
+    /**
+     * Back to the list (or to the repository page in `_detail`, "owner/name"),
+     * with the filters the form was sent from.
+     */
     private function toList(Request $request): RedirectResponse
     {
         $query = $request->input('_query');
@@ -388,6 +413,11 @@ class RepositoryController extends Controller
             array_intersect_key($query, array_flip(self::LIST_PARAMS)),
             fn ($value) => is_scalar($value) && (string) $value !== '',
         ) : [];
+
+        $detail = (string) $request->input('_detail', '');
+        if (preg_match('~^([\w.-]+)/([\w.-]+)$~', $detail, $m)) {
+            return redirect()->route('repositories.show', ['owner' => $m[1], 'repo' => $m[2]] + $query);
+        }
 
         return redirect()->route('repositories.index', $query);
     }

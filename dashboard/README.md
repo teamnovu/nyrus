@@ -8,7 +8,7 @@ It runs as a second Forge site on the nyrus server and talks to nyrus on `127.0.
 |---|---|
 | Übersicht (status, sessions) | `GET /status`, `GET /version`, `GET /api/dashboard/sessions` |
 | Session detail | `GET /api/dashboard/session?id=…` |
-| Repositories | `GET /api/dashboard/config`, `POST`/`DELETE /api/dashboard/repository`, `POST /api/dashboard/repository/routing` |
+| Projekte (one row per GitHub repository, detail page, inBudget report) | `GET /api/dashboard/config`, `GET`/`POST /api/dashboard/inbudget`, `POST /api/dashboard/inbudget/manual`, `POST`/`DELETE /api/dashboard/repository`, `POST /api/dashboard/repository/routing` |
 | Einstellungen | `GET /api/dashboard/env` (names only), `POST /api/update/cyrus-env`, `POST /api/check-gh` |
 | Logs | reads the nyrus daemon log file directly (`NYRUS_LOG_PATH`) |
 | Audit-Log | own table: who changed what (never secret values) |

@@ -2,6 +2,7 @@ import { createClickUpIntegration } from "cyrus-clickup-event-transport";
 import {
 	createGitHubIssuesIntegration,
 	createGitHubIssueThreadsFromEnv,
+	RepositoryProvisioning,
 	type TrackerIntegration,
 	type TrackerIntegrationFactory,
 } from "cyrus-comment-sessions";
@@ -47,9 +48,10 @@ export function createTrackerIntegrations(
 			);
 		}
 	}
+	const provisioning = context.provisioning ?? new RepositoryProvisioning();
 	for (const factory of factories) {
 		try {
-			const integration = factory({ ...context, githubIssues });
+			const integration = factory({ ...context, githubIssues, provisioning });
 			if (integration) integrations.push(integration);
 		} catch (error) {
 			logFactoryError(context.logger, factory, error);

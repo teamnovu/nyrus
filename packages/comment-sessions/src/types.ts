@@ -1,6 +1,7 @@
 import type { IIssueTrackerService, ILogger, Issue, User } from "cyrus-core";
 import type { FastifyInstance } from "fastify";
 import type { GitHubIssueThreads } from "./github/GitHubIssueThreads.js";
+import type { RepositoryProvisioning } from "./provisioning.js";
 
 /**
  * Agent sessions for trackers that have none built in (ClickUp, Jira).
@@ -232,6 +233,8 @@ export type TrackerIntegrationFactory = (context: {
 	 * (GITHUB_ISSUES_WEBHOOK_SECRET): the tracker attaches itself to it.
 	 */
 	githubIssues?: GitHubIssueThreads;
+	/** Repositories set up on demand (see RepositoryProvisioning). */
+	provisioning?: RepositoryProvisioning;
 }) => TrackerIntegration | null;
 
 export interface StdioMcpServerConfig {

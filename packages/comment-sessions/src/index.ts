@@ -58,6 +58,10 @@ export {
 	workflowInstructions,
 } from "./github/text.js";
 export {
+	type RepositoryProvisioner,
+	RepositoryProvisioning,
+} from "./provisioning.js";
+export {
 	issueIdFromSessionId,
 	type QuestionOption,
 	SessionStore,

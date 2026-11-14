@@ -31,6 +31,16 @@ export {
 } from "./integration.js";
 export { type ProjectLink, parseProjectLink } from "./links.js";
 export {
+	type ManualPlatform,
+	type ManualRouting,
+	mergeManual,
+	type PlatformOverview,
+	type RepoOverview,
+	type RoutingKeys,
+	readManual,
+	writeManual,
+} from "./manual.js";
+export {
 	type DesiredRepository,
 	type PlanContext,
 	planRepositories,

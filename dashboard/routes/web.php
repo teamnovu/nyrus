@@ -25,7 +25,11 @@ Route::middleware('auth')->group(function () {
     Route::get('/repositories', [RepositoryController::class, 'index'])->name('repositories.index');
     Route::get('/projects', [RepositoryController::class, 'index'])->name('projects.index');
     Route::post('/repositories', [RepositoryController::class, 'store'])->name('repositories.store');
+    Route::get('/projects/inbudget', [RepositoryController::class, 'inbudget'])->name('repositories.inbudget');
+    Route::get('/projects/{owner}/{repo}', [RepositoryController::class, 'show'])
+        ->where(['owner' => '[\w.-]+', 'repo' => '[\w.-]+'])->name('repositories.show');
     Route::post('/repositories/inbudget-sync', [RepositoryController::class, 'syncInbudget'])->name('repositories.inbudget-sync');
+    Route::post('/repositories/manual', [RepositoryController::class, 'saveManual'])->name('repositories.manual');
     Route::put('/repositories/{name}', [RepositoryController::class, 'update'])->name('repositories.update');
     Route::delete('/repositories/{name}', [RepositoryController::class, 'destroy'])->name('repositories.destroy');
 

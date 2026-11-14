@@ -28,7 +28,7 @@
                         'logs.index' => 'Logs',
                         'audit.index' => 'Audit-Log',
                     ] as $route => $label)
-                        @php($active = request()->routeIs($route) || ($route === 'dashboard' && request()->routeIs('sessions.*')) || ($route === 'repositories.index' && request()->routeIs('projects.index')))
+                        @php($active = request()->routeIs($route) || ($route === 'dashboard' && request()->routeIs('sessions.*')) || ($route === 'repositories.index' && request()->routeIs('projects.index', 'repositories.show', 'repositories.inbudget')))
                         <a href="{{ route($route) }}"
                            @if ($active) aria-current="page" @endif
                            @class([

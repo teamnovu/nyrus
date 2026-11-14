@@ -56,6 +56,11 @@ export interface SyncPlan {
 	 */
 	unrouted: string[];
 	projectCount: number;
+	/**
+	 * Every GitHub repository of an active project (routed or not), with its
+	 * projects and the base branch a link names.
+	 */
+	found: Array<{ repo: string; branch?: string; projects: string[] }>;
 	/** Project infos read from inBudget (of all projects, archived ones too). */
 	infoCount: number;
 	/** Infos that belong to an active project. */
@@ -98,6 +103,10 @@ export async function planRepositories(
 	const byClient = clientLinks(resources, desiredWarnings);
 
 	const desired = new Map<string, DesiredRepository>();
+	const found = new Map<
+		string,
+		{ repo: string; branch?: string; projects: string[] }
+	>();
 	const warnings: SyncPlan["warnings"] = desiredWarnings;
 	const unrouted: string[] = [];
 
@@ -168,6 +177,14 @@ export async function planRepositories(
 			}
 		}
 
+		for (const link of repos) {
+			const key = link.repo.toLowerCase();
+			const entry = found.get(key) ?? { repo: link.repo, projects: [] };
+			if (link.branch && !entry.branch) entry.branch = link.branch;
+			addUnique(entry.projects, label);
+			found.set(key, entry);
+		}
+
 		if (repos.length === 0) {
 			if (targets.length > 0) {
 				warnings.push({
@@ -232,6 +249,7 @@ export async function planRepositories(
 		warnings,
 		unrouted,
 		projectCount: projects.length,
+		found: [...found.values()].sort((a, b) => a.repo.localeCompare(b.repo)),
 		infoCount: infos.length,
 		matchedInfoCount,
 		linkCount,

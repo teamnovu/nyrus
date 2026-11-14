@@ -24,7 +24,12 @@ const POST_WAIT_MS = 25_000;
 export function createInbudgetIntegrationFactory(
 	options: { fetch?: typeof fetch } = {},
 ): TrackerIntegrationFactory {
-	return ({ env, cyrusHome, logger }): TrackerIntegration | null => {
+	return ({
+		env,
+		cyrusHome,
+		logger,
+		provisioning,
+	}): TrackerIntegration | null => {
 		const baseUrl = env.INBUDGET_URL?.trim();
 		if (!baseUrl) return null;
 		const client = new InbudgetClient({
@@ -40,6 +45,9 @@ export function createInbudgetIntegrationFactory(
 			instructions: (repo) => defaultInstructions(repo, githubIssues),
 			logger,
 		});
+		provisioning?.register((platform, repo) =>
+			platform === "github" ? sync.provideGitHub(repo) : Promise.resolve(false),
+		);
 		const minutes = Number(env.INBUDGET_SYNC_INTERVAL_MINUTES ?? 30);
 		const timers: NodeJS.Timeout[] = [];
 
@@ -164,6 +172,38 @@ function registerRoutes(
 	fastify.get(INBUDGET_STATUS_PATH, async (request, reply) => {
 		if (!authorized(request, reply)) return;
 		reply.send({ success: true, data: { status: sync.getStatus() } });
+	});
+	fastify.post(`${INBUDGET_STATUS_PATH}/manual`, async (request, reply) => {
+		if (!authorized(request, reply)) return;
+		const body = (request.body ?? {}) as Record<string, unknown>;
+		const repo = typeof body.repo === "string" ? body.repo.trim() : "";
+		const platform = body.platform;
+		if (
+			!/^[\w.-]+\/[\w.-]+$/.test(repo) ||
+			(platform !== "jira" && platform !== "clickup")
+		) {
+			reply.code(400).send({
+				success: false,
+				error: "repo (owner/name) and platform (jira or clickup) are required",
+			});
+			return;
+		}
+		const list = (value: unknown) =>
+			Array.isArray(value)
+				? value.filter((v): v is string => typeof v === "string")
+				: [];
+		const running = sync.setManual(repo, platform, {
+			teamKeys: list(body.teamKeys),
+			projectKeys: list(body.projectKeys),
+		});
+		const status = await Promise.race([
+			running,
+			new Promise<undefined>((resolve) => {
+				const timer = setTimeout(() => resolve(undefined), POST_WAIT_MS);
+				timer.unref?.();
+			}),
+		]);
+		reply.send({ success: true, data: { status: status ?? sync.getStatus() } });
 	});
 	fastify.post(INBUDGET_STATUS_PATH, async (request, reply) => {
 		if (!authorized(request, reply)) return;

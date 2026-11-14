@@ -18,6 +18,7 @@ import {
 	parseGitHubIssueId,
 } from "../src/github/GitHubIssueTrackerService.js";
 import { OWN_MARKER } from "../src/github/text.js";
+import { RepositoryProvisioning } from "../src/provisioning.js";
 import type {
 	LinearShapedWebhook,
 	SessionState,
@@ -62,7 +63,16 @@ function fakeGitHub() {
 	return { api, issue, comments };
 }
 
-function setup(options: { otherTracker?: boolean } = {}) {
+function setup(
+	options: {
+		otherTracker?: boolean;
+		provision?: (
+			platform: string,
+			repo: string,
+			repos: Array<Record<string, unknown>>,
+		) => Promise<boolean>;
+	} = {},
+) {
 	const github = fakeGitHub();
 	const threads = new GitHubIssueThreads({
 		webhookSecret: SECRET,
@@ -81,23 +91,24 @@ function setup(options: { otherTracker?: boolean } = {}) {
 		getSessionState: (id: string) => states[id] ?? "unknown",
 		logger: { info() {}, warn() {}, error() {}, debug() {} },
 		githubToken: vi.fn(async () => "token"),
-		repositories: () => [
-			{
-				id: "repo-web",
-				name: "web",
-				githubUrl: "https://github.com/acme/web",
-				workspaceKey: "github",
-				teamKeys: ["acme/web"],
-			},
-			{
-				id: "repo-jira",
-				name: "api",
-				githubUrl: "https://github.com/acme/api",
-				workspaceKey: "jira-acme",
-				teamKeys: ["API"],
-			},
-		],
+		repositories: () => repos,
 	} as unknown as TrackerIntegrationHost;
+	const repos: Array<Record<string, unknown>> = [
+		{
+			id: "repo-web",
+			name: "web",
+			githubUrl: "https://github.com/acme/web",
+			workspaceKey: "github",
+			teamKeys: ["acme/web"],
+		},
+		{
+			id: "repo-jira",
+			name: "api",
+			githubUrl: "https://github.com/acme/api",
+			workspaceKey: "jira-acme",
+			teamKeys: ["API"],
+		},
+	];
 
 	// A ticket tracker whose tickets are worked in GitHub issues (mirrors).
 	const source = Object.assign(fakeTracker(), {
@@ -117,6 +128,13 @@ function setup(options: { otherTracker?: boolean } = {}) {
 		cyrusHome: "/tmp/unused",
 		logger: host.logger,
 		githubIssues: threads,
+		...(options.provision && {
+			provisioning: Object.assign(new RepositoryProvisioning(), {
+				provide: vi.fn((platform: string, repo: string) =>
+					options.provision!(platform, repo, repos),
+				),
+			}),
+		}),
 	})!;
 	integration.register(host);
 	const tracker = integration.tracker as GitHubIssueTrackerService;
@@ -309,6 +327,65 @@ describe("GitHub issues worked directly", () => {
 			...commentEvent(github.issue, "@nyrus look"),
 			issue: { ...github.issue, pull_request: {} },
 		});
+		expect(dispatched).toHaveLength(0);
+	});
+
+	it("sets up a repository on demand when nyrus is assigned there, and only then", async () => {
+		const provision = vi.fn(
+			async (
+				_platform: string,
+				repo: string,
+				repos: Array<Record<string, unknown>>,
+			) => {
+				repos.push({
+					id: "inbudget-shop-github",
+					name: "shop",
+					githubUrl: `https://github.com/${repo}`,
+					workspaceKey: "github",
+					teamKeys: [repo],
+				});
+				return true;
+			},
+		);
+		const { threads, github, dispatched } = setup({ provision });
+		const shop = { full_name: "acme/shop" };
+		// Not for nyrus: no clone.
+		await threads.handleWebhook("issues", {
+			...issuesEvent("opened", github.issue),
+			repository: shop,
+		});
+		expect(provision).not.toHaveBeenCalled();
+		github.issue.assignees = [{ login: "nyrus" }];
+		await threads.handleWebhook(
+			"issues",
+			{
+				...issuesEvent("assigned", github.issue, {
+					assignee: { login: "nyrus" },
+				}),
+				repository: shop,
+			},
+			"d-9",
+		);
+		expect(provision).toHaveBeenCalledWith(
+			"github",
+			"acme/shop",
+			expect.anything(),
+		);
+		expect(dispatched).toHaveLength(1);
+		expect(session(dispatched[0]!).issue.team.key).toBe("acme/shop");
+	});
+
+	it("gives up when no integration can set the repository up", async () => {
+		const provision = vi.fn(async () => false);
+		const { threads, github, dispatched } = setup({ provision });
+		github.issue.assignees = [{ login: "nyrus" }];
+		await threads.handleWebhook("issues", {
+			...issuesEvent("assigned", github.issue, {
+				assignee: { login: "nyrus" },
+			}),
+			repository: { full_name: "acme/unknown" },
+		});
+		expect(provision).toHaveBeenCalledOnce();
 		expect(dispatched).toHaveLength(0);
 	});
 

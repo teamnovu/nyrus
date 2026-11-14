@@ -5,8 +5,10 @@ import Fastify from "fastify";
 import { describe, expect, it, vi } from "vitest";
 import { applyPlan, type RepoEntry } from "../src/ConfigSync.js";
 import { InbudgetClient } from "../src/InbudgetClient.js";
+import { InbudgetSync } from "../src/InbudgetSync.js";
 import { createInbudgetIntegrationFactory } from "../src/integration.js";
 import { parseProjectLink } from "../src/links.js";
+import { mergeManual, readManual, writeManual } from "../src/manual.js";
 import { type DesiredRepository, planRepositories } from "../src/plan.js";
 
 describe("parseProjectLink", () => {
@@ -378,6 +380,140 @@ describe("planRepositories with GitHub issues", () => {
 	});
 });
 
+describe("manual routing from the dashboard", () => {
+	const projects = [
+		{ id: 1, nr: "2041", name: "Webshop" },
+		{ id: 2, nr: "3001", name: "Website" },
+	];
+
+	it("supplements inBudget where it has nothing and is overwritten where it has something", async () => {
+		const plan = await planRepositories(
+			projects,
+			[
+				info(1, 1, "https://github.com/teamnovu/sayflowers"),
+				info(2, 2, "https://github.com/teamnovu/zoo"),
+				info(3, 2, "https://novu.atlassian.net/browse/ZOO", "jira"),
+			],
+			context,
+		);
+		const { desired, repos } = mergeManual(
+			plan,
+			{
+				"teamnovu/sayflowers": { jira: { teamKeys: ["SAY"], projectKeys: [] } },
+				"teamnovu/zoo": { jira: { teamKeys: ["OLD"], projectKeys: [] } },
+			},
+			context,
+		);
+		expect(desired.map((d) => [d.repo, d.platform, d.teamKeys])).toEqual([
+			["teamnovu/sayflowers", "jira", ["SAY"]],
+			["teamnovu/zoo", "jira", ["ZOO"]],
+		]);
+		expect(repos.map((r) => [r.repo, r.platforms.jira])).toEqual([
+			[
+				"teamnovu/sayflowers",
+				{
+					inbudget: { teamKeys: [], projectKeys: [] },
+					manual: { teamKeys: ["SAY"], projectKeys: [] },
+					effective: { teamKeys: ["SAY"], projectKeys: [] },
+				},
+			],
+			[
+				"teamnovu/zoo",
+				{
+					inbudget: { teamKeys: ["ZOO"], projectKeys: [] },
+					manual: { teamKeys: ["OLD"], projectKeys: [] },
+					effective: { teamKeys: ["ZOO"], projectKeys: [] },
+				},
+			],
+		]);
+		expect(repos[0]!.platforms.clickup).toMatchObject({
+			effective: { teamKeys: [], projectKeys: [] },
+		});
+	});
+
+	it("keeps manual routing per repository and tracker, empty keys clear it", () => {
+		const { dir } = home();
+		writeManual(dir, "TeamNovu/Sayflowers", "jira", {
+			teamKeys: [" SAY ", "SAY"],
+			projectKeys: [],
+		});
+		writeManual(dir, "teamnovu/sayflowers", "clickup", {
+			teamKeys: [],
+			projectKeys: ["Website"],
+		});
+		expect(readManual(dir)).toEqual({
+			"teamnovu/sayflowers": {
+				jira: { teamKeys: ["SAY"], projectKeys: [] },
+				clickup: { teamKeys: [], projectKeys: ["Website"] },
+			},
+		});
+		writeManual(dir, "teamnovu/sayflowers", "jira", {
+			teamKeys: [],
+			projectKeys: [],
+		});
+		writeManual(dir, "teamnovu/sayflowers", "clickup", {
+			teamKeys: [],
+			projectKeys: [],
+		});
+		expect(readManual(dir)).toEqual({});
+	});
+});
+
+describe("GitHub issues entries on demand", () => {
+	it("clones a repository for GitHub issues only when its first issue asks for it", async () => {
+		const { dir, read } = home();
+		const clone = vi.fn(async (_repo: DesiredRepository, name: string) => ({
+			path: `/repos/${name}`,
+			defaultBranch: "main",
+		}));
+		const sync = new InbudgetSync({
+			client: {
+				listProjects: async () => [
+					{ id: 1, nr: "2041", name: "Webshop", client: "/api/clients/7" },
+				],
+				listProjectInfos: async () => [],
+				listClientResources: async () => [
+					{
+						id: 1,
+						environment: "production",
+						client: "/api/clients/7",
+						repositoryUrl: "git@github.com:teamnovu/sayflowers.git",
+					},
+				],
+			},
+			cyrusHome: dir,
+			context: { ...context, github: { workspaceKey: "github" } },
+			clone,
+			logger: { info() {}, warn() {}, error() {}, debug() {} } as never,
+		});
+
+		const first = await sync.sync();
+		expect(first.error).toBeUndefined();
+		expect(clone).not.toHaveBeenCalled();
+		expect(read().repositories).toEqual([]);
+		expect(first.repos?.[0]).toMatchObject({
+			repo: "teamnovu/sayflowers",
+			platforms: { github: {} },
+		});
+
+		expect(await sync.provideGitHub("TeamNovu/Sayflowers")).toBe(true);
+		expect(clone).toHaveBeenCalledOnce();
+		expect(read().repositories).toMatchObject([
+			{
+				id: "inbudget-sayflowers-github",
+				linearWorkspaceId: "github",
+				teamKeys: ["teamnovu/sayflowers"],
+			},
+		]);
+
+		// Later syncs keep it; unknown repositories are refused.
+		await sync.sync();
+		expect(read().repositories).toHaveLength(1);
+		expect(read().repositories[0]!.isActive).toBe(true);
+		expect(await sync.provideGitHub("teamnovu/unknown")).toBe(false);
+	});
+});
+
 function home(repositories: RepoEntry[] = []) {
 	const dir = mkdtempSync(join(tmpdir(), "inbudget-sync-"));
 	writeFileSync(
@@ -663,6 +799,7 @@ describe("InbudgetClient", () => {
 describe("inBudget dashboard endpoint", () => {
 	it("needs nyrus's API key", async () => {
 		const fastify = Fastify();
+		const { dir } = home();
 		const integration = createInbudgetIntegrationFactory({
 			fetch: (async () => Response.json([])) as unknown as typeof fetch,
 		})({
@@ -672,7 +809,7 @@ describe("inBudget dashboard endpoint", () => {
 				CYRUS_API_KEY: "key",
 				INBUDGET_SYNC_INTERVAL_MINUTES: "0",
 			},
-			cyrusHome: home().dir,
+			cyrusHome: dir,
 			logger: { info() {}, warn() {}, error() {}, debug() {} } as never,
 		})!;
 		integration.register({ fastify } as never);
@@ -697,6 +834,32 @@ describe("inBudget dashboard endpoint", () => {
 				running: false,
 				projectCount: 0,
 				repositories: [],
+				repos: [],
+				trackers: { jira: false, clickup: false, github: false },
+			});
+			expect(
+				(
+					await fastify.inject({
+						method: "POST",
+						url: "/api/dashboard/inbudget/manual",
+						headers: { authorization: "Bearer key" },
+						payload: { repo: "nope", platform: "jira" },
+					})
+				).statusCode,
+			).toBe(400);
+			const manual = await fastify.inject({
+				method: "POST",
+				url: "/api/dashboard/inbudget/manual",
+				headers: { authorization: "Bearer key" },
+				payload: {
+					repo: "teamnovu/sayflowers",
+					platform: "jira",
+					teamKeys: ["SAY"],
+				},
+			});
+			expect(manual.statusCode).toBe(200);
+			expect(readManual(dir)).toEqual({
+				"teamnovu/sayflowers": { jira: { teamKeys: ["SAY"], projectKeys: [] } },
 			});
 		} finally {
 			integration.dispose?.();

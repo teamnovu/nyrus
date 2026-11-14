@@ -1,5 +1,6 @@
 import type { ILogger } from "cyrus-core";
 import type { CommentSessionCoordinator } from "../CommentSessionCoordinator.js";
+import type { RepositoryProvisioning } from "../provisioning.js";
 import { sessionIdFor } from "../SessionStore.js";
 import type {
 	CommentTrackerEvent,
@@ -43,13 +44,36 @@ export function githubIssueEventHandler(
 	coordinator: Pick<CommentSessionCoordinator, "handle">,
 	host: Pick<TrackerIntegrationHost, "getSessionState">,
 	logger: ILogger,
+	provisioning?: Pick<RepositoryProvisioning, "provide">,
+	waitForRepository: (repo: string) => Promise<boolean> = (repo) =>
+		waitFor(() => tracker.takesIssuesOf(repo)),
 ): UnthreadedIssueListener {
 	const mention = mentionPattern(tracker.agentLogins);
 	return async (name, payload, deliveryId) => {
 		const repo = payload.repository?.full_name?.toLowerCase();
 		const issue = payload.issue as GitHubIssueData | undefined;
 		if (!repo || !issue || issue.pull_request) return;
-		if (!tracker.takesIssuesOf(repo)) return;
+		if (!tracker.takesIssuesOf(repo)) {
+			// Set the repository up on demand, but only for work for nyrus.
+			if (
+				!provisioning ||
+				!engagesAgent(tracker, threads, mention, name, payload, issue)
+			) {
+				return;
+			}
+			logger.info(
+				`${repo}: no repository for its GitHub issues yet, setting it up`,
+			);
+			if (
+				!(await provisioning.provide("github", repo)) ||
+				!(await waitForRepository(repo))
+			) {
+				logger.warn(
+					`${repo}#${issue.number}: no repository takes its GitHub issues (not known to inBudget, or cloning failed)`,
+				);
+				return;
+			}
+		}
 		if (isMarked(issue.body)) return; // opened by nyrus
 		const issueId = githubIssueId(repo, issue.number);
 		const sender = payload.sender?.login;
@@ -106,6 +130,47 @@ export function githubIssueEventHandler(
 	};
 }
 
+/** Whether an event hands an issue to nyrus or asks it something. */
+function engagesAgent(
+	tracker: GitHubIssueTrackerService,
+	threads: Pick<GitHubIssueThreads, "commentVerdict">,
+	mention: RegExp,
+	name: string,
+	payload: GitHubPayload,
+	issue: GitHubIssueData,
+): boolean {
+	if (isMarked(issue.body)) return false;
+	if (name === "issue_comment") {
+		const { comment } = payload;
+		if (payload.action !== "created" || !comment) return false;
+		if (tracker.isAgentLogin(comment.user?.login)) return false;
+		if (threads.commentVerdict(comment) !== "allowed") return false;
+		mention.lastIndex = 0;
+		return mention.test(comment.body ?? "");
+	}
+	if (payload.action === "assigned") {
+		return tracker.isAgentLogin(payload.assignee?.login);
+	}
+	if (payload.action === "opened" || payload.action === "reopened") {
+		return tracker.isHandedOver(issue);
+	}
+	return false;
+}
+
+/** Poll until the check passes (a new entry is loaded on config reload). */
+async function waitFor(
+	check: () => boolean,
+	timeoutMs = 30_000,
+	intervalMs = 500,
+): Promise<boolean> {
+	const end = Date.now() + timeoutMs;
+	while (!check()) {
+		if (Date.now() > end) return false;
+		await new Promise((resolve) => setTimeout(resolve, intervalMs));
+	}
+	return true;
+}
+
 /**
  * What an `issues` event did to the hand-over: `added`, `removed`,
  * undefined (report it, nothing changed for sure), or null (ignore it).
@@ -159,7 +224,12 @@ function mentionPattern(logins: string[]): RegExp {
 export function createGitHubIssuesIntegrationFactory(
 	options: Omit<GitHubIssueTrackerOptions, "agentLogins" | "logger"> = {},
 ): TrackerIntegrationFactory {
-	return ({ env, logger, githubIssues }): TrackerIntegration | null => {
+	return ({
+		env,
+		logger,
+		githubIssues,
+		provisioning,
+	}): TrackerIntegration | null => {
 		if (!githubIssues) return null;
 		const tracker = new GitHubIssueTrackerService({
 			...options,
@@ -182,6 +252,7 @@ export function createGitHubIssuesIntegrationFactory(
 						coordinator,
 						host,
 						logger,
+						provisioning,
 					),
 				);
 				githubIssues.connect(host);

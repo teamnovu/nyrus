@@ -15,14 +15,15 @@ nyrus reads every active (not archived) project and its project infos. It looks 
 | `https://app.clickup.com/<workspace>/v/li/<list>` | ClickUp tasks of that List go to the repository |
 
 - **Repositories of client resources:** a project without a git link takes the repository of its client's resources in inBudget (`repositoryUrl`, base branch from the production resource). Jira and ClickUp links among a resource's other URLs route all of the client's projects. Other GitHub URLs of a resource (e.g. a deploy repository) are ignored. A project's own git link wins over its client's resources.
-- **GitHub issues:** with [GitHub issues](GITHUB-ISSUES.md) on (`GITHUB_ISSUES_WEBHOOK_SECRET`), every repository also gets an entry `inbudget-<repository>-github` (workspace `github`, team key `owner/name`), so issues in it that are assigned to the nyrus GitHub account are worked too. A project then needs no Jira or ClickUp link: its repository alone is enough. The entries of one repository share its clone.
+- **GitHub issues:** with [GitHub issues](GITHUB-ISSUES.md) on (`GITHUB_ISSUES_WEBHOOK_SECRET`), every repository inBudget knows also takes the issues in it that are assigned to the nyrus GitHub account. A project then needs no Jira or ClickUp link: its repository alone is enough. Repositories are cloned on demand: the first issue assigned to nyrus in a repository clones it and adds its entry `inbudget-<repository>-github` (workspace `github`, team key `owner/name`), which stays from then on (kept in `<cyrus-home>/inbudget-github.json`). A repository that is cloned anyway (e.g. for Jira) gets it right away. The entries of one repository share its clone.
 - A repository linked from several projects gets all their Jira projects, Spaces and Lists.
 - A project with several repositories (e.g. frontend and backend) routes its tickets to all of them; nyrus then asks on the ticket which one, unless the ticket says `[repo=…]`.
 - Links to another Jira site or ClickUp workspace than nyrus works on, ClickUp folders, and projects with a tracker link but no GitHub link are listed as warnings in the dashboard.
 
 In nyrus, each such repository is an entry `inbudget-<repository>-jira` (or `-clickup`) in `config.json`, shown with an "inBudget" chip in the dashboard:
 
-- **inBudget owns the routing:** GitHub URL, Jira project keys, ClickUp Spaces and Lists. Change them in inBudget.
+- **inBudget is the source of the routing:** GitHub URL, Jira project keys, ClickUp Spaces and Lists.
+- **The dashboard can supplement it:** on a repository's page, add the Jira project or ClickUp Space/List inBudget doesn't have (yet). A repository inBudget knows but routes nowhere becomes a Jira/ClickUp repository that way. As soon as inBudget has a value for that field, inBudget's value wins; the manual one only applies while inBudget's is empty. Manual values are kept in `<cyrus-home>/inbudget-manual.json`.
 - **The dashboard owns the rest:** base branch, active or not, instructions, tools. They are set once when the repository is added and then left alone.
 - **A repository you configure by hand** in the dashboard for the same tracker wins: nyrus doesn't add its own entry for it.
 - **When a project is archived or its link removed**, the entry is turned off, not deleted, and turned on again if the link comes back. An entry you turn off yourself stays off.

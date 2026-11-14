@@ -224,6 +224,11 @@ function configPath(cyrusHome: string): string {
 	return join(cyrusHome, "config.json");
 }
 
+/** config.json's repository entries. */
+export function readRepositories(cyrusHome: string): RepoEntry[] {
+	return readConfig(cyrusHome).repositories;
+}
+
 function readConfig(cyrusHome: string): Record<string, unknown> & {
 	repositories: RepoEntry[];
 } {

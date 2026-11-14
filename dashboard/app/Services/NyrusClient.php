@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Http;
  * HTTP client for the nyrus process on the same server.
  *
  * Reads go to /status, /version and /api/dashboard/*; writes to
- * /api/dashboard/repository* and /api/update/cyrus-env. Every /api call
+ * /api/dashboard/repository*, /api/dashboard/inbudget* and /api/update/cyrus-env. Every /api call
  * carries the shared CYRUS_API_KEY as Bearer token.
  */
 class NyrusClient
@@ -108,6 +108,19 @@ class NyrusClient
     public function syncInbudget(): array
     {
         return $this->api('post', '/api/dashboard/inbudget', [], timeout: 60)['status'] ?? [];
+    }
+
+    /**
+     * Save the manual supplement for a repository inBudget knows
+     * (`{repo, platform, teamKeys, projectKeys}`; empty lists clear it). nyrus
+     * syncs right after (which may clone), then returns the inBudget status.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function setInbudgetManual(array $payload): array
+    {
+        return $this->api('post', '/api/dashboard/inbudget/manual', $payload, timeout: 120)['status'] ?? [];
     }
 
     /** @param  array<string, mixed>  $repository */
