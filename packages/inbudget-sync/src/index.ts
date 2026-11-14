@@ -6,8 +6,11 @@ export {
 	type RepoEntry,
 } from "./ConfigSync.js";
 export {
+	clientKeyOf,
 	InbudgetClient,
 	type InbudgetClientOptions,
+	type InbudgetClientRef,
+	type InbudgetClientResource,
 	type InbudgetProject,
 	type InbudgetProjectInfo,
 	projectKeysOf,

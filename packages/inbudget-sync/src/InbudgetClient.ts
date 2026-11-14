@@ -6,7 +6,32 @@ export interface InbudgetProject {
 	publicId?: string | null;
 	name: string;
 	nr?: string | number | null;
-	client?: { name?: string | null } | string | null;
+	/** The client, as an IRI or an object (`@id`, name). */
+	client?: InbudgetClientRef | string | null;
+}
+
+export interface InbudgetClientRef {
+	"@id"?: string;
+	id?: number;
+	name?: string | null;
+}
+
+/**
+ * A client's resource (`/api/client_resources`): a website or app of the
+ * client with its repository. Resources belong to the client, not to a
+ * project.
+ */
+export interface InbudgetClientResource {
+	id: number;
+	name?: string | null;
+	/** production, staging, development, preview */
+	environment?: string | null;
+	client?: InbudgetClientRef | string | null;
+	repositoryUrl?: string | null;
+	repositoryBranch?: string | null;
+	otherUrls?: Array<
+		{ url?: string | null; label?: string | null } | string
+	> | null;
 }
 
 /** A link or note on a project (`/api/project_infos`). */
@@ -55,6 +80,11 @@ export class InbudgetClient {
 	/** Active (not archived) projects. */
 	listProjects(): Promise<InbudgetProject[]> {
 		return this.allPages<InbudgetProject>("/api/projects");
+	}
+
+	/** All clients' resources (websites/apps with their repository). */
+	listClientResources(): Promise<InbudgetClientResource[]> {
+		return this.allPages<InbudgetClientResource>("/api/client_resources");
 	}
 
 	/**
@@ -172,6 +202,18 @@ export function projectKeysOf(project: InbudgetProject): string[] {
 		project.publicId ?? undefined,
 	].filter((key): key is string => Boolean(key));
 	return [...new Set(keys)];
+}
+
+/** The key of a client reference (last IRI segment, or its id). */
+export function clientKeyOf(
+	client: InbudgetClientRef | string | null | undefined,
+): string | undefined {
+	if (client === null || client === undefined) return undefined;
+	if (typeof client === "string") return lastSegment(client);
+	if (client["@id"]) return lastSegment(client["@id"]);
+	return client.id === undefined || client.id === null
+		? undefined
+		: String(client.id);
 }
 
 function lastSegment(iri: string): string | undefined {

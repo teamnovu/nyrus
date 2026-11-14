@@ -14,6 +14,7 @@ nyrus reads every active (not archived) project and its project infos. It looks 
 | `https://app.clickup.com/<workspace>/v/s/<space>` | ClickUp tasks of that Space go to the repository |
 | `https://app.clickup.com/<workspace>/v/li/<list>` | ClickUp tasks of that List go to the repository |
 
+- **Repositories of client resources:** a project without a git link takes the repository of its client's resources in inBudget (`repositoryUrl`, base branch from the production resource). Jira and ClickUp links among a resource's other URLs route all of the client's projects. Other GitHub URLs of a resource (e.g. a deploy repository) are ignored. A project's own git link wins over its client's resources.
 - A repository linked from several projects gets all their Jira projects, Spaces and Lists.
 - A project with several repositories (e.g. frontend and backend) routes its tickets to all of them; nyrus then asks on the ticket which one, unless the ticket says `[repo=…]`.
 - Links to another Jira site or ClickUp workspace than nyrus works on, ClickUp folders, and projects with a tracker link but no GitHub link are listed as warnings in the dashboard.

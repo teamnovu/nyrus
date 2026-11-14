@@ -27,6 +27,10 @@ export interface SyncStatus {
 	matchedInfoCount?: number;
 	/** Infos recognised as a GitHub, Jira or ClickUp link. */
 	linkCount?: number;
+	/** Client resources read from inBudget. */
+	resourceCount?: number;
+	/** Client resources with a GitHub repository. */
+	resourceRepoCount?: number;
 	/** Managed repositories wanted by inBudget, with the projects they come from. */
 	repositories?: Array<
 		Pick<
@@ -46,7 +50,10 @@ export interface SyncStatus {
 }
 
 export interface InbudgetSyncOptions {
-	client: Pick<InbudgetClient, "listProjects" | "listProjectInfos">;
+	client: Pick<
+		InbudgetClient,
+		"listProjects" | "listProjectInfos" | "listClientResources"
+	>;
 	cyrusHome: string;
 	context: PlanContext;
 	/** Clone a repository (default: like the dashboard, with `gh`/`git`). */
@@ -84,12 +91,21 @@ export class InbudgetSync {
 		const started = Date.now();
 		this.status = { ...this.status, running: true };
 		try {
-			const projects = await this.options.client.listProjects();
+			const [projects, resources] = await Promise.all([
+				this.options.client.listProjects(),
+				this.options.client.listClientResources().catch((error: unknown) => {
+					this.logger.warn(
+						`inBudget sync: could not read client resources: ${error instanceof Error ? error.message : String(error)}`,
+					);
+					return [];
+				}),
+			]);
 			const infos = await this.options.client.listProjectInfos(projects);
 			const plan = await planRepositories(
 				projects,
 				infos,
 				this.options.context,
+				resources,
 			);
 			const result = await applyPlan(plan.repositories, {
 				cyrusHome: this.options.cyrusHome,
@@ -107,6 +123,8 @@ export class InbudgetSync {
 				infoCount: plan.infoCount,
 				matchedInfoCount: plan.matchedInfoCount,
 				linkCount: plan.linkCount,
+				resourceCount: plan.resourceCount,
+				resourceRepoCount: plan.resourceRepoCount,
 				repositories: plan.repositories,
 				result,
 				warnings: plan.warnings,
@@ -119,7 +137,7 @@ export class InbudgetSync {
 				result.deactivated.length && `${result.deactivated.length} turned off`,
 			].filter(Boolean);
 			this.logger.info(
-				`inBudget sync: ${plan.repositories.length} repositories from ${plan.projectCount} projects (${plan.infoCount} infos, ${plan.linkCount} links)${changes.length ? ` (${changes.join(", ")})` : ", no changes"}${plan.warnings.length ? `, ${plan.warnings.length} warnings` : ""}`,
+				`inBudget sync: ${plan.repositories.length} repositories from ${plan.projectCount} projects (${plan.infoCount} infos, ${plan.linkCount} links, ${plan.resourceRepoCount} repositories from client resources)${changes.length ? ` (${changes.join(", ")})` : ", no changes"}${plan.warnings.length ? `, ${plan.warnings.length} warnings` : ""}`,
 			);
 			for (const error of result.errors) {
 				this.logger.warn(

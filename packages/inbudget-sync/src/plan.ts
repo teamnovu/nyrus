@@ -1,10 +1,16 @@
 import {
+	clientKeyOf,
+	type InbudgetClientResource,
 	type InbudgetProject,
 	type InbudgetProjectInfo,
 	projectKeysOf,
 	projectRefOf,
 } from "./InbudgetClient.js";
-import { type ProjectLink, parseProjectLink } from "./links.js";
+import {
+	type ProjectLink,
+	parseGitHubLink,
+	parseProjectLink,
+} from "./links.js";
 
 /** The trackers nyrus takes work from, as configured in its environment. */
 export interface PlanContext {
@@ -45,6 +51,10 @@ export interface SyncPlan {
 	matchedInfoCount: number;
 	/** Infos of active projects nyrus recognised as a GitHub, Jira or ClickUp link. */
 	linkCount: number;
+	/** Client resources read from inBudget. */
+	resourceCount: number;
+	/** Client resources with a GitHub repository. */
+	resourceRepoCount: number;
 }
 
 /**
@@ -52,11 +62,16 @@ export interface SyncPlan {
  * link and a Jira or ClickUp link, its repository routed from that Jira
  * project / ClickUp Space or List. A repository linked from several
  * projects gets all their keys; one per tracker workspace.
+ *
+ * A project's GitHub repository comes from its infos, or, if they have
+ * none, from its client's resources (`repositoryUrl`). Jira and ClickUp
+ * links come from its infos and its client's resources (`otherUrls`).
  */
 export async function planRepositories(
 	projects: InbudgetProject[],
 	infos: InbudgetProjectInfo[],
 	context: PlanContext,
+	resources: InbudgetClientResource[] = [],
 ): Promise<SyncPlan> {
 	const infosByProject = new Map<string, InbudgetProjectInfo[]>();
 	for (const info of infos) {
@@ -68,9 +83,11 @@ export async function planRepositories(
 	}
 	let matchedInfoCount = 0;
 	let linkCount = 0;
+	const desiredWarnings: SyncPlan["warnings"] = [];
+	const byClient = clientLinks(resources, desiredWarnings);
 
 	const desired = new Map<string, DesiredRepository>();
-	const warnings: SyncPlan["warnings"] = [];
+	const warnings: SyncPlan["warnings"] = desiredWarnings;
 	const unrouted: string[] = [];
 
 	for (const project of projects) {
@@ -92,6 +109,13 @@ export async function planRepositories(
 					message: `git link ${(info.url ?? info.value ?? "").trim()} is not a GitHub repository (nyrus clones from GitHub only)`,
 				});
 			}
+		}
+		const fromClient = byClient.links.get(clientKeyOf(project.client) ?? "");
+		if (fromClient) {
+			if (!links.some((l) => l.type === "github")) {
+				links.push(...fromClient.repos);
+			}
+			links.push(...fromClient.trackers);
 		}
 		const repos = uniqueBy(
 			links.filter((l) => l.type === "github"),
@@ -190,7 +214,74 @@ export async function planRepositories(
 		infoCount: infos.length,
 		matchedInfoCount,
 		linkCount,
+		resourceCount: resources.length,
+		resourceRepoCount: byClient.repoCount,
 	};
+}
+
+/**
+ * Per client: the GitHub repositories of its resources (the production
+ * resource's branch as base branch) and the Jira/ClickUp links among
+ * their other URLs. Other GitHub URLs (e.g. a deploy repository) are left
+ * out.
+ */
+function clientLinks(
+	resources: InbudgetClientResource[],
+	warnings: SyncPlan["warnings"],
+): {
+	links: Map<string, { repos: ProjectLink[]; trackers: ProjectLink[] }>;
+	repoCount: number;
+} {
+	const links = new Map<
+		string,
+		{ repos: ProjectLink[]; trackers: ProjectLink[] }
+	>();
+	let repoCount = 0;
+	const rank = (r: InbudgetClientResource) =>
+		r.environment === "production" ? 0 : 1;
+	for (const resource of [...resources].sort((a, b) => rank(a) - rank(b))) {
+		const key = clientKeyOf(resource.client);
+		if (!key) continue;
+		const entry = links.get(key) ?? { repos: [], trackers: [] };
+		const url = resource.repositoryUrl?.trim();
+		if (url) {
+			const repo = parseGitHubLink(url);
+			if (repo) {
+				repoCount++;
+				const branch =
+					resource.environment === "production"
+						? resource.repositoryBranch?.trim()
+						: undefined;
+				if (
+					!entry.repos.some(
+						(l) =>
+							l.type === "github" &&
+							l.repo.toLowerCase() === repo.repo.toLowerCase(),
+					)
+				) {
+					entry.repos.push({ ...repo, ...(branch && { branch }) });
+				}
+			} else {
+				warnings.push({
+					project: resourceLabel(resource),
+					message: `repository ${url} is not a GitHub repository (nyrus clones from GitHub only)`,
+				});
+			}
+		}
+		for (const other of resource.otherUrls ?? []) {
+			const text = typeof other === "string" ? other : other?.url;
+			const link = text ? parseProjectLink({ url: text }) : undefined;
+			if (link && link.type !== "github") entry.trackers.push(link);
+		}
+		links.set(key, entry);
+	}
+	return { links, repoCount };
+}
+
+function resourceLabel(resource: InbudgetClientResource): string {
+	const client =
+		typeof resource.client === "object" ? resource.client?.name : undefined;
+	return `Ressource ${resource.name ?? resource.id}${client ? ` (${client})` : ""}`;
 }
 
 /** A git info with a value nyrus can't read as a GitHub repository. */

@@ -471,7 +471,7 @@ class DashboardPagesTest extends TestCase
         $this->get('/repositories')->assertOk()
             ->assertSee('4200 Infos (900 bei aktiven Projekten)')
             ->assertSee('312 erkannte Links')
-            ->assertDontSee('keine Projekt-Infos geliefert');
+            ->assertDontSee('weder Projekt-Infos');
     }
 
     public function test_inbudget_panel_hints_when_no_infos_arrive(): void
@@ -479,7 +479,15 @@ class DashboardPagesTest extends TestCase
         $this->fakeRepositories([], self::SYNCED + ['infoCount' => 0, 'linkCount' => 0]);
         $this->get('/repositories')->assertOk()
             ->assertSee('0 Infos')
-            ->assertSee('inBudget hat keine Projekt-Infos geliefert – sieht der Token-User die Infos der Projekte?');
+            ->assertSee('inBudget hat weder Projekt-Infos noch Repositories von Kunden-Ressourcen geliefert – sieht der Token-User sie?');
+    }
+
+    public function test_inbudget_panel_counts_repositories_from_client_resources(): void
+    {
+        $this->fakeRepositories([], self::SYNCED + ['infoCount' => 0, 'linkCount' => 0, 'resourceCount' => 2067, 'resourceRepoCount' => 16]);
+        $this->get('/repositories')->assertOk()
+            ->assertSee('16 Repos aus Kunden-Ressourcen')
+            ->assertDontSee('weder Projekt-Infos');
     }
 
     public function test_inbudget_panel_without_counts_from_older_nyrus(): void

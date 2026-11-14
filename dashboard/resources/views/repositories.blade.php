@@ -29,11 +29,12 @@
         @php($infoCount = $inbudget['infoCount'] ?? null)
         @php($linkCount = $inbudget['linkCount'] ?? null)
         @php($matchedInfoCount = $inbudget['matchedInfoCount'] ?? null)
+        @php($resourceRepoCount = $inbudget['resourceRepoCount'] ?? null)
         <div class="card mt-8 p-5 sm:p-6">
             <div class="flex flex-wrap items-start gap-4">
                 <div class="min-w-0 flex-1 basis-72">
                     <h2 class="text-lg">inBudget</h2>
-                    <p class="muted mt-1 text-sm">Repositories und Routing kommen aus den Projekten in inBudget: Git-Link plus Jira- oder ClickUp-Link. Ein Repository, das du hier selbst für denselben Tracker einrichtest, hat Vorrang.</p>
+                    <p class="muted mt-1 text-sm">Repositories und Routing kommen aus inBudget: der Git-Link eines Projekts (oder das Repository einer Ressource seines Kunden) plus ein Jira- oder ClickUp-Link. Ein Repository, das du hier selbst für denselben Tracker einrichtest, hat Vorrang.</p>
                 </div>
                 <form method="POST" action="{{ route('repositories.inbudget-sync') }}" data-busy-form>
                     @csrf
@@ -57,6 +58,9 @@
                 @if ($infoCount !== null)
                     <span class="muted">{{ $infoCount }} Infos{{ $matchedInfoCount !== null ? ' ('.$matchedInfoCount.' bei aktiven Projekten)' : '' }}</span>
                 @endif
+                @if ($resourceRepoCount !== null)
+                    <span class="muted">{{ $resourceRepoCount }} Repos aus Kunden-Ressourcen</span>
+                @endif
                 @if ($linkCount !== null)
                     <span @class(['muted' => ! ($infoCount && $linkCount === 0), 'text-warning' => $infoCount && $linkCount === 0])
                           @if ($infoCount && $linkCount === 0) title="Keine der Infos wurde als GitHub-, Jira- oder ClickUp-Link erkannt." @endif>{{ $linkCount }} erkannte Links</span>
@@ -72,10 +76,10 @@
                     <span class="notice-dot text-warning" aria-hidden="true"></span>
                     <span>Letzter Abgleich fehlgeschlagen: {{ $inbudget['error'] }}</span>
                 </div>
-            @elseif ($infoCount === 0 && ($inbudget['lastSuccessAt'] ?? null) && ! ($inbudget['running'] ?? false))
+            @elseif ($infoCount === 0 && ! $resourceRepoCount && ($inbudget['lastSuccessAt'] ?? null) && ! ($inbudget['running'] ?? false))
                 <div class="notice mt-4" data-inbudget-no-infos>
                     <span class="notice-dot text-warning" aria-hidden="true"></span>
-                    <span>inBudget hat keine Projekt-Infos geliefert – sieht der Token-User die Infos der Projekte?</span>
+                    <span>inBudget hat weder Projekt-Infos noch Repositories von Kunden-Ressourcen geliefert – sieht der Token-User sie?</span>
                 </div>
             @endif
 

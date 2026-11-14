@@ -245,6 +245,98 @@ describe("planRepositories with inBudget's IRIs", () => {
 	});
 });
 
+describe("planRepositories with client resources", () => {
+	const resource = (over: Record<string, unknown>) => ({
+		id: 1,
+		name: "Sayflowers Shopware",
+		environment: "production",
+		client: { "@id": "/api/clients/2203", name: "SayFlowers Concepts GmbH" },
+		repositoryUrl: null,
+		repositoryBranch: null,
+		otherUrls: [],
+		...over,
+	});
+	const sayflowers = {
+		id: 1780,
+		nr: "P-22093",
+		name: "sayflowers.ch",
+		client: { "@id": "/api/clients/2203", name: "SayFlowers Concepts GmbH" },
+	};
+
+	it("takes the repository from the client's resources when the project has no git link", async () => {
+		const plan = await planRepositories(
+			[sayflowers],
+			[{ id: 1, kind: "jira", value: "SAY", project: "/api/projects/1780" }],
+			context,
+			[
+				resource({
+					id: 2,
+					environment: "staging",
+					repositoryUrl: "git@github.com:teamnovu/sayflowers.git",
+					repositoryBranch: "develop",
+				}),
+				resource({
+					repositoryUrl: "https://github.com/teamnovu/sayflowers/",
+					repositoryBranch: "main",
+					otherUrls: [
+						{
+							url: "https://github.com/teamnovu/sayflowers-deploy",
+							label: "PROD",
+						},
+					],
+				}),
+			],
+		);
+		expect(plan.repositories).toEqual([
+			{
+				repo: "teamnovu/sayflowers",
+				branch: "main",
+				platform: "jira",
+				workspaceKey: "jira-novu",
+				teamKeys: ["SAY"],
+				projectKeys: [],
+				projects: ["P-22093 sayflowers.ch (SayFlowers Concepts GmbH)"],
+			},
+		]);
+		expect(plan).toMatchObject({ resourceCount: 2, resourceRepoCount: 2 });
+	});
+
+	it("routes from a Jira link among the resource's other URLs", async () => {
+		const plan = await planRepositories([sayflowers], [], context, [
+			resource({
+				repositoryUrl: "https://github.com/teamnovu/sayflowers",
+				otherUrls: [
+					{ url: "https://novu.atlassian.net/browse/SAY", label: "Jira" },
+				],
+			}),
+		]);
+		expect(plan.repositories.map((r) => [r.repo, r.teamKeys])).toEqual([
+			["teamnovu/sayflowers", ["SAY"]],
+		]);
+	});
+
+	it("prefers the project's own git link and lists repos without routing as unrouted", async () => {
+		const plan = await planRepositories(
+			[sayflowers, { ...sayflowers, id: 1781, nr: "P-1", name: "Support" }],
+			[
+				{
+					id: 1,
+					kind: "git",
+					url: "https://github.com/teamnovu/sayflowers-app",
+					project: "/api/projects/1780",
+				},
+				{ id: 2, kind: "jira", value: "SAY", project: "/api/projects/1780" },
+			],
+			context,
+			[resource({ repositoryUrl: "https://github.com/teamnovu/sayflowers" })],
+		);
+		expect(plan.repositories.map((r) => r.repo)).toEqual([
+			"teamnovu/sayflowers-app",
+		]);
+		expect(plan.unrouted).toEqual(["P-1 Support (SayFlowers Concepts GmbH)"]);
+	});
+});
+
 function home(repositories: RepoEntry[] = []) {
 	const dir = mkdtempSync(join(tmpdir(), "inbudget-sync-"));
 	writeFileSync(
