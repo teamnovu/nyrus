@@ -676,6 +676,15 @@ export class EdgeWorker extends EventEmitter {
 			getCyrusToolsMcpUrl: () => this.getCyrusToolsMcpUrl(),
 			createCyrusToolsOptions: (parentSessionId) =>
 				this.createCyrusToolsOptions(parentSessionId),
+			getAllTrackerMcpServers: () => ({
+				...(this.planeIssueTracker && {
+					plane: this.planeIssueTracker.toolsMcpServerConfig(),
+				}),
+				...Object.assign(
+					{},
+					...this.trackerIntegrations.map((i) => i.mcpServers?.() ?? {}),
+				),
+			}),
 			getTrackerMcpServers: (workspaceId, session) =>
 				this.planeIssueTracker?.workspaceKey === workspaceId
 					? { plane: this.planeIssueTracker.toolsMcpServerConfig() }

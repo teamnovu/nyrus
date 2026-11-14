@@ -220,11 +220,9 @@ export class SlackChatAdapter
 - You have read-only access to the following configured repositories:
 ${repositoryPaths.map((path) => `- ${path}`).join("\n")}
 
-- If you need to inspect source code in one of these repositories, use:
-  - Bash(git -C * pull)
-
-- You are explicitly allowed to run git pull with:
-  - Bash(git -C * pull)
+- Read and search them with Read, Grep and Glob.
+- Read-only git with \`-C <repository path>\`: Bash(git -C * pull), fetch, log, show, branch, status, diff — e.g. \`git -C <path> log --all --oneline --grep=ZR-492\` to find work on a ticket.
+- Jira and ClickUp tools (mcp__jira__*, mcp__clickup__*) are available when nyrus is set up for them: use them to read an issue or task and its comments when asked about its status.
 			`
 				: `
 ## Repository Access

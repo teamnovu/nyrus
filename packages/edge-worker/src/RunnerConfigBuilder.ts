@@ -37,6 +37,12 @@ export interface IMcpConfigProvider {
 		parentSessionId?: string,
 		trackerSession?: TrackerMcpSession,
 	): Record<string, McpServerConfig>;
+	/** Chat sessions: their workspace's servers (if any) plus every tracker's tools. */
+	buildChatMcpConfig?(
+		repoId: string | undefined,
+		linearWorkspaceId: string | undefined,
+		parentSessionId?: string,
+	): Record<string, McpServerConfig> | undefined;
 	buildMergedMcpConfigPath(
 		repositories: RepositoryConfig | RepositoryConfig[],
 	): string | string[] | undefined;
@@ -276,8 +282,13 @@ export class RunnerConfigBuilder {
 
 		// Build fresh MCP config at session start (reads current token from config)
 		// This follows the same pattern as buildIssueConfig — never use a pre-baked config
-		const mcpConfig =
-			input.linearWorkspaceId && input.repository
+		const mcpConfig = this.mcpConfigProvider.buildChatMcpConfig
+			? this.mcpConfigProvider.buildChatMcpConfig(
+					input.repository?.id,
+					input.linearWorkspaceId,
+					input.sessionId,
+				)
+			: input.linearWorkspaceId && input.repository
 				? this.mcpConfigProvider.buildMcpConfig(
 						input.repository.id,
 						input.linearWorkspaceId,

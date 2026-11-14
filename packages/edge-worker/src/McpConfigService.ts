@@ -39,6 +39,11 @@ export interface McpConfigServiceDeps {
 		workspaceId: string,
 		session?: TrackerMcpSession,
 	) => Record<string, McpServerConfig> | undefined;
+	/**
+	 * The MCP servers of every non-Linear tracker (Jira, ClickUp, Plane, …),
+	 * for chat sessions, which aren't tied to one workspace.
+	 */
+	getAllTrackerMcpServers?: () => Record<string, McpServerConfig>;
 }
 
 /**
@@ -75,6 +80,25 @@ export class McpConfigService {
 	 * @param parentSessionId - Parent session ID for cyrus-tools context
 	 * @param trackerSession - The session's folders, for a tracker's file tools
 	 */
+	/**
+	 * MCP servers for a chat session (Slack, Zulip): its workspace's servers
+	 * if it has one, plus every tracker's tools, so a chat can look up a Jira
+	 * issue or ClickUp task whatever repository it is about.
+	 */
+	buildChatMcpConfig(
+		repoId: string | undefined,
+		linearWorkspaceId: string | undefined,
+		parentSessionId?: string,
+	): Record<string, McpServerConfig> | undefined {
+		const base =
+			repoId && linearWorkspaceId
+				? this.buildMcpConfig(repoId, linearWorkspaceId, parentSessionId)
+				: undefined;
+		const trackers = this.deps.getAllTrackerMcpServers?.() ?? {};
+		if (!base && Object.keys(trackers).length === 0) return undefined;
+		return { ...trackers, ...base };
+	}
+
 	buildMcpConfig(
 		repoId: string,
 		linearWorkspaceId: string,
